@@ -15,7 +15,25 @@ window.YUGO_CONFIG = {
     citta: "Sestri Levante",
     indirizzo: "Via XXV Aprile 1, 16039 Sestri Levante (GE)",   // ESEMPIO
     telefono: "+39 0185 000000",                                // ESEMPIO
-    instagram: "",            // es. "yugosestri" (senza @), lascia vuoto se non c'è
+    instagram: "",            // (vecchio campo, non usato: i social sono qui sotto)
+
+    // Social: si aprono nell'app se è installata sul telefono
+    social: {
+      tiktok: "yugo.sestri",
+      instagram: "yugosushisestri",
+      facebook: "yugosushisestri"
+    },
+
+    // Promozioni: compaiono solo tra "dal" e "al" (anno-mese-giorno).
+    // Togli "al" per una promo senza scadenza. ESEMPI: cambiale con quelle vere.
+    promozioni: [
+      { etichetta: "Ogni martedì", titolo: "Martedì Sushi Night: −10% sulla cena",
+        descrizione: "Il martedì sera la formula All You Can Eat cena costa il 10% in meno.",
+        quando: "Valida il martedì a cena, solo su prenotazione.", dal: "2026-10-01", al: "2026-12-31" },
+      { etichetta: "Weekend", titolo: "Bambini sotto i 6 anni gratis a pranzo",
+        descrizione: "Venerdì, sabato e domenica a pranzo i bambini sotto i 6 anni non pagano la formula.",
+        dal: "2026-10-01" }
+    ],
 
     descrizione: [
       "Yugo è un All You Can Eat diverso: ordini quanto vuoi, ma ogni piatto è preparato al momento e curato come alla carta.",
