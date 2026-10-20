@@ -23,7 +23,7 @@ const store = {
 };
 
 let backend = null;
-let user = null;
+let user = undefined; // undefined = non so ancora se è connesso
 let lastBooking = null;
 
 /* ------------------------------------------------------------------ */
@@ -68,7 +68,9 @@ async function firebaseBackend(conf) {
   const A = await import(base + "firebase-auth.js");
   const F = await import(base + "firebase-firestore.js");
   const app = initializeApp(conf);
-  const auth = A.getAuth(app);
+  let auth;
+  try { auth = A.initializeAuth(app, { persistence: [A.indexedDBLocalPersistence, A.browserLocalPersistence] }); }
+  catch { auth = A.getAuth(app); }
   auth.languageCode = "it";
   const db = F.getFirestore(app);
   const map = (u) => u && { uid: u.uid, email: u.email, nome: u.displayName || "", verified: u.emailVerified };
@@ -83,7 +85,7 @@ async function firebaseBackend(conf) {
     },
     async login(email, pw) { const c = await A.signInWithEmailAndPassword(auth, email, pw); return map(c.user); },
     logout: () => A.signOut(auth),
-    reset: (email) => A.sendPasswordResetEmail(auth, email),
+    reset: (email) => A.sendPasswordResetEmail(auth, email, { url: location.origin + location.pathname + "#account" }).catch(() => A.sendPasswordResetEmail(auth, email)),
     resend: () => A.sendEmailVerification(auth.currentUser, actionSettings).catch(() => A.sendEmailVerification(auth.currentUser)),
     token: () => auth.currentUser.getIdToken(),
     async reload() { await auth.currentUser.reload(); await auth.currentUser.getIdToken(true); return map(auth.currentUser); },
@@ -256,10 +258,11 @@ function renderBooking() {
   const area = $("#book-area");
   if (!backend) { area.innerHTML = `<p class="muted">Caricamento…</p>`; return; }
   if (lastBooking) return renderConfirmation(area, lastBooking);
+  if (user === undefined) { area.innerHTML = `<p class="muted">Caricamento…</p>`; return; }
   if (!user) return needLogin(area, "Accedi per prenotare");
   if (!user.verified) {
     area.innerHTML = `<div class="notice">
-        <p><strong>Conferma la tua email.</strong> Ti abbiamo mandato un link a ${esc(user.email)}. Aprilo, poi torna qui.</p>
+        <p><strong>Conferma la tua email.</strong> Ti abbiamo mandato un link a ${esc(user.email)}. Aprilo (se non lo vedi guarda in Spam), poi torna qui e tocca «Ho confermato».</p>
         <div class="row-actions"><button class="btn" id="btn-verified">Ho confermato</button><button class="btn btn-ghost" id="btn-resend">Rinvia email</button></div>
       </div>`;
     $("#btn-verified").onclick = async () => { user = await backend.reload(); if (!user.verified) toast("Email non ancora confermata. Controlla anche nello spam."); renderBooking(); };
@@ -396,6 +399,7 @@ let authMode = "register";
 function renderAccount() {
   const area = $("#account-area");
   if (!backend) { area.innerHTML = `<p class="muted">Caricamento…</p>`; return; }
+  if (user === undefined) { area.innerHTML = `<p class="muted">Caricamento…</p>`; return; }
   if (!user) return renderAuth(area);
 
   area.innerHTML = `
@@ -456,11 +460,16 @@ function renderAuth(area) {
     <div style="margin-top:14px">${installBlock()}</div>`;
   $("#t-reg").onclick = () => { authMode = "register"; renderAccount(); };
   $("#t-log").onclick = () => { authMode = "login"; renderAccount(); };
-  const showErr = (m) => { const e = $("#a-err"); e.textContent = m; e.hidden = false; };
+  const showErr = (m) => { const e = $("#a-err"); e.className = "error"; e.textContent = m; e.hidden = false; };
   if (!reg) $("#a-forgot").onclick = async () => {
     const email = $("#a-email").value.trim();
     if (!email) return showErr("Scrivi la tua email qui sopra, poi tocca di nuovo «Password dimenticata?».");
-    try { await backend.reset(email); toast("Ti abbiamo mandato un link per cambiare password."); } catch (e) { showErr(errMsg(e)); }
+    try {
+      await backend.reset(email);
+      const ok = $("#a-err"); ok.classList.remove("error"); ok.classList.add("hint");
+      ok.innerHTML = `Ti abbiamo mandato un'email a <strong>${esc(email)}</strong> per cambiare password. Arriva in 1-2 minuti da <em>noreply@yugo-sestri.firebaseapp.com</em>: se non la vedi, guarda in <strong>Spam</strong> o <strong>Promozioni</strong>.`;
+      ok.hidden = false;
+    } catch (e) { showErr(errMsg(e)); }
   };
   $("#auth-form").addEventListener("submit", async (e) => {
     e.preventDefault();
