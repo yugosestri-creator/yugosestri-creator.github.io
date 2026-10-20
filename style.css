@@ -219,7 +219,7 @@ textarea.input { min-height: 84px; resize: vertical; }
 /* ---------- Tab bar ---------- */
 .tabbar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
-  display: grid; grid-template-columns: repeat(4, 1fr);
+  display: grid; grid-template-columns: repeat(5, 1fr);
   padding-bottom: env(safe-area-inset-bottom, 0px);
   padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px);
   background: color-mix(in srgb, var(--surface) 92%, transparent);
@@ -358,6 +358,50 @@ textarea.input { min-height: 84px; resize: vertical; }
 .hours .today { position: relative; }
 .hours dt.today::before { content: ""; position: absolute; left: -12px; top: .55em; width: 6px; height: 6px; border-radius: 50%; background: var(--gold-hi); box-shadow: 0 0 8px var(--gold); animation: fx-glow 2s infinite; }
 .hours { padding-left: 12px; }
+
+/* ---------- Promozioni ---------- */
+.promo-banner {
+  display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px;
+  padding: 14px 16px; border-radius: var(--r); text-decoration: none; color: var(--fg);
+  background: linear-gradient(120deg, color-mix(in srgb, var(--gold) 26%, var(--surface)), var(--surface) 70%);
+  border: 1px solid color-mix(in srgb, var(--gold) 55%, transparent);
+}
+.promo-banner-text { font-weight: 700; min-width: 0; }
+.promo-arrow { color: var(--gold-hi); font-size: 20px; transition: transform .25s; }
+.promo-banner:hover .promo-arrow { transform: translateX(4px); }
+.promo-tag {
+  display: inline-block; justify-self: start; padding: 4px 10px; border-radius: 999px;
+  background: linear-gradient(135deg, var(--gold-hi), var(--gold)); color: var(--ink-fg);
+  font: 700 11px/1.2 var(--f-display); letter-spacing: .14em; text-transform: uppercase;
+}
+.promo h2 { font-size: 20px; text-transform: none; letter-spacing: .02em; color: var(--fg); font-weight: 600; }
+.promo p { margin: 0; }
+.promo { border-color: color-mix(in srgb, var(--gold) 40%, var(--line)); }
+
+/* ---------- Social ---------- */
+.social { display: grid; gap: 10px; }
+.social-btn {
+  display: grid; grid-template-columns: 44px 1fr; align-items: center; gap: 12px;
+  padding: 10px 14px; border-radius: 14px; text-decoration: none; color: var(--fg);
+  background: var(--surface-2); border: 1px solid var(--line);
+  transition: border-color .2s, transform .2s;
+}
+.social-btn:hover { border-color: var(--gold); transform: translateY(-2px); }
+.social-btn svg { width: 44px; height: 44px; padding: 10px; border-radius: 12px; background: var(--bg); fill: none; stroke: var(--gold-hi); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.social-btn svg .fill { fill: var(--gold-hi); stroke: none; }
+.social-btn b { display: block; font-size: 16px; }
+.social-btn small { color: var(--muted); font-size: 14px; }
+
+/* ---------- Annullamento ---------- */
+.binfo { min-width: 0; }
+.bactions { margin-top: 10px; display: grid; gap: 8px; }
+.tardi { margin-top: 8px; }
+.btn-sm { min-height: 38px; padding: 0 14px; font-size: 14px; }
+.btn-danger { background: var(--err); color: var(--ink-fg); }
+.tag-off { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; color: var(--err); border: 1px solid currentColor; vertical-align: 2px; }
+.bitem.past .tag-off { opacity: 1; }
+.tab span { white-space: nowrap; }
+@media (max-width: 360px) { .tab { font-size: 10px; } }
 
 /* Chi ha "Riduci movimento" attivo vede tutto fermo */
 @media (prefers-reduced-motion: reduce) {
