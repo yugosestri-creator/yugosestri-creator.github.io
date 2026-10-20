@@ -55,6 +55,7 @@ function demoBackend() {
     async reload() { return emit(); },
     async token() { return "demo"; },
     async save(b) { const id = "demo-" + Date.now(); mem.bookings.push({ id, ...b }); store.set("yugo-demo-bookings", mem.bookings); return id; },
+    async cancel(id) { const b = mem.bookings.find((x) => x.id === id); if (b) { b.stato = "annullata"; store.set("yugo-demo-bookings", mem.bookings); } },
     async mine(uid) { return mem.bookings.filter((b) => b.uid === uid); }
   };
 }
@@ -90,6 +91,7 @@ async function firebaseBackend(conf) {
     token: () => auth.currentUser.getIdToken(),
     async reload() { await auth.currentUser.reload(); await auth.currentUser.getIdToken(true); return map(auth.currentUser); },
     async save(b) { const r = await F.addDoc(F.collection(db, "prenotazioni"), { ...b, creataIlServer: F.serverTimestamp() }); return r.id; },
+    async cancel(id) { await F.updateDoc(F.doc(db, "prenotazioni", id), { stato: "annullata", annullataIl: F.serverTimestamp() }); },
     async mine(uid) {
       const q = F.query(F.collection(db, "prenotazioni"), F.where("uid", "==", uid));
       const s = await F.getDocs(q);
@@ -114,9 +116,18 @@ const errMsg = (e) => AUTH_ERRORS[e?.code] || "Qualcosa non ha funzionato. Ripro
 /* ------------------------------------------------------------------ */
 /* Telegram: la prenotazione passa dal "postino" su Cloudflare         */
 /* ------------------------------------------------------------------ */
-function messageText(b) {
-  const lines = [
-    `🍣 NUOVA PRENOTAZIONE – ${R.nome || "Yugo"}`,
+const ZH_DAYS = ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"];
+const zhDate = (s) => { const d = parseISO(s); return `${d.getMonth() + 1}月${d.getDate()}日 ${ZH_DAYS[d.getDay()]}`; };
+const zhStamp = (iso) => { const d = iso ? new Date(iso) : new Date(); return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+const bookingMs = (b) => { const [y, m, d] = b.data.split("-").map(Number); const [h, mi] = b.ora.split(":").map(Number); return new Date(y, m - 1, d, h, mi).getTime(); };
+const ORA_LIMITE = 60 * 60 * 1000; // si può annullare online solo se manca PIÙ di un'ora
+
+/* Messaggio Telegram in italiano e in cinese semplificato */
+function messageText(b, tipo = "nuova") {
+  const no = tipo === "annullata";
+  const nome = R.nome || "Yugo";
+  const it = [
+    no ? `❌ PRENOTAZIONE ANNULLATA – ${nome}` : `🍣 NUOVA PRENOTAZIONE – ${nome}`,
     ``,
     `👤 ${b.nome}`,
     `👥 ${b.persone} ${b.persone === 1 ? "persona" : "persone"}`,
@@ -126,11 +137,24 @@ function messageText(b) {
     `✉️ ${b.email}`,
     b.note ? `📝 ${b.note}` : null,
     ``,
-    `⏱ Richiesta fatta il ${b.creataIl}`
+    no ? `⏱ Annullata il ${nowStamp()}` : `⏱ Richiesta fatta il ${b.creataIl}`
   ];
-  return lines.filter((l) => l !== null).join("\n");
+  const zh = [
+    no ? `❌ 预订已取消 – ${nome}` : `🍣 新预订 – ${nome}`,
+    ``,
+    `👤 姓名：${b.nome}`,
+    `👥 人数：${b.persone}人`,
+    `📅 日期：${zhDate(b.data)}`,
+    `🕗 预计到达：${b.ora}`,
+    b.telefono ? `📞 电话：${b.telefono}` : null,
+    `✉️ 邮箱：${b.email}`,
+    b.note ? `📝 备注：${b.note}` : null,
+    ``,
+    no ? `⏱ 取消时间：${zhStamp()}` : `⏱ 提交时间：${zhStamp(b.creataIlISO)}`
+  ];
+  return [...it, ``, `— — — — — — —`, ``, ...zh].filter((l) => l !== null).join("\n");
 }
-async function notifyTelegram(b) {
+async function notifyTelegram(b, tipo = "nuova") {
   const tg = CFG.telegram || {};
   try {
     // Collegamento tramite Cloudflare (consigliato: il token resta segreto)
@@ -139,13 +163,13 @@ async function notifyTelegram(b) {
       const r = await fetch(tg.worker, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ idToken, nome: b.nome, persone: b.persone, data: b.data, ora: b.ora, telefono: b.telefono, note: b.note })
+        body: JSON.stringify({ idToken, tipo, nome: b.nome, persone: b.persone, data: b.data, ora: b.ora, telefono: b.telefono, note: b.note })
       });
       return r.ok;
     }
     // Collegamento diretto al bot
     if (tg.botToken && tg.chatId) {
-      const body = new URLSearchParams({ chat_id: tg.chatId, text: b.messaggio, disable_web_page_preview: "true" });
+      const body = new URLSearchParams({ chat_id: tg.chatId, text: messageText(b, tipo), disable_web_page_preview: "true" });
       await fetch(`https://api.telegram.org/bot${tg.botToken}/sendMessage`, { method: "POST", mode: "no-cors", body });
       return true;
     }
@@ -153,10 +177,69 @@ async function notifyTelegram(b) {
   } catch (e) { console.error(e); return false; }
 }
 
+/* Annullamento: chiede conferma nella pagina, poi annulla e avvisa su Telegram */
+function askCancel(btn, b) {
+  const box = btn.closest(".bactions");
+  box.innerHTML = `<p class="hint">Vuoi davvero annullare questo tavolo?</p>
+    <div class="row-actions"><button class="btn btn-sm btn-danger" data-yes>Sì, annulla</button><button class="btn btn-ghost btn-sm" data-no>No, tienilo</button></div>`;
+  box.querySelector("[data-no]").onclick = () => renderAccount();
+  box.querySelector("[data-yes]").onclick = async (e) => {
+    if ((b.quandoMs || bookingMs(b)) - Date.now() <= ORA_LIMITE) {
+      toast("Manca meno di un'ora: per annullare chiama il ristorante.");
+      return renderAccount();
+    }
+    e.target.disabled = true; e.target.textContent = "Annullo…";
+    try {
+      await backend.cancel(b.id);
+      await notifyTelegram(b, "annullata");
+      toast("Prenotazione annullata. Il ristorante è stato avvisato.");
+    } catch (ex) {
+      toast(ex?.code === "permission-denied" ? "Non si può più annullare online: chiama il ristorante." : "Non sono riuscito ad annullare. Riprova.");
+    }
+    renderAccount();
+  };
+}
+
+/* Promozioni e social */
+const ICONS = {
+  tiktok: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3v11.5a3.5 3.5 0 1 1-3.5-3.5"/><path d="M14 3c.4 2.6 2.2 4.4 5 4.6"/></svg>`,
+  instagram: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.2" cy="6.8" r=".9" class="fill"/></svg>`,
+  facebook: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 21v-7.5h2.6l.4-3h-3V8.6c0-.9.3-1.5 1.6-1.5h1.5V4.4a20 20 0 0 0-2.3-.1c-2.3 0-3.8 1.4-3.8 3.9v2.3H9v3h2.5V21"/></svg>`
+};
+function socialLinks() {
+  const S = R.social || {};
+  const items = [
+    S.tiktok && { nome: "TikTok", handle: S.tiktok, url: `https://www.tiktok.com/@${S.tiktok}`, icon: ICONS.tiktok },
+    S.instagram && { nome: "Instagram", handle: S.instagram, url: `https://www.instagram.com/${S.instagram}/`, icon: ICONS.instagram },
+    S.facebook && { nome: "Facebook", handle: S.facebook, url: `https://www.facebook.com/${S.facebook}`, icon: ICONS.facebook }
+  ].filter(Boolean);
+  return `<div class="social">${items.map((s) => `<a class="social-btn" href="${s.url}" target="_blank" rel="noopener">${s.icon}<span><b>${s.nome}</b><small>@${esc(s.handle)}</small></span></a>`).join("")}</div>`;
+}
+function promoAttive() {
+  const oggi = isoDate(new Date());
+  return (R.promozioni || []).filter((p) => (!p.dal || p.dal <= oggi) && (!p.al || p.al >= oggi));
+}
+function renderPromo() {
+  const list = promoAttive();
+  $("#promo-list").innerHTML = list.length ? list.map((p) => `<article class="block promo">
+      <span class="promo-tag">${esc(p.etichetta || "Promo")}</span>
+      <h2>${esc(p.titolo)}</h2>
+      <p>${esc(p.descrizione || "")}</p>
+      ${p.quando ? `<p class="hint">${esc(p.quando)}</p>` : ""}
+      ${p.al ? `<p class="hint">Valida fino a ${esc(fmtLongDate(p.al))}</p>` : ""}
+    </article>`).join("")
+    : `<p class="muted">In questo momento non ci sono promozioni attive. Seguici sui social per non perdere le prossime.</p>`;
+  $("#promo-social").innerHTML = socialLinks();
+  $("#home-social").innerHTML = socialLinks();
+  const hp = $("#home-promo");
+  hp.hidden = !list.length;
+  if (list.length) $("#home-promo-text").textContent = list.length > 1 ? `${list[0].titolo} e altre ${list.length - 1}` : list[0].titolo;
+}
+
 /* ------------------------------------------------------------------ */
 /* Navigazione                                                         */
 /* ------------------------------------------------------------------ */
-const VIEWS = ["home", "menu", "prenota", "account"];
+const VIEWS = ["home", "menu", "prenota", "promo", "account"];
 function go(view, push = true) {
   if (!VIEWS.includes(view)) view = "home";
   VIEWS.forEach((v) => { $("#view-" + v).hidden = v !== view; });
@@ -353,11 +436,11 @@ function renderBooking() {
     const b = {
       uid: user.uid, nome, email: user.email, persone, data, ora,
       telefono: $("#b-tel").value.trim(), note: $("#b-note").value.trim(),
-      creataIl: nowStamp(), creataIlISO: new Date().toISOString()
+      creataIl: nowStamp(), creataIlISO: new Date().toISOString(), stato: "confermata"
     };
     try {
+      b.quandoMs = bookingMs(b);
       b.id = await backend.save(b);
-      b.messaggio = messageText(b);
       b.notificato = await notifyTelegram(b);
       lastBooking = b;
       store.set("yugo-draft", { telefono: b.telefono });
@@ -416,13 +499,24 @@ function renderAccount() {
     if (!list.length) { el.innerHTML = `<p class="muted">Nessuna prenotazione per ora.</p><a href="#prenota" data-go="prenota" class="btn">Prenota un tavolo</a>`; return; }
     const todayS = isoDate(new Date());
     list.sort((a, b) => (b.data + b.ora).localeCompare(a.data + a.ora));
+    const now = Date.now();
+    const telLink = (R.telefono || "").replace(/[^\d+]/g, "");
     el.innerHTML = list.map((b) => {
       const d = parseISO(b.data);
-      return `<div class="bitem ${b.data < todayS ? "past" : ""}">
+      const t = b.quandoMs || bookingMs(b);
+      const annullata = b.stato === "annullata";
+      const passata = t < now;
+      const puoi = !annullata && !passata && t - now > ORA_LIMITE;
+      const tardi = !annullata && !passata && !puoi;
+      return `<div class="bitem ${passata || annullata ? "past" : ""}">
         <div class="bdate"><b>${d.getDate()}</b><span>${d.toLocaleDateString("it-IT", { month: "short" })}</span></div>
-        <div><strong>${esc(cap(d.toLocaleDateString("it-IT", { weekday: "long" })))} · ore ${esc(b.ora)}</strong><br><span class="muted">${b.persone} ${b.persone === 1 ? "persona" : "persone"} · a nome ${esc(b.nome)}</span></div>
+        <div class="binfo"><strong>${esc(cap(d.toLocaleDateString("it-IT", { weekday: "long" })))} · ore ${esc(b.ora)}</strong>${annullata ? ` <span class="tag-off">Annullata</span>` : ""}<br><span class="muted">${b.persone} ${b.persone === 1 ? "persona" : "persone"} · a nome ${esc(b.nome)}</span>
+          ${puoi ? `<div class="bactions"><button class="btn btn-ghost btn-sm" data-cancel="${esc(b.id)}">Annulla prenotazione</button></div>` : ""}
+          ${tardi ? `<p class="hint tardi">Manca meno di un'ora: per annullare chiama il ristorante al <a href="tel:${telLink}">${esc(R.telefono || "")}</a>.</p>` : ""}
+        </div>
       </div>`;
     }).join("");
+    el.querySelectorAll("[data-cancel]").forEach((btn) => btn.addEventListener("click", () => askCancel(btn, list.find((x) => x.id === btn.dataset.cancel))));
   }).catch(() => { const el = $("#my-list"); if (el) el.innerHTML = `<p class="muted">Non riesco a caricare le prenotazioni. Riprova più tardi.</p>`; });
 }
 
@@ -517,6 +611,7 @@ window.addEventListener("resize", () => { clearTimeout(drawWaves.t); drawWaves.t
 async function start() {
   renderHome();
   renderMenu();
+  renderPromo();
   requestAnimationFrame(drawWaves);
   const initial = (location.hash || "").replace("#", "");
   go(VIEWS.includes(initial) ? initial : "home", false);
