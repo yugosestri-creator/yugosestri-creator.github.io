@@ -91,7 +91,14 @@ window.YUGO_CONFIG = {
   /* ---------- 2. FIREBASE (registrazione con email + salvataggio prenotazioni) ----------
      Incolla qui la configurazione che Firebase ti dà quando registri l'app web.
      Finché resta null il sito gira in MODALITÀ DEMO (niente viene salvato davvero). */
-  firebase: null,
+  firebase: {
+    apiKey: "AIzaSyAEnC8afPxW6XJhdZnfiTTHxZ1qun_MFwc",
+    authDomain: "yugo-sestri.firebaseapp.com",
+    projectId: "yugo-sestri",
+    storageBucket: "yugo-sestri.firebasestorage.app",
+    messagingSenderId: "725676990411",
+    appId: "1:725676990411:web:9328365854d644a540204e"
+  },
   /* esempio:
   firebase: {
     apiKey: "AIza...",
