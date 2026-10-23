@@ -454,16 +454,38 @@ function renderHome() {
   if (R.instagram) { $("#home-ig").hidden = false; $("#home-ig").href = "https://instagram.com/" + R.instagram; $("#home-ig").textContent = "@" + R.instagram; }
 }
 
+/* Toglie gli asterischi dal testo dei piatti */
+const pul = (s) => String(s ?? "").replace(/\*/g, "").replace(/\s{2,}/g, " ").replace(/\s+([,.])/g, "$1").trim();
+
+/* Dove mangi? "ristorante" o "casa". Si chiede una volta per visita. */
+let MODO = (() => { try { return sessionStorage.getItem("yugo-modo"); } catch { return null; } })();
+const menuAttivo = () => (MODO === "ristorante" && R.menuRistorante && R.menuRistorante.length ? R.menuRistorante : R.menu) || [];
+let menuReset = () => {};
+
+function mostraModo() {
+  $("#mode-pick").hidden = !!MODO;
+  $("#menu-body").hidden = !MODO;
+  if (!MODO) return;
+  const casa = MODO === "casa";
+  $("#mode-label").innerHTML = casa ? "Menu <b>a casa</b> · asporto e consegna" : "Menu <b>al ristorante</b>";
+  $("#menu-note").textContent = (casa ? R.notaMenuCasa : R.notaMenuRistorante) || "";
+}
+
 function renderMenu() {
-  const cats = R.menu || [];
   const chips = $("#menu-chips");
-  chips.innerHTML = `<button class="chip" role="tab" aria-selected="true" data-cat="all" id="chip-all">Tutto</button>` +
-    cats.map((c, i) => `<button class="chip" role="tab" aria-selected="false" data-cat="${i}" id="chip-${i}">${esc(c.categoria)}</button>`).join("");
+  let cats = [];
   const draw = (sel) => {
     $("#menu-list").innerHTML = cats.map((c, i) => (sel === "all" || String(i) === sel) ? `
       <section class="menu-cat"><h2>${esc(c.categoria)}</h2>
-        ${c.piatti.map((p, j) => `<div class="dish${p.desc ? " has-desc" : ""}">${p.n != null ? `<span class="dish-n">${esc(p.n)}</span>` : `<span></span>`}<span class="dish-name">${esc(p.nome)}</span><span class="dish-price">${p.prezzo != null ? "€ " + euro(p.prezzo) : ""}</span>${p.desc ? `<button type="button" class="dish-more" aria-expanded="false" aria-controls="dd-${i}-${j}"><span>Ingredienti</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><div class="dish-desc" id="dd-${i}-${j}"><div>${esc(p.desc)}</div></div>` : ""}</div>`).join("")}
+        ${c.piatti.map((p, j) => `<div class="dish${p.desc ? " has-desc" : ""}">${p.n != null ? `<span class="dish-n">${esc(p.n)}</span>` : `<span></span>`}<span class="dish-name">${esc(pul(p.nome))}</span><span class="dish-price">${p.prezzo != null ? "€ " + euro(p.prezzo) : ""}</span>${p.desc ? `<button type="button" class="dish-more" aria-expanded="false" aria-controls="dd-${i}-${j}"><span>Ingredienti</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><div class="dish-desc" id="dd-${i}-${j}"><div>${esc(pul(p.desc))}</div></div>` : ""}</div>`).join("")}
       </section>` : "").join("");
+  };
+  menuReset = () => {
+    cats = menuAttivo();
+    chips.innerHTML = `<button class="chip" role="tab" aria-selected="true" data-cat="all" id="chip-all">Tutto</button>` +
+      cats.map((c, i) => `<button class="chip" role="tab" aria-selected="false" data-cat="${i}" id="chip-${i}">${esc(c.categoria)}</button>`).join("");
+    $("#cat-label").textContent = "Categorie";
+    draw("all");
   };
   const toggle = $("#cat-toggle");
   const apriCat = (open) => { chips.hidden = !open; toggle.setAttribute("aria-expanded", String(open)); };
@@ -477,7 +499,21 @@ function renderMenu() {
     $("#menu-list").scrollIntoView({ behavior: "smooth", block: "start" });
   });
   $("#ai-open").addEventListener("click", apriConsiglio);
-  draw("all");
+  // Scelta "Al ristorante" / "A casa"
+  $("#mode-pick").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-modo]"); if (!b) return;
+    MODO = b.dataset.modo;
+    try { sessionStorage.setItem("yugo-modo", MODO); } catch { /* ok */ }
+    mostraModo(); menuReset(); apriCat(false);
+    window.scrollTo({ top: 0 });
+  });
+  $("#mode-change").addEventListener("click", () => {
+    MODO = null;
+    try { sessionStorage.removeItem("yugo-modo"); } catch { /* ok */ }
+    mostraModo(); window.scrollTo({ top: 0 });
+  });
+  menuReset();
+  mostraModo();
   // Freccetta "Ingredienti": tocca il piatto per aprire o chiudere la descrizione
   $("#menu-list").addEventListener("click", (e) => {
     const d = e.target.closest(".dish.has-desc"); if (!d) return;
@@ -503,7 +539,7 @@ const CAT_SPECIALE = /piatti special|special roll/i;
 
 function catalogo() {
   const out = [];
-  (R.menu || []).forEach((c, ci) => c.piatti.forEach((p) => {
+  menuAttivo().forEach((c, ci) => c.piatti.forEach((p) => {
     if (p.prezzo == null) return;
     const t = `${p.nome} ${p.desc || ""}`;
     const carne = RX.carne.test(t), pesce = RX.pesce.test(t);
@@ -520,7 +556,7 @@ const DOMANDE = [
   { k: "tipo", t: "Cosa preferisci?", o: [["pesce", "Pesce"], ["carne", "Carne"], ["veg", "Vegetariano"], ["tutto", "Un po' di tutto"]] },
   { k: "piccante", t: "E il piccante?", o: [["si", "Sì, mi piace"], ["no", "Niente piccante"], ["tutto", "Indifferente"]] },
   { k: "persone", t: "Quanti siete?", numero: true },
-  { k: "budget", t: "Quanto volete spendere a testa?", s: "Prezzi del menu da asporto", o: [[10, "Circa € 10"], [15, "Circa € 15"], [20, "Circa € 20"], [30, "€ 30 o più"]] }
+  { k: "budget", t: "Quanto volete spendere a testa?", o: [[10, "Circa € 10"], [15, "Circa € 15"], [20, "Circa € 20"], [30, "€ 30 o più"]] }
 ];
 let scelte = {};
 
@@ -607,10 +643,10 @@ function proposta() {
   const fam = famiglie.find((f) => scelti.length === f.piatti && nSpec <= f.spec && somma > f.prezzo);
   body.innerHTML = `<p class="cs-kicker">La nostra proposta</p>
     <h2 id="cs-title">Per ${persone} ${persone === 1 ? "persona" : "persone"}</h2>
-    <ul class="cs-list">${scelti.map((p) => `<li><span class="dish-n">${p.n != null ? esc(p.n) : ""}</span><span><b>${esc(p.nome)}</b><small>${esc(p.cat)}</small></span><span class="cs-price">€ ${euro(p.prezzo)}</span></li>`).join("")}</ul>
+    <ul class="cs-list">${scelti.map((p) => `<li><span class="dish-n">${p.n != null ? esc(p.n) : ""}</span><span><b>${esc(pul(p.nome))}</b><small>${esc(p.cat)}</small></span><span class="cs-price">€ ${euro(p.prezzo)}</span></li>`).join("")}</ul>
     <div class="cs-total"><span>Totale</span><b>€ ${euro(somma)}</b></div>
     <p class="hint">Circa € ${euro(somma / persone)} a testa${fam ? ` · Con il <b>menu Family ${fam.n}</b> (${fam.piatti} piatti) lo paghi <b>€ ${fam.prezzo}</b> e c'è anche la bibita` : ""}.</p>
-    <p class="hint">Prezzi del menu da asporto. Per allergie e intolleranze chiedi sempre al personale.</p>
+    <p class="hint">${MODO === "ristorante" && !(R.menuRistorante && R.menuRistorante.length) ? "Prezzi del menu da asporto: al tavolo possono cambiare. " : ""}Per allergie e intolleranze chiedi sempre al personale.</p>
     <div class="cs-actions">
       <button class="btn btn-gold btn-block" id="cs-shuffle" type="button">Un'altra proposta</button>
       <a class="btn btn-ghost btn-block" href="#prenota" data-go="prenota" data-close>Prenota un tavolo</a>
