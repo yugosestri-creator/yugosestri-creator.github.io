@@ -465,11 +465,18 @@ function renderMenu() {
         ${c.piatti.map((p, j) => `<div class="dish${p.desc ? " has-desc" : ""}">${p.n != null ? `<span class="dish-n">${esc(p.n)}</span>` : `<span></span>`}<span class="dish-name">${esc(p.nome)}</span><span class="dish-price">${p.prezzo != null ? "€ " + euro(p.prezzo) : ""}</span>${p.desc ? `<button type="button" class="dish-more" aria-expanded="false" aria-controls="dd-${i}-${j}"><span>Ingredienti</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><div class="dish-desc" id="dd-${i}-${j}"><div>${esc(p.desc)}</div></div>` : ""}</div>`).join("")}
       </section>` : "").join("");
   };
+  const toggle = $("#cat-toggle");
+  const apriCat = (open) => { chips.hidden = !open; toggle.setAttribute("aria-expanded", String(open)); };
+  toggle.addEventListener("click", () => apriCat(chips.hidden));
   chips.addEventListener("click", (e) => {
     const b = e.target.closest(".chip"); if (!b) return;
     chips.querySelectorAll(".chip").forEach((x) => x.setAttribute("aria-selected", String(x === b)));
+    $("#cat-label").textContent = b.dataset.cat === "all" ? "Categorie" : b.textContent;
     draw(b.dataset.cat);
+    apriCat(false);
+    $("#menu-list").scrollIntoView({ behavior: "smooth", block: "start" });
   });
+  $("#ai-open").addEventListener("click", apriConsiglio);
   draw("all");
   // Freccetta "Ingredienti": tocca il piatto per aprire o chiudere la descrizione
   $("#menu-list").addEventListener("click", (e) => {
@@ -477,6 +484,140 @@ function renderMenu() {
     const b = d.querySelector(".dish-more"), open = b.getAttribute("aria-expanded") !== "true";
     b.setAttribute("aria-expanded", String(open)); d.classList.toggle("open", open);
   });
+}
+
+/* ------------------------------------------------------------------ */
+/* "Non sai cosa prendere?": poche domande e una proposta di menu      */
+/* ------------------------------------------------------------------ */
+const RX = {
+  carne: /pollo|manzo|carne|suino|salsiccia|prosciutto|\btori\b/i,
+  pesce: /salmon|salmone|tonno|tuna|gamber|branzino|granchio|surimi|calamar|polip|seppi|totani|di mare|scampi|merluzzo|ikura|tobiko|\bebi\b|ebiten|\bsake\b|maguro|tekka|crab|amaebi|sashimi|fish|tartare|carpaccio/i,
+  veg: /verdur|vegetar|tofu|edamame|wakame|avocado|patat|insalata|riso bianco|pane|miso|philadelphia|mais/i,
+  piccante: /spicy|piccant|chili/i,
+  crudoPesce: /salmon|salmone|tonno|tuna|branzino|sashimi|tartare|carpaccio|maguro|\bsake\b|tekka|amaebi|crudo/i,
+  cotto: /cott|fritt|tempura|grigliat|ebiten|surimi|vapore|saltat|wok|brodo/i
+};
+const CAT_CRUDO = /nighiri|hosso|hakozushi|uramaki|black roll|gunkan|temaki|tataki|sashimi|tartare|carpaccio|special/i;
+const CAT_INIZIO = /antipasti|dim sum|fritti|stuzzichini|zuppe/i;
+const CAT_SPECIALE = /piatti special|special roll/i;
+
+function catalogo() {
+  const out = [];
+  (R.menu || []).forEach((c, ci) => c.piatti.forEach((p) => {
+    if (p.prezzo == null) return;
+    const t = `${p.nome} ${p.desc || ""}`;
+    const carne = RX.carne.test(t), pesce = RX.pesce.test(t);
+    const crudo = CAT_CRUDO.test(c.categoria) && RX.crudoPesce.test(t) && !RX.cotto.test(t);
+    out.push({ ...p, cat: c.categoria, ci, carne, pesce, veg: !carne && !pesce && RX.veg.test(t), crudo,
+      piccante: RX.piccante.test(t), inizio: CAT_INIZIO.test(c.categoria), speciale: CAT_SPECIALE.test(c.categoria),
+      contorno: /contorni|primi/i.test(c.categoria) && p.prezzo <= 5 });
+  }));
+  return out;
+}
+
+const DOMANDE = [
+  { k: "crudo", t: "Ti piace il pesce crudo?", s: "Sashimi, tartare, nighiri…", o: [["si", "Sì, adoro il crudo"], ["no", "No, solo cotto"], ["tutto", "Mi va bene tutto"]] },
+  { k: "tipo", t: "Cosa preferisci?", o: [["pesce", "Pesce"], ["carne", "Carne"], ["veg", "Vegetariano"], ["tutto", "Un po' di tutto"]] },
+  { k: "piccante", t: "E il piccante?", o: [["si", "Sì, mi piace"], ["no", "Niente piccante"], ["tutto", "Indifferente"]] },
+  { k: "persone", t: "Quanti siete?", numero: true },
+  { k: "budget", t: "Quanto volete spendere a testa?", s: "Prezzi del menu da asporto", o: [[10, "Circa € 10"], [15, "Circa € 15"], [20, "Circa € 20"], [30, "€ 30 o più"]] }
+];
+let scelte = {};
+
+function apriConsiglio() {
+  scelte = { persone: 2 };
+  const s = $("#consiglio"); s.hidden = false; document.documentElement.classList.add("no-scroll");
+  domanda(0);
+}
+function chiudiConsiglio() { $("#consiglio").hidden = true; document.documentElement.classList.remove("no-scroll"); }
+document.addEventListener("click", (e) => { if (e.target.closest("#consiglio [data-close]")) chiudiConsiglio(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#consiglio").hidden) chiudiConsiglio(); });
+
+function domanda(i) {
+  const d = DOMANDE[i], body = $("#cs-body");
+  const passi = DOMANDE.map((_, j) => `<span class="${j < i ? "done" : j === i ? "now" : ""}"></span>`).join("");
+  body.innerHTML = `<div class="cs-steps" aria-hidden="true">${passi}</div>
+    <p class="cs-kicker">Domanda ${i + 1} di ${DOMANDE.length}</p>
+    <h2 id="cs-title">${esc(d.t)}</h2>${d.s ? `<p class="muted">${esc(d.s)}</p>` : ""}
+    ${d.numero ? `<div class="stepper cs-stepper" role="group" aria-label="Persone">
+        <button type="button" id="cs-minus" aria-label="Una persona in meno">−</button><output id="cs-num">${scelte.persone}</output>
+        <button type="button" id="cs-plus" aria-label="Una persona in più">+</button></div>
+        <button class="btn btn-gold btn-block" id="cs-next" type="button">Avanti</button>`
+      : `<div class="cs-options">${d.o.map(([v, l]) => `<button type="button" class="cs-opt" data-v="${v}">${esc(l)}</button>`).join("")}</div>`}
+    ${i > 0 ? `<button type="button" class="linkbtn cs-back" id="cs-back">Indietro</button>` : ""}`;
+  body.querySelector(".cs-opt, #cs-next")?.focus();
+  if (d.numero) {
+    const out = $("#cs-num");
+    $("#cs-minus").onclick = () => { scelte.persone = Math.max(1, scelte.persone - 1); out.textContent = scelte.persone; };
+    $("#cs-plus").onclick = () => { scelte.persone = Math.min(12, scelte.persone + 1); out.textContent = scelte.persone; };
+    $("#cs-next").onclick = () => domanda(i + 1);
+  } else {
+    body.querySelectorAll(".cs-opt").forEach((b) => b.onclick = () => {
+      scelte[d.k] = d.k === "budget" ? Number(b.dataset.v) : b.dataset.v;
+      i + 1 < DOMANDE.length ? domanda(i + 1) : proposta();
+    });
+  }
+  if ($("#cs-back")) $("#cs-back").onclick = () => domanda(i - 1);
+}
+
+function proposta() {
+  const { crudo, tipo, piccante, persone, budget } = scelte;
+  let pool = catalogo().filter((p) => {
+    if (tipo === "pesce" && !((p.pesce && !p.carne) || p.veg)) return false;
+    if (tipo === "carne" && !((p.carne && !p.pesce) || p.veg)) return false;
+    if (tipo === "veg" && !p.veg) return false;
+    if (crudo === "no" && p.crudo) return false;
+    if (piccante === "no" && p.piccante) return false;
+    return true;
+  });
+  const peso = (p) => {
+    let w = 1;
+    if (crudo === "si" && p.crudo) w *= 4;
+    if (piccante === "si" && p.piccante) w *= 2.5;
+    if (tipo === "pesce" && p.pesce) w *= 2;
+    if (tipo === "carne" && p.carne) w *= 3;
+    if (p.contorno && tipo !== "veg") w *= .35;
+    if (budget >= 20 && p.prezzo >= 9) w *= 1.6;
+    if (budget <= 10 && p.prezzo > 8) w *= .3;
+    return w;
+  };
+  const totale = persone * budget, maxPiatti = persone * 3 + 1;
+  const ordina = (arr) => arr.map((p) => ({ p, k: Math.pow(Math.random(), 1 / peso(p)) })).sort((a, b) => b.k - a.k).map((x) => x.p);
+  const scelti = []; let somma = 0;
+  const prova = (p) => { if (scelti.includes(p) || somma + p.prezzo > totale || scelti.length >= maxPiatti) return false; scelti.push(p); somma += p.prezzo; return true; };
+  const inizi = ordina(pool.filter((p) => p.inizio));
+  if (inizi.length && (persone >= 2 || budget >= 15)) prova(inizi[0]);
+  if (persone >= 4 && inizi[1]) prova(inizi[1]);
+  const perCat = {};
+  for (const p of ordina(pool.filter((p) => !p.inizio))) {
+    if ((perCat[p.ci] || 0) >= Math.max(1, Math.ceil(persone / 2))) continue;
+    if (prova(p)) perCat[p.ci] = (perCat[p.ci] || 0) + 1;
+  }
+  for (const p of ordina(pool)) prova(p);
+  scelti.sort((a, b) => a.ci - b.ci || (a.n || 0) - (b.n || 0));
+
+  const body = $("#cs-body");
+  if (!scelti.length) {
+    body.innerHTML = `<h2 id="cs-title">Nessuna proposta</h2><p class="muted">Con queste scelte non troviamo piatti nel budget. Prova ad alzare la cifra o a cambiare qualche risposta.</p>
+      <button class="btn btn-block" id="cs-again" type="button">Ricomincia</button>`;
+    $("#cs-again").onclick = apriConsiglio; return;
+  }
+  const famiglie = [{ n: "F2", piatti: 6, prezzo: 30, spec: 1 }, { n: "F3", piatti: 8, prezzo: 40, spec: 2 }, { n: "F4", piatti: 12, prezzo: 60, spec: 3 }];
+  const nSpec = scelti.filter((p) => p.speciale).length;
+  const fam = famiglie.find((f) => scelti.length === f.piatti && nSpec <= f.spec && somma > f.prezzo);
+  body.innerHTML = `<p class="cs-kicker">La nostra proposta</p>
+    <h2 id="cs-title">Per ${persone} ${persone === 1 ? "persona" : "persone"}</h2>
+    <ul class="cs-list">${scelti.map((p) => `<li><span class="dish-n">${p.n != null ? esc(p.n) : ""}</span><span><b>${esc(p.nome)}</b><small>${esc(p.cat)}</small></span><span class="cs-price">€ ${euro(p.prezzo)}</span></li>`).join("")}</ul>
+    <div class="cs-total"><span>Totale</span><b>€ ${euro(somma)}</b></div>
+    <p class="hint">Circa € ${euro(somma / persone)} a testa${fam ? ` · Con il <b>menu Family ${fam.n}</b> (${fam.piatti} piatti) lo paghi <b>€ ${fam.prezzo}</b> e c'è anche la bibita` : ""}.</p>
+    <p class="hint">Prezzi del menu da asporto. Per allergie e intolleranze chiedi sempre al personale.</p>
+    <div class="cs-actions">
+      <button class="btn btn-gold btn-block" id="cs-shuffle" type="button">Un'altra proposta</button>
+      <a class="btn btn-ghost btn-block" href="#prenota" data-go="prenota" data-close>Prenota un tavolo</a>
+      <button type="button" class="linkbtn" id="cs-restart">Rispondi di nuovo</button>
+    </div>`;
+  $("#cs-shuffle").onclick = proposta;
+  $("#cs-restart").onclick = apriConsiglio;
 }
 
 /* ------------------------------------------------------------------ */
