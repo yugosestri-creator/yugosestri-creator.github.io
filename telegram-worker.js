@@ -297,6 +297,7 @@ async function setup(env, url) {
 /* ---------------- router ---------------- */
 export default {
   async fetch(request, env) {
+    if (env.TELEGRAM_TOKEN) env = { ...env, TELEGRAM_TOKEN: String(env.TELEGRAM_TOKEN).replace(/\s+/g, "") };
     const cors = {
       "Access-Control-Allow-Origin": CONFIG.ORIGINE,
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
