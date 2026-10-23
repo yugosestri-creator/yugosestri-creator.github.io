@@ -1,5 +1,5 @@
 {
-  // Configurazione del bot Yugo su Cloudflare (Workers Builds la legge da qui)
+  // Configurazione del bot Yugo su Cloudflare (Cloudflare la legge da qui a ogni modifica su GitHub)
   "name": "yugo-bot",
   "main": "telegram-worker.js",
   "compatibility_date": "2025-09-01",
