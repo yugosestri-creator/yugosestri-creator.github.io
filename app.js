@@ -462,7 +462,7 @@ function renderMenu() {
   const draw = (sel) => {
     $("#menu-list").innerHTML = cats.map((c, i) => (sel === "all" || String(i) === sel) ? `
       <section class="menu-cat"><h2>${esc(c.categoria)}</h2>
-        ${c.piatti.map((p) => `<div class="dish">${p.n != null ? `<span class="dish-n">${esc(p.n)}</span>` : `<span></span>`}<span class="dish-name">${esc(p.nome)}</span><span class="dish-price">${p.prezzo != null ? "€ " + euro(p.prezzo) : ""}</span>${p.desc ? `<span class="dish-desc">${esc(p.desc)}</span>` : ""}</div>`).join("")}
+        ${c.piatti.map((p, j) => `<div class="dish${p.desc ? " has-desc" : ""}">${p.n != null ? `<span class="dish-n">${esc(p.n)}</span>` : `<span></span>`}<span class="dish-name">${esc(p.nome)}</span><span class="dish-price">${p.prezzo != null ? "€ " + euro(p.prezzo) : ""}</span>${p.desc ? `<button type="button" class="dish-more" aria-expanded="false" aria-controls="dd-${i}-${j}"><span>Ingredienti</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><div class="dish-desc" id="dd-${i}-${j}"><div>${esc(p.desc)}</div></div>` : ""}</div>`).join("")}
       </section>` : "").join("");
   };
   chips.addEventListener("click", (e) => {
@@ -471,6 +471,12 @@ function renderMenu() {
     draw(b.dataset.cat);
   });
   draw("all");
+  // Freccetta "Ingredienti": tocca il piatto per aprire o chiudere la descrizione
+  $("#menu-list").addEventListener("click", (e) => {
+    const d = e.target.closest(".dish.has-desc"); if (!d) return;
+    const b = d.querySelector(".dish-more"), open = b.getAttribute("aria-expanded") !== "true";
+    b.setAttribute("aria-expanded", String(open)); d.classList.toggle("open", open);
+  });
 }
 
 /* ------------------------------------------------------------------ */
