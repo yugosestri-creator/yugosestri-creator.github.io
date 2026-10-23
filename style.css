@@ -403,6 +403,46 @@ textarea.input { min-height: 84px; resize: vertical; }
 .tab span { white-space: nowrap; }
 @media (max-width: 360px) { .tab { font-size: 10px; } }
 
+/* ---------- Invita amici ---------- */
+.invite { border-color: color-mix(in srgb, var(--gold) 55%, var(--line)); background:
+  radial-gradient(120% 80% at 100% 0%, color-mix(in srgb, var(--gold) 14%, transparent), transparent 60%), var(--surface); }
+.invite h2 { font-size: 20px; text-transform: none; letter-spacing: .02em; color: var(--fg); font-weight: 600; }
+.invite p { margin: 0; }
+.inv-code { font-family: var(--f-display); color: var(--gold-hi); letter-spacing: .12em; }
+.inv-link { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.inv-link .input { min-height: 42px; font-size: 14px; color: var(--muted); }
+.lvl-head { display: flex; justify-content: space-between; align-items: baseline; font-weight: 700; margin-top: 4px; }
+.lvl-num { font-family: var(--f-display); font-size: 22px; color: var(--gold-hi); font-variant-numeric: tabular-nums; }
+.bar { height: 14px; border-radius: 999px; background: var(--bg); border: 1px solid var(--line); overflow: hidden; }
+.bar span { display: block; height: 100%; width: var(--w); border-radius: inherit;
+  background: linear-gradient(90deg, var(--gold), var(--gold-hi), var(--gold)); background-size: 200% 100%;
+  animation: fx-bar 1.2s cubic-bezier(.2,.8,.2,1) both, fx-sheen 3s 1.2s linear infinite; }
+.bar.full span { box-shadow: 0 0 14px var(--gold); }
+@keyframes fx-bar { from { width: 0; } to { width: var(--w); } }
+@keyframes fx-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.03); } }
+.fx-pulse { animation: fx-pulse 1.4s ease-in-out infinite, fx-glow 2s infinite; }
+.steps-path { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.steps-path li { min-width: 34px; padding: 4px 8px; text-align: center; border-radius: 999px; font-size: 13px; font-weight: 700;
+  border: 1px solid var(--line); color: var(--muted); font-variant-numeric: tabular-nums; }
+.steps-path li.done { background: color-mix(in srgb, var(--gold) 22%, transparent); color: var(--gold-hi); border-color: transparent; }
+.steps-path li.done::before { content: "✓ "; }
+.steps-path li.now { border-color: var(--gold); color: var(--fg); box-shadow: 0 0 0 3px color-mix(in srgb, var(--gold) 25%, transparent); }
+.coupons { display: grid; gap: 10px; }
+.coupon { display: grid; gap: 2px; padding: 14px 16px; border-radius: 14px; border: 1px dashed var(--gold); background: var(--surface-2); }
+.c-code { font-family: var(--f-display); font-size: 30px; letter-spacing: .18em; color: var(--gold-hi); font-variant-numeric: tabular-nums; }
+.c-info { font-size: 14px; color: var(--muted); }
+.c-state { font-size: 13px; font-weight: 700; color: var(--ok); }
+.coupon.used { border-style: solid; border-color: var(--line); opacity: .7; }
+.coupon.used .c-code { color: var(--muted); text-decoration: line-through; }
+.how { margin: 0; padding-left: 1.2em; display: grid; gap: 6px; }
+.social-btn.follow { grid-template-columns: 44px 1fr auto; }
+.social-btn .tick { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-style: normal; font-weight: 700;
+  border: 1px solid var(--line); color: transparent; transition: all .25s; }
+.social-btn.done .tick { background: var(--ok); border-color: var(--ok); color: var(--ink-fg); }
+.social-btn.done { border-color: color-mix(in srgb, var(--ok) 60%, var(--line)); }
+#view-invito .view-head h1 { text-transform: none; font-size: 28px; }
+#view-invito .card { display: grid; gap: 14px; }
+
 /* Chi ha "Riduci movimento" attivo vede tutto fermo */
 @media (prefers-reduced-motion: reduce) {
   .fx-r { opacity: 1 !important; transform: none !important; }

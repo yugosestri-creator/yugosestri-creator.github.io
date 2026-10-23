@@ -237,9 +237,174 @@ function renderPromo() {
 }
 
 /* ------------------------------------------------------------------ */
+/* Invita amici: link personale, barra, premi e coupon                 */
+/* ------------------------------------------------------------------ */
+const WORKER = ((CFG.telegram && CFG.telegram.worker) || "").replace(/\/$/, "");
+const SITO = location.origin + location.pathname.replace(/[^/]*$/, "");
+const linkInvito = (c) => `${SITO}invito/${c}`;
+const premioDi = (liv) => { const P = (CFG.promoInviti && CFG.promoInviti.premi) || []; return P.length ? P[Math.min(liv - 1, P.length - 1)] : "un premio da Yugo"; };
+async function api(path, body) {
+  if (!WORKER) throw new Error("Servizio non ancora attivo.");
+  let r;
+  try { r = await fetch(WORKER + path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) }); }
+  catch { throw new Error("Connessione assente o servizio non raggiungibile. Riprova tra poco."); }
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { const e = new Error(d.errore || "Qualcosa non ha funzionato. Riprova."); e.status = r.status; throw e; }
+  return d;
+}
+
+async function renderInvite() {
+  const area = $("#invite-area"); if (!area) return;
+  area.hidden = !WORKER; if (!WORKER) return;
+  if (!backend || user === undefined) { area.innerHTML = `<p class="muted">Caricamento…</p>`; return; }
+  const intro = `<span class="promo-tag">Invita amici</span><h2>Porta i tuoi amici, vinci premi</h2>
+    <p>Ogni amico che ci segue su TikTok o Instagram riempie la tua barra. Barra piena = un coupon da usare da Yugo.</p>`;
+  if (!user) { area.innerHTML = `<article class="block invite">${intro}<a href="#account" data-go="account" class="btn">Accedi o registrati per partecipare</a></article>`; return; }
+  if (!user.verified) { area.innerHTML = `<article class="block invite">${intro}<div class="notice"><p>Prima conferma la tua email: apri il link che ti abbiamo mandato.</p></div></article>`; return; }
+  if (!area.innerHTML.trim()) area.innerHTML = `<p class="muted">Caricamento…</p>`;
+  try { drawInvite(area, await api("/promo/me", { idToken: await backend.token() })); }
+  catch (e) { area.innerHTML = `<article class="block invite">${intro}<p class="error">${esc(e.message)}</p></article>`; }
+}
+
+function drawInvite(area, me, nuovo) {
+  if (!me.iscritto) {
+    area.innerHTML = `<article class="block invite">
+      <span class="promo-tag">Invita amici</span>
+      <h2>Porta i tuoi amici, vinci premi</h2>
+      <p>Iscriviti e ricevi il tuo link personale. Ogni amico che ci segue riempie la tua barra: barra piena = coupon.</p>
+      <ol class="steps-path">${me.livelli.map((t) => `<li>${t}</li>`).join("")}</ol>
+      <form class="form" id="inv-join" novalidate>
+        <div class="field"><label for="ij-nome">Nome</label><input class="input" id="ij-nome" autocomplete="given-name" value="${esc((user.nome || "").split(" ")[0])}"></div>
+        <div class="field"><label for="ij-tel">Telefono</label><input class="input" id="ij-tel" type="tel" inputmode="tel" autocomplete="tel" placeholder="+39 333 123 4567" value="${esc(store.get("yugo-draft", {}).telefono || "")}"></div>
+        <p class="error" id="ij-err" hidden></p>
+        <button class="btn btn-gold btn-block" type="submit" id="ij-go">Iscriviti e ricevi il link</button>
+      </form>
+    </article>`;
+    $("#inv-join").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const err = $("#ij-err"), btn = $("#ij-go"); err.hidden = true; btn.disabled = true;
+      try { drawInvite(area, await api("/promo/iscrivi", { idToken: await backend.token(), nome: $("#ij-nome").value, telefono: $("#ij-tel").value })); toast("Fatto! Ecco il tuo link personale."); }
+      catch (ex) { err.textContent = ex.message; err.hidden = false; btn.disabled = false; }
+    });
+    return;
+  }
+  const pct = Math.round((me.progresso / me.target) * 100);
+  const link = linkInvito(me.codice);
+  const liv = me.livello, tot = me.livelli.length;
+  area.innerHTML = `<article class="block invite">
+      <span class="promo-tag">Invita amici</span>
+      <h2>Il tuo codice <span class="inv-code">${esc(me.codice)}</span></h2>
+      <div class="inv-link"><input class="input" id="inv-link" readonly value="${esc(link)}"><button class="btn btn-ghost btn-sm" id="inv-copy" type="button">Copia</button></div>
+      ${navigator.share ? `<button class="btn btn-block" id="inv-share" type="button">Condividi il tuo link</button>` : ""}
+      <div class="lvl-head"><span>Livello ${Math.min(liv, tot)}${liv > tot ? "+" : ""} di ${tot}</span><span class="lvl-num">${me.progresso}/${me.target}</span></div>
+      <div class="bar${me.pronto ? " full" : ""}" role="progressbar" aria-valuemin="0" aria-valuemax="${me.target}" aria-valuenow="${me.progresso}"><span style="--w:${pct}%"></span></div>
+      <p class="hint">${me.pronto ? "Barra piena! Richiedi il tuo premio." : `Ancora <b>${me.target - me.progresso}</b> ${me.target - me.progresso === 1 ? "amico" : "amici"} per sbloccare: <b>${esc(premioDi(liv))}</b>`}</p>
+      ${me.attesa ? `<p class="hint">⏳ ${me.attesa} ${me.attesa === 1 ? "amico in attesa" : "amici in attesa"} di conferma dal ristorante</p>` : ""}
+      ${me.pronto ? `<button class="btn btn-gold btn-block fx-pulse" id="inv-claim" type="button">🎁 Richiedi premio</button>` : ""}
+      <ol class="steps-path">${me.livelli.map((t, i) => `<li class="${i < liv - 1 ? "done" : i === liv - 1 ? "now" : ""}">${t}</li>`).join("")}</ol>
+    </article>
+    <article class="block">
+      <h2>I tuoi coupon</h2>
+      ${me.coupon.length ? `<div class="coupons">${me.coupon.map((c) => `<div class="coupon ${c.stato === "usato" ? "used" : ""} ${c.codice === nuovo ? "fx-stamp" : ""}">
+          <span class="c-code">${esc(c.codice)}</span>
+          <span class="c-info">Livello ${c.livello} · ${esc(premioDi(c.livello))}</span>
+          <span class="c-state">${c.stato === "usato" ? "Usato ✅" : "Valido · mostralo alla cassa"}</span>
+        </div>`).join("")}</div>` : `<p class="muted">Ancora nessuno. Riempi la barra per il primo coupon.</p>`}
+    </article>
+    <article class="block">
+      <h2>Come funziona</h2>
+      <ol class="how">
+        <li>Manda il tuo link agli amici.</li>
+        <li>Loro ci seguono su TikTok e Instagram e scrivono il loro username.</li>
+        <li>Il ristorante controlla e conferma: ogni amico conta una volta sola.</li>
+        <li>Barra piena: tocca «Richiedi premio» e mostra il codice alla cassa.</li>
+      </ol>
+    </article>`;
+  $("#inv-copy").onclick = async () => {
+    try { await navigator.clipboard.writeText(link); toast("Link copiato."); }
+    catch { const i = $("#inv-link"); i.select(); toast("Tieni premuto sul link per copiarlo."); }
+  };
+  if ($("#inv-share")) $("#inv-share").onclick = () => navigator.share({ title: "Yugo Sestri Levante", text: "Seguimi su Yugo e aiutami a vincere un premio! 🍣", url: link }).catch(() => {});
+  if ($("#inv-claim")) $("#inv-claim").onclick = async (e) => {
+    e.target.disabled = true; e.target.textContent = "Genero il coupon…";
+    try {
+      const r = await api("/promo/premio", { idToken: await backend.token() });
+      drawInvite(area, r, r.nuovoCoupon);
+      toast(`Coupon ${r.nuovoCoupon} sbloccato! Mostralo alla cassa.`);
+      area.querySelector(".coupons")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    } catch (ex) { toast(ex.message); renderInvite(); }
+  };
+}
+
+/* Pagina per l'amico invitato: /invito/CODICE */
+const INVITO = (new URLSearchParams(location.search).get("invito") || (location.hash.match(/^#invito-([A-Za-z0-9]+)$/) || [])[1] || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+async function renderLanding(code) {
+  const area = $("#invito-area");
+  area.innerHTML = `<p class="muted">Caricamento…</p>`;
+  let info;
+  try { info = await api("/promo/invito", { codice: code }); }
+  catch (e) {
+    area.innerHTML = `<div class="view-head"><h1>Invito non valido</h1><p class="muted">${esc(e.message)} Controlla il link che ti hanno mandato.</p></div>
+      <a href="#home" data-go="home" class="btn">Scopri Yugo</a>`;
+    return;
+  }
+  const S = R.social || {};
+  const fatti = store.get("yugo-seguito", {});
+  let piattaforma = "instagram";
+  area.innerHTML = `<div class="view-head"><span class="promo-tag">Invito</span><h1>${esc(info.nome)} ti invita da Yugo</h1>
+      <p class="muted">Seguici su TikTok e Instagram, poi scrivi il tuo username: aiuti ${esc(info.nome)} a vincere un premio.</p></div>
+    <div class="card">
+      <span class="label">1 · Seguici</span>
+      <div class="social">
+        <a class="social-btn follow" data-follow="tiktok" href="https://www.tiktok.com/@${esc(S.tiktok || "")}" target="_blank" rel="noopener">${ICONS.tiktok}<span><b>Segui su TikTok</b><small>@${esc(S.tiktok || "")}</small></span><i class="tick" aria-hidden="true">✓</i></a>
+        <a class="social-btn follow" data-follow="instagram" href="https://www.instagram.com/${esc(S.instagram || "")}/" target="_blank" rel="noopener">${ICONS.instagram}<span><b>Segui su Instagram</b><small>@${esc(S.instagram || "")}</small></span><i class="tick" aria-hidden="true">✓</i></a>
+      </div>
+      <form class="form" id="inv-form" novalidate>
+        <span class="label">2 · Scrivi il tuo username</span>
+        <div class="tabs2" role="radiogroup" aria-label="App">
+          <button type="button" role="radio" data-p="instagram" aria-selected="true">Instagram</button>
+          <button type="button" role="radio" data-p="tiktok" aria-selected="false">TikTok</button>
+        </div>
+        <div class="field"><label for="inv-user">Username</label>
+          <input class="input" id="inv-user" placeholder="@giulia_23" autocapitalize="none" autocomplete="off" autocorrect="off" spellcheck="false"></div>
+        <p class="error" id="inv-err" hidden></p>
+        <button class="btn btn-gold btn-block" id="inv-send" type="submit">Invia</button>
+        <p class="hint" id="inv-hint"></p>
+      </form>
+    </div>`;
+  const aggiorna = () => {
+    $$("[data-follow]").forEach((a) => a.classList.toggle("done", !!fatti[a.dataset.follow]));
+    const ok = fatti.tiktok && fatti.instagram;
+    $("#inv-send").disabled = !ok;
+    $("#inv-hint").textContent = ok ? "" : "Prima tocca i due pulsanti «Segui» qui sopra.";
+  };
+  $$("[data-follow]").forEach((a) => a.addEventListener("click", () => { fatti[a.dataset.follow] = true; store.set("yugo-seguito", fatti); setTimeout(aggiorna, 400); }));
+  $$("#inv-form [data-p]").forEach((b) => b.onclick = () => { piattaforma = b.dataset.p; $$("#inv-form [data-p]").forEach((x) => x.setAttribute("aria-selected", String(x === b))); });
+  aggiorna();
+  $("#inv-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const err = $("#inv-err"), btn = $("#inv-send"); err.hidden = true;
+    const username = $("#inv-user").value.trim().replace(/^@+/, "");
+    if (!username) { err.textContent = "Scrivi il tuo username."; err.hidden = false; return; }
+    btn.disabled = true; btn.textContent = "Invio…";
+    try {
+      await api("/promo/follow", { codice: code, username, piattaforma });
+      area.innerHTML = `<div class="ticket fx-stamp"><div class="ticket-top">
+          <span class="ok">Inviato</span><h2>Grazie @${esc(username.toLowerCase())}!</h2>
+          <p class="muted">Il ristorante controlla tra poco che ci segui: quando conferma, il punto va a ${esc(info.nome)}.</p></div></div>
+        <div class="row-actions" style="margin-top:14px">
+          <a class="btn" href="#prenota" data-go="prenota">Prenota un tavolo</a>
+          <a class="btn btn-ghost" href="#promo" data-go="promo">Invita anche tu i tuoi amici</a>
+        </div>`;
+    } catch (ex) { err.textContent = ex.message; err.hidden = false; btn.disabled = false; btn.textContent = "Invia"; }
+  });
+}
+
+/* ------------------------------------------------------------------ */
 /* Navigazione                                                         */
 /* ------------------------------------------------------------------ */
-const VIEWS = ["home", "menu", "prenota", "promo", "account"];
+const VIEWS = ["home", "menu", "prenota", "promo", "account", "invito"];
+const $$ = (s, el = document) => Array.from(el.querySelectorAll(s));
 function go(view, push = true) {
   if (!VIEWS.includes(view)) view = "home";
   VIEWS.forEach((v) => { $("#view-" + v).hidden = v !== view; });
@@ -248,8 +413,9 @@ function go(view, push = true) {
   if (active) active.setAttribute("aria-current", "page");
   if (view === "prenota") renderBooking();
   if (view === "account") renderAccount();
+  if (view === "promo") renderInvite();
   if (view === "home") requestAnimationFrame(drawWaves);
-  if (push) { try { history.replaceState(null, "", "#" + view); } catch { /* frame senza history */ } }
+  if (push) { try { history.replaceState(null, "", (view === "invito" ? location.search : location.pathname) + "#" + view); } catch { /* frame senza history */ } }
   window.scrollTo({ top: 0 });
 }
 document.addEventListener("click", (e) => {
@@ -614,7 +780,8 @@ async function start() {
   renderPromo();
   requestAnimationFrame(drawWaves);
   const initial = (location.hash || "").replace("#", "");
-  go(VIEWS.includes(initial) ? initial : "home", false);
+  if (INVITO) { go("invito", false); renderLanding(INVITO); }
+  else go(VIEWS.includes(initial) && initial !== "invito" ? initial : "home", false);
   try {
     backend = DEMO ? demoBackend() : await firebaseBackend(CFG.firebase);
   } catch (e) {
@@ -628,6 +795,7 @@ async function start() {
     const current = VIEWS.find((v) => !$("#view-" + v).hidden);
     if (current === "prenota") renderBooking();
     if (current === "account") renderAccount();
+    if (current === "promo") renderInvite();
   });
   if ("serviceWorker" in navigator && location.protocol === "https:" && !document.body.classList.contains("embed")) {
     navigator.serviceWorker.register("sw.js").catch(() => {});

@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Yugo Sestri Levante</title>
+<style>html,body{margin:0;height:100%;background:#03132D;color:#EEF0F5;font:16px system-ui,sans-serif}body{display:grid;place-items:center}</style>
+<script>
+  // I link invito sono tipo /invito/MARCO7: GitHub Pages non li conosce, quindi passiamo dalla pagina principale.
+  var m = location.pathname.match(/\/invito\/([A-Za-z0-9]+)\/?$/i);
+  location.replace(m ? "/?invito=" + m[1].toUpperCase() : "/");
+</script>
+</head>
+<body><p>Caricamento…</p></body>
+</html>

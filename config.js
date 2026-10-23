@@ -128,12 +128,27 @@ window.YUGO_CONFIG = {
   },
   */
 
-  /* ---------- 3. TELEGRAM (notifica nel gruppo a ogni prenotazione) ----------
-     Indirizzo del "postino" su Cloudflare (vedi LEGGIMI.md, passo 3).
-     Il token del bot NON va scritto qui: sta al sicuro su Cloudflare. */
+  /* ---------- 3. TELEGRAM e PROMO (il "cervello" su Cloudflare) ----------
+     Prenotazioni, annullamenti e inviti passano da qui.
+     Il token del bot NON sta nel sito: è al sicuro su Cloudflare. */
   telegram: {
-    botToken: ["8896642131", "AAG3CTN5P6xP1F1Bb" + "Kmj8Hdvt0dsiRjeVLo"].join(":"),   // @yugo_prenotazioni_bot (spezzato apposta)
-    chatId: "-5444686738",     // gruppo "Prenotazioni Yugo"
-    worker: ""      // facoltativo, più sicuro: indirizzo del "postino" Cloudflare (LEGGIMI.md)
+    worker: "https://yugo-bot.yugosestri.workers.dev"
+  },
+
+  /* ---------- 4. INVITA AMICI ----------
+     Premio per ogni livello (il livello 1 si sblocca con 2 amici, poi 10, 25, 30, 40, 55, 70, 90, 110).
+     ESEMPI: scrivi i premi veri. */
+  promoInviti: {
+    premi: [
+      "un dolce in omaggio",
+      "una bibita in omaggio",
+      "−10% sul conto",
+      "un antipasto in omaggio",
+      "−15% sul conto",
+      "una bottiglia di vino",
+      "−20% sul conto",
+      "una cena gratis",
+      "una cena gratis per due"
+    ]
   }
 };
