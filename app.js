@@ -437,6 +437,7 @@ function toast(msg) {
 function renderHome() {
   $("#menu-note").textContent = R.notaMenu || "";
   $("#hero-slogan").textContent = R.slogan || "";
+  $("#home-formule").previousElementSibling.textContent = R.titoloFormule || "All You Can Eat";
   $("#home-formule").innerHTML = (R.formule || []).map((f) => `<div class="formula"><span class="f-name">${esc(f.nome)}</span><span class="f-when">${esc(f.quando || "")}</span><span class="f-price">€ ${euro(f.prezzo)}</span></div>`).join("");
   $("#home-formule-nota").textContent = R.notaFormule || "";
   $("#home-desc").innerHTML = (R.descrizione || []).map((p) => `<p>${esc(p)}</p>`).join("");
