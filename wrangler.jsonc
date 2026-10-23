@@ -1,0 +1,11 @@
+{
+  // Configurazione del bot Yugo su Cloudflare (Workers Builds la legge da qui)
+  "name": "yugo-bot",
+  "main": "telegram-worker.js",
+  "compatibility_date": "2025-09-01",
+  "workers_dev": true,
+  "d1_databases": [
+    { "binding": "DB", "database_name": "yugo", "database_id": "dcac3843-d569-4c3c-957a-4806b2067fa7" }
+  ],
+  "observability": { "enabled": true }
+}
