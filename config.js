@@ -20,7 +20,11 @@ window.YUGO_CONFIG = {
 
     // Promozioni: compaiono solo tra "dal" e "al" (anno-mese-giorno). Togli "al" per una promo senza scadenza.
     // Esempio: { etichetta: "Weekend", titolo: "...", descrizione: "...", quando: "...", dal: "2026-11-01", al: "2026-11-30" }
-    promozioni: [],
+    promozioni: [
+      { etichetta: "Halloween", titolo: "Halloween da Yugo: fino al 20% di sconto",
+        descrizione: "Per tutti il 10% di sconto. Se ci segui su Instagram o TikTok lo sconto sale al 20%.",
+        quando: "Mostra alla cassa che ci segui per avere il 20%.", dal: "2026-10-21", al: "2026-11-02" }
+    ],
 
     descrizione: [
       "Yugo è sushi experience a Sestri Levante, in Corso Colombo 9: sushi, crudi, tartare, piatti caldi e griglia, preparati al momento.",
@@ -57,7 +61,10 @@ window.YUGO_CONFIG = {
     maxPersone: 12,
     giorniPrenotabili: 60,
 
-    notaMenu: "Prezzi del menu da asporto e consegna. * prodotto surgelato.",
+    notaMenuCasa: "Prezzi del menu da asporto e consegna.",
+    notaMenuRistorante: "Il menu del ristorante arriva a breve: per ora vedi piatti e prezzi del menu da asporto.",
+    // Menu da tavolo: quando c'è, mettilo qui con la stessa forma di "menu". Finché è vuoto si usa "menu".
+    menuRistorante: [],
     menu: [
       { categoria: "Antipasti", piatti: [
         { n: 1, nome: "Involtini primavera", prezzo: 2.5 },
