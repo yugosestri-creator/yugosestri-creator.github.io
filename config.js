@@ -106,7 +106,7 @@ window.YUGO_CONFIG = {
         { n: 36, nome: "Gambero cotto", desc: "Bocconcino di riso con gambero cotto", prezzo: 4 },
         { n: 37, nome: "Salmon flambé", desc: "Salmone scottato, crema al latte e granella di pistacchio", prezzo: 5 },
         { n: 38, nome: "Avocado", desc: "Bocconcino di riso con avocado", prezzo: 4 },
-        { n: 39, nome: "Salmone scottato", desc: "Salmone scottato e philadelphia", prezzo: 5 },
+        { n: 39, nome: "Salmone scottato", desc: "Salmone scottato, philadelphia e salsa teriyaki", prezzo: 5 },
         { n: 40, nome: "Maguro special", desc: "Tonno scottato con salsa spicy cheese, salsa teriyaki e pistacchio", prezzo: 5 },
         { n: 41, nome: "Sake special", desc: "Salmone scottato con salsa spicy cheese, salsa teriyaki e pistacchio", prezzo: 5 },
         { n: 42, nome: "Sushi misto", desc: "2 salmone, 1 tonno, 1 gambero* cotto, 1 branzino", prezzo: 10 }
@@ -215,7 +215,7 @@ window.YUGO_CONFIG = {
         { n: 301, nome: "Misto di mare freddo", desc: "Gamberi, calamari, polpa di granchio, peperoni, carote, polipo, prezzemolo", prezzo: 13 },
         { n: 302, nome: "Onabe con misto di mare", desc: "Gamberi, gamberoni, calamari, polpa di granchio, polipo, verdure", prezzo: 13 },
         { n: 303, nome: "Tataki royal", desc: "Tonno scottato guarnito con crema di avocado, mandorle e salsa al tartufo", prezzo: 13 },
-        { n: 304, nome: "Tataki plus", desc: "Filetto di tonno servito in leggera panatura di granella di pistacchio e sesamo", prezzo: 13 },
+        { n: 304, nome: "Tataki plus", desc: "Filetto di tonno servito in leggera panatura di granella di pistacchio e sesamo, con salsa sesamo", prezzo: 13 },
         { n: 305, nome: "Tartare tonno plus", desc: "Cubetti di tonno con salsa stracciatella, serviti con olio aromatizzato al basilico", prezzo: 13 },
         { n: 306, nome: "Salmon king", desc: "Carpaccio di salmone scottato con salsa mango cheese, guarnito con pistacchio e tobiko*", prezzo: 13 },
         { n: 307, nome: "Sashimi misto speciale", desc: "Salmone, tonno, branzino, gambero rosso, scampi", prezzo: 13 },
@@ -226,14 +226,14 @@ window.YUGO_CONFIG = {
         { n: 312, nome: "Carpaccio rainbow*", desc: "Salmone, tonno, branzino, gambero* rosso con crema stracciatella, olio aromatizzato al basilico, guarnito con gelatina al mango e tobiko*", prezzo: 13 }
       ]},
       { categoria: "Special roll · 8 pz", piatti: [
-        { nome: "Green tiger", desc: "Ripieno di gambero* fritto e maionese, all'esterno carpaccio di salmone, salsa e granella di pistacchio, semi di sesamo", prezzo: 13 },
-        { nome: "Tori fly", desc: "Ripieno di pollo fritto, salmone, philadelphia, salsa terimaki", prezzo: 13 },
-        { nome: "California special", desc: "Ripieno di surimi di granchio* e avocado, all'esterno tartare di salmone, cipolla fritta, spicy mayo e semi di sesamo", prezzo: 13 },
-        { nome: "Ebiten flambé", desc: "Ripieno di gambero* fritto, all'esterno tartare di salmone scottato, crema al latte, salsa teriyaki, pasta kataifi* e semi di sesamo", prezzo: 13 },
-        { nome: "Ebiten scottato", desc: "Ripieno di gambero* fritto e maionese, all'esterno salmone scottato, salsa teriyaki, pasta kataifi* e semi di sesamo", prezzo: 13 },
-        { nome: "Ebiten fly roll", desc: "Ripieno di gambero* fritto, salmone, formaggio flambé, salsa teriyaki", prezzo: 13 },
-        { nome: "Uramaki speciale", desc: "Ripieno di fibra di carne tritata, pesce misto, philadelphia, mela", prezzo: 13 },
-        { nome: "Crispy roll fly", desc: "Ripieno di salmone fritto, philadelphia, kataifi, salsa teriyaki, formaggio flambé", prezzo: 13 }
+        { n: 301, nome: "Green tiger", desc: "Ripieno di gambero* fritto e maionese, all'esterno carpaccio di salmone, salsa e granella di pistacchio, semi di sesamo", prezzo: 13 },
+        { n: 302, nome: "Tori fly", desc: "Ripieno di pollo fritto, salmone, philadelphia, salsa terimaki", prezzo: 13 },
+        { n: 303, nome: "California special", desc: "Ripieno di surimi di granchio* e avocado, all'esterno tartare di salmone, cipolla fritta, spicy mayo e semi di sesamo", prezzo: 13 },
+        { n: 304, nome: "Ebiten flambé", desc: "Ripieno di gambero* fritto, all'esterno tartare di salmone scottato, crema al latte, salsa teriyaki, pasta kataifi* e semi di sesamo", prezzo: 13 },
+        { n: 305, nome: "Ebiten scottato", desc: "Ripieno di gambero* fritto e maionese, all'esterno salmone scottato, salsa teriyaki, pasta kataifi* e semi di sesamo", prezzo: 13 },
+        { n: 306, nome: "Ebiten fly roll", desc: "Ripieno di gambero* fritto, salmone, formaggio flambé, salsa teriyaki", prezzo: 13 },
+        { n: 307, nome: "Uramaki speciale", desc: "Ripieno di fibra di carne tritata, pesce misto, philadelphia, mela", prezzo: 13 },
+        { n: 308, nome: "Crispy roll fly", desc: "Ripieno di salmone fritto, philadelphia, kataifi, salsa teriyaki, formaggio flambé", prezzo: 13 }
       ]},
       { categoria: "Primi piatti", piatti: [
         { n: 121, nome: "Riso bianco", prezzo: 3 },
