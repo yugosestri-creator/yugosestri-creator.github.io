@@ -351,10 +351,10 @@ window.YUGO_CONFIG = {
       "−10% sul conto",
       "un antipasto in omaggio",
       "−15% sul conto",
-      "una bottiglia di vino",
+      "una bottiglia di vino oppure 5 bibite",
       "−20% sul conto",
       "una cena gratis",
-      "una cena gratis per due"
+      "una cena gratis + 15% di sconto quando torni"
     ]
   }
 };
