@@ -163,7 +163,16 @@ a { color: inherit; }
 .dish { display: grid; grid-template-columns: 34px 1fr auto; column-gap: 14px; padding: 10px 0; border-bottom: 1px dashed var(--line); }
 .dish:last-child { border-bottom: 0; }
 .dish-name { font-weight: 700; min-width: 0; }
-.dish-desc { grid-column: 2 / -1; color: var(--muted); font-size: 14px; line-height: 1.45; }
+.dish-desc { grid-column: 2 / -1; color: var(--muted); font-size: 14px; line-height: 1.45;
+  display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows .3s ease, opacity .3s ease, padding .3s ease; }
+.dish-desc > div { overflow: hidden; min-height: 0; }
+.dish.open .dish-desc { grid-template-rows: 1fr; opacity: 1; padding-top: 6px; }
+.dish.has-desc { cursor: pointer; }
+.dish-more { grid-column: 2 / -1; justify-self: start; display: inline-flex; align-items: center; gap: 2px; margin-top: 4px; padding: 4px 8px 4px 0;
+  border: 0; background: none; color: var(--gold); font: 600 11px/1 var(--f-body); letter-spacing: .1em; text-transform: uppercase; cursor: pointer; }
+.dish-more svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform .3s ease; }
+.dish.open .dish-more svg { transform: rotate(180deg); }
+.dish-more:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .dish-price { font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* ---------- Forms ---------- */
