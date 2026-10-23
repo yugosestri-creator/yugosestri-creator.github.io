@@ -452,6 +452,57 @@ textarea.input { min-height: 84px; resize: vertical; }
 #view-invito .view-head h1 { text-transform: none; font-size: 28px; }
 #view-invito .card { display: grid; gap: 14px; }
 
+/* ---------- Menu: categorie e consiglio ---------- */
+.menu-tools { display: grid; grid-template-columns: auto 1fr; gap: 8px; margin-bottom: 10px; }
+.menu-tool { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 46px; padding: 0 14px; border-radius: 14px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--fg); font: 700 14px/1.1 var(--f-body); cursor: pointer; text-align: left; min-width: 0; }
+.menu-tool span { min-width: 0; }
+.menu-tool svg { width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.menu-tool .chev { width: 16px; height: 16px; transition: transform .3s; }
+.menu-tool[aria-expanded="true"] .chev { transform: rotate(180deg); }
+.menu-tool[aria-expanded="true"] { border-color: var(--gold); }
+.menu-tool-gold { background: linear-gradient(135deg, color-mix(in srgb, var(--gold) 30%, var(--surface)), var(--surface)); border-color: color-mix(in srgb, var(--gold) 60%, transparent); color: var(--gold-hi); }
+.menu-tool-gold svg { stroke: var(--gold-hi); }
+.cat-panel { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 0 0 16px; padding: 12px; border-radius: var(--r);
+  border: 1px solid var(--line); background: var(--surface); animation: fx-view .3s ease both; }
+.cat-panel .chip { width: 100%; justify-content: flex-start; text-align: left; border-radius: 10px; min-height: 42px; padding: 0 12px; white-space: normal; line-height: 1.2; }
+.cat-panel .chip:first-child { grid-column: 1 / -1; }
+
+.no-scroll, .no-scroll body { overflow: hidden; }
+.sheet { position: fixed; inset: 0; z-index: 60; display: grid; align-items: end; }
+.sheet-bg { position: absolute; inset: 0; background: rgb(0 0 0 / .55); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); animation: fx-fade .25s ease both; }
+@keyframes fx-fade { from { opacity: 0; } }
+@keyframes fx-sheet { from { transform: translateY(40px); opacity: 0; } }
+.sheet-card { position: relative; width: 100%; max-width: 620px; margin: 0 auto; max-height: 88dvh; overflow-y: auto;
+  border-radius: 22px 22px 0 0; background: var(--surface); border: 1px solid var(--line); border-bottom: 0;
+  padding-top: 22px; padding-bottom: calc(22px + env(safe-area-inset-bottom, 0px));
+  padding-left: max(18px, env(safe-area-inset-left, 0px)); padding-right: max(18px, env(safe-area-inset-right, 0px));
+  animation: fx-sheet .35s cubic-bezier(.2,.8,.2,1) both; }
+.sheet-x { position: absolute; top: 10px; right: max(10px, env(safe-area-inset-right, 0px)); width: 40px; height: 40px; border-radius: 50%; border: 0;
+  background: var(--surface-2); color: var(--fg); font-size: 24px; line-height: 1; cursor: pointer; }
+#cs-body { display: grid; gap: 14px; }
+#cs-body h2 { font-size: 24px; font-weight: 600; text-transform: none; letter-spacing: .02em; padding-right: 40px; }
+#cs-body p { margin: 0; }
+.cs-kicker { font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--gold); }
+.cs-steps { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; padding-right: 44px; }
+.cs-steps span { height: 4px; border-radius: 4px; background: var(--line); transition: background .3s; }
+.cs-steps span.done, .cs-steps span.now { background: var(--gold); }
+.cs-options { display: grid; gap: 10px; }
+.cs-opt { min-height: 54px; padding: 0 18px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface-2); color: var(--fg);
+  font: 600 16px/1.2 var(--f-body); text-align: left; cursor: pointer; transition: border-color .2s, transform .15s, background-color .2s; }
+.cs-opt:hover, .cs-opt:focus-visible { border-color: var(--gold); }
+.cs-opt:active { transform: scale(.98); background: color-mix(in srgb, var(--gold) 18%, var(--surface-2)); }
+.cs-stepper { max-width: 240px; }
+.cs-back { justify-self: start; color: var(--muted); }
+.cs-list { list-style: none; margin: 0; padding: 0; display: grid; }
+.cs-list li { display: grid; grid-template-columns: 34px 1fr auto; gap: 10px; align-items: baseline; padding: 10px 0; border-bottom: 1px dashed var(--line); animation: fx-fade-up .4s ease both; }
+.cs-list li span:nth-child(2) { min-width: 0; }
+.cs-list small { display: block; color: var(--muted); font-size: 12px; }
+.cs-price { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cs-total { display: flex; justify-content: space-between; align-items: baseline; font-weight: 700; }
+.cs-total b { font-family: var(--f-display); font-size: 26px; color: var(--gold-hi); font-variant-numeric: tabular-nums; }
+.cs-actions { display: grid; gap: 10px; justify-items: center; }
+
 /* Chi ha "Riduci movimento" attivo vede tutto fermo */
 @media (prefers-reduced-motion: reduce) {
   .fx-r { opacity: 1 !important; transform: none !important; }
