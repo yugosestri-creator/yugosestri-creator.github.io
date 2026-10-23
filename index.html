@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Allura&family=Josefin+Sans:wght@300;400;600&family=Mulish:wght@400;600;700&display=swap">
-<link rel="stylesheet" href="style.css?v=12">
+<link rel="stylesheet" href="style.css?v=13">
 </head>
 <body>
 <!--APP-START-->
@@ -90,6 +90,22 @@
         <h1>Menu</h1>
         <p class="muted" id="menu-note"></p>
       </div>
+      <div id="mode-pick" class="mode-pick" hidden>
+        <p class="cs-kicker">Prima di iniziare</p>
+        <h2>Dove mangi?</h2>
+        <div class="mode-grid">
+          <button type="button" class="mode-btn" data-modo="ristorante">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v8M5 3v5a2 2 0 0 0 4 0V3M7 11v10M17 21V3c-2.2 1.2-3 4-3 7v3h3"/></svg>
+            <b>Al ristorante</b><small>Mangio da Yugo</small>
+          </button>
+          <button type="button" class="mode-btn" data-modo="casa">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l-1.2 12.1a1 1 0 0 1-1 .9H7.2a1 1 0 0 1-1-.9Z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/></svg>
+            <b>A casa</b><small>Asporto o consegna</small>
+          </button>
+        </div>
+      </div>
+      <div id="menu-body" hidden>
+      <div class="mode-bar"><span id="mode-label"></span><button type="button" class="linkbtn" id="mode-change">Cambia</button></div>
       <div class="menu-tools">
         <button type="button" class="menu-tool" id="cat-toggle" aria-expanded="false" aria-controls="menu-chips">
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/></svg>
@@ -103,6 +119,7 @@
       </div>
       <div class="cat-panel" id="menu-chips" role="tablist" aria-label="Categorie" hidden></div>
       <div id="menu-list" class="menu-list"></div>
+      </div>
     </section>
 
     <!-- PROMO -->
@@ -173,8 +190,8 @@
 </div>
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 <!--APP-END-->
-<script src="config.js?v=12"></script>
-<script src="anim.js?v=12"></script>
-<script type="module" src="app.js?v=12"></script>
+<script src="config.js?v=13"></script>
+<script src="anim.js?v=13"></script>
+<script type="module" src="app.js?v=13"></script>
 </body>
 </html>
