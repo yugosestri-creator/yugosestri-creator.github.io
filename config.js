@@ -346,8 +346,8 @@ window.YUGO_CONFIG = {
      ESEMPI: scrivi i premi veri. */
   promoInviti: {
     premi: [
-      "un dolce in omaggio",
       "una bibita in omaggio",
+      "un dolce in omaggio",
       "−10% sul conto",
       "un antipasto in omaggio",
       "−15% sul conto",
