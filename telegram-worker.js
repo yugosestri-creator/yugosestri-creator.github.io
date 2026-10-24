@@ -3,7 +3,7 @@
    Gira 24 ore su 24 sui server di Cloudflare: il Mac può stare spento.
 
    Fa tre cose:
-   1. Manda nel gruppo Telegram prenotazioni e annullamenti (italiano + cinese).
+   1. Manda nel gruppo Telegram prenotazioni, annullamenti e ordini da casa (italiano + cinese).
    2. Gestisce il programma "Invita amici": iscrizioni, follower, barre, coupon.
    3. Riceve i comandi del bot: /ok /no /usato /coupon /classifica
 
@@ -15,6 +15,7 @@
 
 const CONFIG = {
   CHAT_ID: "-5444686738",                                   // gruppo "Prenotazioni Yugo"
+  CHAT_ORDINI: "",                                          // gruppo per gli ordini da casa (vuoto = stesso gruppo)
   FIREBASE_API_KEY: "AIzaSyAEnC8afPxW6XJhdZnfiTTHxZ1qun_MFwc", // pubblica, è la stessa del sito
   ORIGINE: "https://yugosestri-creator.github.io"
 };
@@ -34,6 +35,8 @@ const SCHEMA = [
      id INTEGER PRIMARY KEY AUTOINCREMENT, codice TEXT NOT NULL, username TEXT NOT NULL UNIQUE,
      piattaforma TEXT, stato TEXT NOT NULL DEFAULT 'attesa', ip TEXT, creato TEXT NOT NULL, deciso TEXT)`,
   `CREATE INDEX IF NOT EXISTS follow_codice ON follow (codice, stato)`,
+  `CREATE TABLE IF NOT EXISTS ordini (
+     id INTEGER PRIMARY KEY AUTOINCREMENT, uid TEXT NOT NULL, email TEXT, totale REAL, creato TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS coupon (
      codice TEXT PRIMARY KEY, promoter_id INTEGER NOT NULL, livello INTEGER NOT NULL,
      stato TEXT NOT NULL DEFAULT 'valido', creato TEXT NOT NULL, usato TEXT)`
@@ -116,6 +119,76 @@ async function prenotazione(env, body) {
   if (!b.nome || !b.data || !b.ora) throw new Errore("Mancano nome, giorno o ora");
   if (!(await tg(env, testoPrenotazione(b, u.email, body.tipo === "annullata" ? "annullata" : "nuova")))) throw new Errore("Telegram non ha accettato il messaggio", 502);
   return { ok: true };
+}
+
+
+/* ---------------- ordini da casa ---------------- */
+const ZONE = { "Sestri Levante": 1, "Riva Trigoso": 2.5, "Casarza Ligure": 3.5, "Moneglia": 5 };
+const FASCE = [["12:00", "14:30"], ["19:00", "22:30"]];
+const MINIMO = 20;
+const eur = (n) => "€ " + n.toFixed(2).replace(".", ",");
+const minuti = (hhmm) => { const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; };
+function minutiRoma() {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("it-IT", { timeZone: "Europe/Rome", hour: "2-digit", minute: "2-digit", hour12: false })
+    .formatToParts(new Date()).map((x) => [x.type, x.value]));
+  return (+p.hour % 24) * 60 + +p.minute;
+}
+
+async function ordine(env, body) {
+  const u = await utente(env, body.idToken);
+  if (!u || !u.verificato) throw new Errore("Accedi con un account confermato per ordinare", 401);
+  const consegna = body.modo === "consegna";
+  const righe = (Array.isArray(body.righe) ? body.righe : []).slice(0, 60).map((r) => ({
+    n: Number.isInteger(r.n) ? r.n : null, nome: pulisci(r.nome, 80),
+    q: Math.max(0, Math.min(20, parseInt(r.q, 10) || 0)), prezzo: Math.max(0, Math.min(200, Number(r.prezzo) || 0))
+  })).filter((r) => r.q > 0 && r.nome);
+  if (!righe.length) throw new Errore("L'ordine è vuoto");
+  const o = {
+    nome: pulisci(body.nome, 80), telefono: pulisci(body.telefono, 30), note: pulisci(body.note, 400),
+    indirizzo: pulisci(body.indirizzo, 160), zona: pulisci(body.zona, 40), ora: body.ora === "asap" ? "asap" : (/^\d{2}:\d{2}$/.test(body.ora) ? body.ora : "")
+  };
+  if (!o.nome || o.telefono.replace(/\D/g, "").length < 8) throw new Errore("Servono nome e telefono");
+  if (!o.ora) throw new Errore("Scegli l'orario");
+  const ora = minutiRoma();
+  const dentro = FASCE.some(([a, b]) => o.ora === "asap" ? ora >= minuti(a) - 15 && ora <= minuti(b) : minuti(o.ora) >= minuti(a) && minuti(o.ora) <= minuti(b) && minuti(o.ora) > ora);
+  if (!dentro) throw new Errore("A quest'ora non accettiamo ordini. Orari: 12:00–14:30 e 19:00–22:30");
+  const sub = Math.round(righe.reduce((a, r) => a + r.q * r.prezzo, 0) * 100) / 100;
+  let costo = 0;
+  if (consegna) {
+    if (!(o.zona in ZONE)) throw new Errore("Zona di consegna non valida");
+    if (o.indirizzo.length < 5) throw new Errore("Manca l'indirizzo");
+    if (sub < MINIMO) throw new Errore(`Per la consegna l'ordine minimo è ${eur(MINIMO)}`);
+    costo = ZONE[o.zona];
+  }
+  const recenti = await env.DB.prepare("SELECT COUNT(*) AS n FROM ordini WHERE uid = ? AND creato > ?")
+    .bind(u.uid, new Date(Date.now() - 12 * 3600e3).toISOString()).first();
+  if (recenti && recenti.n >= 5) throw new Errore("Hai già inviato diversi ordini oggi: per altri chiama il ristorante", 429);
+  const tot = Math.round((sub + costo) * 100) / 100;
+  const ins = await env.DB.prepare("INSERT INTO ordini (uid, email, totale, creato) VALUES (?, ?, ?, ?)").bind(u.uid, u.email, tot, adessoISO()).run();
+  const numero = ins.meta && ins.meta.last_row_id;
+
+  const quando = o.ora === "asap" ? "Prima possibile" : `Alle ${o.ora}`;
+  const lista = righe.map((r) => `${r.q}× ${r.n != null ? r.n + " " : ""}${r.nome} — ${eur(r.q * r.prezzo)}`);
+  const t = oraRoma();
+  const it = [
+    consegna ? `🛵 NUOVO ORDINE n. ${numero} – CONSEGNA` : `🥡 NUOVO ORDINE n. ${numero} – RITIRO`, "",
+    `👤 ${o.nome}`, `📞 ${o.telefono}`,
+    consegna ? `📍 ${o.indirizzo} (${o.zona})` : "📍 Ritiro al ristorante",
+    `🕗 ${quando}`, "", ...lista, "",
+    consegna ? `Piatti ${eur(sub)} + consegna ${eur(costo)}` : null, `💶 TOTALE ${eur(tot)} – paga alla ${consegna ? "consegna" : "cassa"}`,
+    o.note ? `📝 ${o.note}` : null, `✉️ ${u.email}`, `⏱ Inviato il ${t.it}`
+  ];
+  const zh = [
+    consegna ? `🛵 新订单 ${numero}号 – 外送` : `🥡 新订单 ${numero}号 – 自取`, "",
+    `👤 姓名：${o.nome}`, `📞 电话：${o.telefono}`,
+    consegna ? `📍 地址：${o.indirizzo}（${o.zona}）` : "📍 到店自取",
+    `🕗 时间：${o.ora === "asap" ? "尽快" : o.ora}`, "", ...lista, "",
+    consegna ? `菜品 ${eur(sub)} + 配送费 ${eur(costo)}` : null, `💶 合计 ${eur(tot)}（${consegna ? "送达时付款" : "取餐时付款"}）`,
+    o.note ? `📝 备注：${o.note}` : null, `⏱ 提交时间：${t.zh}`
+  ];
+  const testo = [...it, "", "— — — — — — —", "", ...zh].filter((r) => r !== null).join("\n");
+  if (!(await tg(env, testo, CONFIG.CHAT_ORDINI || CONFIG.CHAT_ID))) throw new Errore("Non siamo riusciti a inviare l'ordine. Chiama il ristorante.", 502);
+  return { ok: true, numero, totale: tot };
 }
 
 /* ---------------- programma inviti ---------------- */
@@ -323,6 +396,7 @@ export default {
       if (url.pathname === "/" || url.pathname === "/prenotazione") return json(await prenotazione(env, body));
       await init(env);
       const ip = request.headers.get("CF-Connecting-IP") || "";
+      if (url.pathname === "/ordine") return json(await ordine(env, body));
       if (url.pathname === "/promo/iscrivi") return json(await promoIscrivi(env, body));
       if (url.pathname === "/promo/me") return json(await promoMe(env, body));
       if (url.pathname === "/promo/invito") return json(await promoInvito(env, body));
