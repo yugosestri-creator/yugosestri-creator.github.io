@@ -503,6 +503,18 @@ textarea.input { min-height: 84px; resize: vertical; }
 .cs-total b { font-family: var(--f-display); font-size: 26px; color: var(--gold-hi); font-variant-numeric: tabular-nums; }
 .cs-actions { display: grid; gap: 10px; justify-items: center; }
 
+.dish-sub { grid-column: 2 / -1; color: var(--muted); font-size: 14px; line-height: 1.45; padding-top: 2px; }
+
+/* ---------- All You Can Eat ---------- */
+.ayce { display: grid; gap: 12px; }
+.ayce-box { margin: 0 0 14px; padding: 16px; border-radius: 16px; border: 1px solid color-mix(in srgb, var(--gold) 50%, var(--line));
+  background: radial-gradient(120% 120% at 100% 0%, color-mix(in srgb, var(--gold) 16%, transparent), transparent 60%), var(--surface); }
+.ayce-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.ayce-head small { display: block; color: var(--gold); font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
+.ayce-head b { font-family: var(--f-display); font-size: 20px; font-weight: 400; letter-spacing: .04em; }
+.ayce-price { font-family: var(--f-display); font-size: 30px; color: var(--gold-hi); white-space: nowrap; }
+.ayce-list { margin: 0; padding-left: 18px; color: var(--muted); font-size: 14px; line-height: 1.5; display: grid; gap: 2px; }
+
 /* ---------- Menu: dove mangi? ---------- */
 .mode-pick { display: grid; gap: 12px; }
 .mode-pick h2 { font-size: 26px; font-weight: 600; text-transform: none; letter-spacing: .02em; }
