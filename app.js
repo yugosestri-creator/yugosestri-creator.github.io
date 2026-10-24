@@ -13,7 +13,9 @@ const isoDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getD
 const parseISO = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
 const toMin = (hhmm) => { const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; };
 const fromMin = (m) => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
-const fmtLongDate = (s) => parseISO(s).toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" });
+const fmtLongDate = (s) => parseISO(s).toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" }); // per Telegram: sempre italiano
+const LOC = () => (window.YUGO_I18N && window.YUGO_I18N.locale) || "it-IT";
+const fmtData = (s) => parseISO(s).toLocaleDateString(LOC(), { weekday: "long", day: "numeric", month: "long" }); // per il cliente, nella sua lingua
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const nowStamp = () => { const d = new Date(); return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} alle ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
 
@@ -56,6 +58,7 @@ function demoBackend() {
     async token() { return "demo"; },
     async save(b) { const id = "demo-" + Date.now(); mem.bookings.push({ id, ...b }); store.set("yugo-demo-bookings", mem.bookings); return id; },
     async cancel(id) { const b = mem.bookings.find((x) => x.id === id); if (b) { b.stato = "annullata"; store.set("yugo-demo-bookings", mem.bookings); } },
+    async remove(id) { mem.bookings = mem.bookings.filter((x) => x.id !== id); store.set("yugo-demo-bookings", mem.bookings); },
     async mine(uid) { return mem.bookings.filter((b) => b.uid === uid); }
   };
 }
@@ -72,7 +75,7 @@ async function firebaseBackend(conf) {
   let auth;
   try { auth = A.initializeAuth(app, { persistence: [A.indexedDBLocalPersistence, A.browserLocalPersistence] }); }
   catch { auth = A.getAuth(app); }
-  auth.languageCode = "it";
+  auth.languageCode = (window.YUGO_I18N && window.YUGO_I18N.lang) || "it";
   const db = F.getFirestore(app);
   const map = (u) => u && { uid: u.uid, email: u.email, nome: u.displayName || "", verified: u.emailVerified };
   const actionSettings = { url: location.origin + location.pathname + "#prenota" };
@@ -92,6 +95,7 @@ async function firebaseBackend(conf) {
     async reload() { await auth.currentUser.reload(); await auth.currentUser.getIdToken(true); return map(auth.currentUser); },
     async save(b) { const r = await F.addDoc(F.collection(db, "prenotazioni"), { ...b, creataIlServer: F.serverTimestamp() }); return r.id; },
     async cancel(id) { await F.updateDoc(F.doc(db, "prenotazioni", id), { stato: "annullata", annullataIl: F.serverTimestamp() }); },
+    async remove(id) { await F.deleteDoc(F.doc(db, "prenotazioni", id)); },
     async mine(uid) {
       const q = F.query(F.collection(db, "prenotazioni"), F.where("uid", "==", uid));
       const s = await F.getDocs(q);
@@ -226,7 +230,7 @@ function renderPromo() {
       <h2>${esc(p.titolo)}</h2>
       <p>${esc(p.descrizione || "")}</p>
       ${p.quando ? `<p class="hint">${esc(p.quando)}</p>` : ""}
-      ${p.al ? `<p class="hint">Valida fino a ${esc(fmtLongDate(p.al))}</p>` : ""}
+      ${p.al ? `<p class="hint">Valida fino a ${esc(fmtData(p.al))}</p>` : ""}
     </article>`).join("")
     : `<p class="muted">In questo momento non ci sono promozioni attive. Seguici sui social per non perdere le prossime.</p>`;
   $("#promo-social").innerHTML = socialLinks();
@@ -518,16 +522,16 @@ function aggiornaBarra() {
 /* Orari in cui si può ordinare oggi */
 function fasceOggi() {
   const now = new Date(), m = now.getHours() * 60 + now.getMinutes(), anticipo = ORD.anticipo || 40;
-  const slots = []; let asap = false;
+  const slots = [];
   for (const [da, a] of ORD.fasce || []) {
     const s = toMin(da), e = toMin(a);
-    if (m >= s - 15 && m <= e - 15) asap = true;
-    for (let t = s; t <= e; t += 15) if (t >= m + anticipo) slots.push(fromMin(t));
+    if (m > e) continue; // dopo le 14:30 e dopo le 22:00 niente ordini
+    for (let t = s; t <= e + 30; t += 15) if (t >= m + anticipo) slots.push(fromMin(t));
   }
-  return { asap, slots };
+  return { slots };
 }
 
-let ordDati = store.get("yugo-ordine-dati", { modo: "consegna", zona: 0, indirizzo: "", ora: "asap", note: "" });
+let ordDati = store.get("yugo-ordine-dati", { modo: "consegna", zona: 0, indirizzo: "", ora: "", note: "" });
 function apriCarrello() {
   const s = $("#carrello"); s.hidden = false; document.documentElement.classList.add("no-scroll");
   disegnaCarrello();
@@ -546,10 +550,9 @@ function disegnaCarrello() {
   const d = ordDati, consegna = d.modo === "consegna", zone = ORD.zone || [];
   const zona = zone[d.zona] || zone[0], costo = consegna && zona ? zona.costo : 0;
   const sub = subtotale(), tot = Math.round((sub + costo) * 100) / 100;
-  const { asap, slots } = fasceOggi();
-  if (d.ora !== "asap" && !slots.includes(d.ora)) d.ora = asap ? "asap" : (slots[0] || "");
-  if (d.ora === "asap" && !asap) d.ora = slots[0] || "";
-  const chiuso = !asap && !slots.length;
+  const { slots } = fasceOggi();
+  if (!slots.includes(d.ora)) d.ora = slots[0] || "";
+  const chiuso = !slots.length;
   const sottoMinimo = consegna && sub < (ORD.minimo || 0);
   const n = pezzi();
   const fam = (R.formule || []).map((f) => ({ f, k: parseInt(f.quando, 10) })).find(({ f, k }) => k === n && sub > f.prezzo && !/F1/.test(f.nome));
@@ -566,8 +569,8 @@ function disegnaCarrello() {
       <div class="field"><label for="o-ind">Indirizzo</label><input class="input" id="o-ind" autocomplete="street-address" placeholder="Via, numero civico, citofono" value="${esc(d.indirizzo || "")}"></div>`
       : `<p class="hint">Ritiri da noi in ${esc(R.indirizzo || "")}.</p>`}
     <div class="field"><label for="o-ora">${consegna ? "Quando lo vuoi" : "Quando passi"}</label>
-      ${chiuso ? `<p class="notice">Per oggi gli ordini sono chiusi. Ordiniamo ${esc((ORD.fasce || []).map(([a, b]) => a + "–" + b).join(" e "))}.</p>`
-        : `<select class="input" id="o-ora">${asap ? `<option value="asap" ${d.ora === "asap" ? "selected" : ""}>Prima possibile</option>` : ""}${slots.map((t) => `<option ${t === d.ora ? "selected" : ""}>${t}</option>`).join("")}</select>`}</div>
+      ${chiuso ? `<p class="notice">Per oggi gli ordini sono chiusi. Si ordina dalle ${esc((ORD.fasce || []).map(([a, b]) => a + " alle " + b).join(" e dalle "))}.</p>`
+        : `<select class="input" id="o-ora">${slots.map((t) => `<option ${t === d.ora ? "selected" : ""}>${t}</option>`).join("")}</select>`}</div>
     <div class="field"><label for="o-nome">Nome</label><input class="input" id="o-nome" autocomplete="name" value="${esc(d.nome || (user && user.nome) || "")}"></div>
     <div class="field"><label for="o-tel">Telefono</label><input class="input" id="o-tel" type="tel" inputmode="tel" autocomplete="tel" placeholder="+39 333 123 4567" value="${esc(d.telefono || store.get("yugo-draft", {}).telefono || "")}"></div>
     <div class="field"><label for="o-note">Note (facoltativo)</label><textarea class="input" id="o-note" placeholder="Allergie, menu Family, bacchette…">${esc(d.note || "")}</textarea></div>
@@ -620,7 +623,7 @@ function disegnaCarrello() {
       carrello = {}; salvaCarrello(); aggiornaBarra(); ridisegnaQta();
       body.innerHTML = `<div class="ord-ok"><div class="ord-check" aria-hidden="true">✓</div>
         <p class="cs-kicker">Ordine n. ${esc(res.numero)} inviato</p><h2 id="ord-title">Grazie ${esc(d.nome.split(" ")[0])}!</h2>
-        <p class="muted">Il ristorante l'ha ricevuto ora. ${consegna ? "Ti portiamo tutto" : "Ti aspettiamo"} ${d.ora === "asap" ? "il prima possibile" : "per le " + esc(d.ora)}. Se c'è un problema ti chiamiamo al ${esc(d.telefono)}.</p>
+        <p class="muted">Il ristorante l'ha ricevuto ora. ${consegna ? "Ti portiamo tutto" : "Ti aspettiamo"} per le ${esc(d.ora)}. Se c'è un problema ti chiamiamo al ${esc(d.telefono)}.</p>
         <p class="hint">Per modifiche chiama il ${esc(R.telefono || "")}.</p>
         <button class="btn btn-block" type="button" data-close>Chiudi</button></div>`;
     } catch (ex) { fail(ex.message); btn.disabled = false; btn.textContent = `Invia ordine · € ${euro(tot)}`; }
@@ -826,11 +829,17 @@ function proposta() {
       : (fam ? ` · Con il <b>menu Family ${fam.n}</b> (${fam.piatti} piatti) lo paghi <b>€ ${fam.prezzo}</b> e c'è anche la bibita` : "")}.</p>
     <p class="hint">${MODO === "ristorante" && !(R.menuRistorante && R.menuRistorante.length) ? "Prezzi del menu da asporto: al tavolo possono cambiare. " : ""}Per allergie e intolleranze chiedi sempre al personale.</p>
     <div class="cs-actions">
-      <button class="btn btn-gold btn-block" id="cs-shuffle" type="button">Un'altra proposta</button>
+      ${ORD && MODO === "casa" ? `<button class="btn btn-gold btn-block" id="cs-cart" type="button">🛒 Aggiungi tutto all'ordine</button>` : ""}
+      <button class="btn ${ORD && MODO === "casa" ? "btn-ghost" : "btn-gold"} btn-block" id="cs-shuffle" type="button">Un'altra proposta</button>
       <a class="btn btn-ghost btn-block" href="#prenota" data-go="prenota" data-close>Prenota un tavolo</a>
       <button type="button" class="linkbtn" id="cs-restart">Rispondi di nuovo</button>
     </div>`;
   $("#cs-shuffle").onclick = proposta;
+  if ($("#cs-cart")) $("#cs-cart").onclick = () => {
+    scelti.forEach((p) => cambiaQta(p, 1));
+    ridisegnaQta(); chiudiConsiglio();
+    toast(`${scelti.length} piatti aggiunti all'ordine.`);
+  };
   $("#cs-restart").onclick = apriConsiglio;
 }
 
@@ -935,7 +944,7 @@ function renderBooking() {
     const sel = $("#b-ora"); const val = $("#b-data").value; const prev = sel.value || draft.ora;
     const groups = val ? slotsFor(val) : [];
     const closed = $("#b-closed");
-    if (groups === null) { sel.innerHTML = ""; closed.textContent = `Il ${fmtLongDate(val)} siamo chiusi. Scegli un altro giorno.`; closed.hidden = false; }
+    if (groups === null) { sel.innerHTML = ""; closed.textContent = `Il ${fmtData(val)} siamo chiusi. Scegli un altro giorno.`; closed.hidden = false; }
     else if (!groups.length) { sel.innerHTML = ""; closed.textContent = "Per questo giorno non ci sono più orari disponibili."; closed.hidden = false; }
     else {
       closed.hidden = true;
@@ -985,7 +994,7 @@ function renderConfirmation(area, b) {
   area.innerHTML = `<div class="ticket">
       <div class="ticket-top">
         <span class="ok">Richiesta inviata</span>
-        <h2>${esc(cap(fmtLongDate(b.data)))}, ore ${esc(b.ora)}</h2>
+        <h2>${esc(cap(fmtData(b.data)))}, ore ${esc(b.ora)}</h2>
         <p class="muted">Tavolo per ${b.persone} a nome ${esc(b.nome)}. Se c'è un problema ti contattiamo${b.telefono ? " al " + esc(b.telefono) : " via email"}.</p>
       </div>
       <dl>
@@ -1037,14 +1046,23 @@ function renderAccount() {
       const puoi = !annullata && !passata && t - now > ORA_LIMITE;
       const tardi = !annullata && !passata && !puoi;
       return `<div class="bitem ${passata || annullata ? "past" : ""}">
-        <div class="bdate"><b>${d.getDate()}</b><span>${d.toLocaleDateString("it-IT", { month: "short" })}</span></div>
-        <div class="binfo"><strong>${esc(cap(d.toLocaleDateString("it-IT", { weekday: "long" })))} · ore ${esc(b.ora)}</strong>${annullata ? ` <span class="tag-off">Annullata</span>` : ""}<br><span class="muted">${b.persone} ${b.persone === 1 ? "persona" : "persone"} · a nome ${esc(b.nome)}</span>
+        <div class="bdate"><b>${d.getDate()}</b><span>${d.toLocaleDateString(LOC(), { month: "short" })}</span></div>
+        <div class="binfo"><strong>${esc(cap(d.toLocaleDateString(LOC(), { weekday: "long" })))} · ore ${esc(b.ora)}</strong>${annullata ? ` <span class="tag-off">Annullata</span>` : ""}<br><span class="muted">${b.persone} ${b.persone === 1 ? "persona" : "persone"} · a nome ${esc(b.nome)}</span>
           ${puoi ? `<div class="bactions"><button class="btn btn-ghost btn-sm" data-cancel="${esc(b.id)}">Annulla prenotazione</button></div>` : ""}
+          ${annullata || passata ? `<div class="bactions"><button class="btn btn-ghost btn-sm" data-del="${esc(b.id)}">Elimina dalla lista</button></div>` : ""}
           ${tardi ? `<p class="hint tardi">Manca meno di un'ora: per annullare chiama il ristorante al <a href="tel:${telLink}">${esc(R.telefono || "")}</a>.</p>` : ""}
         </div>
       </div>`;
     }).join("");
     el.querySelectorAll("[data-cancel]").forEach((btn) => btn.addEventListener("click", () => askCancel(btn, list.find((x) => x.id === btn.dataset.cancel))));
+    el.querySelectorAll("[data-del]").forEach((btn) => btn.addEventListener("click", async () => {
+      const item = btn.closest(".bitem"); btn.disabled = true;
+      try {
+        await backend.remove(btn.dataset.del);
+        item.classList.add("bye"); setTimeout(() => { item.remove(); if (!el.querySelector(".bitem")) renderAccount(); }, 350);
+        toast("Prenotazione eliminata dalla lista.");
+      } catch { btn.disabled = false; toast("Non sono riuscito a eliminarla. Riprova."); }
+    }));
   }).catch(() => { const el = $("#my-list"); if (el) el.innerHTML = `<p class="muted">Non riesco a caricare le prenotazioni. Riprova più tardi.</p>`; });
 }
 
