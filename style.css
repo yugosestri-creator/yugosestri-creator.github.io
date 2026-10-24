@@ -505,6 +505,37 @@ textarea.input { min-height: 84px; resize: vertical; }
 
 .dish-sub { grid-column: 2 / -1; color: var(--muted); font-size: 14px; line-height: 1.45; padding-top: 2px; }
 
+/* ---------- Ordine da casa ---------- */
+.menu-list.shop .dish-more, .menu-list.shop .dish-desc, .menu-list.shop .dish-sub { grid-column: 2 / 3; }
+.menu-list.shop .dish-price { justify-self: end; }
+.menu-list.shop .qty { grid-column: 3; grid-row: 2 / span 2; justify-self: end; align-self: start; margin-top: 8px; }
+.qty { display: inline-flex; align-items: center; border-radius: 999px; }
+.qty button { width: 34px; height: 34px; border-radius: 50%; border: 1px solid color-mix(in srgb, var(--gold) 55%, var(--line)); background: transparent;
+  color: var(--gold-hi); font: 600 20px/1 var(--f-body); cursor: pointer; display: grid; place-items: center; padding: 0; }
+.qty.on { background: color-mix(in srgb, var(--gold) 16%, var(--surface-2)); }
+.qty.on button { border-color: transparent; }
+.qty output { min-width: 22px; text-align: center; font-weight: 800; font-variant-numeric: tabular-nums; }
+.qty button:active { transform: scale(.9); }
+.qty.pop { animation: fx-pop .3s ease; }
+@keyframes fx-pop { 50% { transform: scale(1.15); } }
+.cart-bar { position: fixed; z-index: 35; left: 12px; right: 12px; bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 10px);
+  max-width: 596px; margin: 0 auto; min-height: 54px; padding: 0 16px; border: 0; border-radius: 16px; cursor: pointer;
+  display: flex; align-items: center; gap: 10px; color: #1b1205; font: 600 15px var(--f-body);
+  background: linear-gradient(180deg, var(--gold-hi), var(--gold)); box-shadow: 0 10px 30px rgb(0 0 0 / .35); animation: fx-sheet .35s cubic-bezier(.2,.8,.2,1) both; }
+.cart-bar svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.cart-bar-go { margin-left: auto; font-weight: 800; }
+body.has-cart .menu-list { padding-bottom: 80px; }
+#ord-body { display: grid; gap: 14px; }
+#ord-body h2 { font-size: 24px; font-weight: 600; text-transform: none; letter-spacing: .02em; padding-right: 40px; }
+#ord-body p { margin: 0; }
+.ord-list li { grid-template-columns: 34px 1fr auto; align-items: center; }
+.ord-sum { display: grid; gap: 6px; padding-top: 4px; border-top: 1px solid var(--line); }
+.ord-sum > div:not(.cs-total) { display: flex; justify-content: space-between; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ord-ok { display: grid; gap: 12px; text-align: center; justify-items: center; padding: 10px 0; }
+.ord-check { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; font-size: 32px; color: #1b1205;
+  background: linear-gradient(180deg, var(--gold-hi), var(--gold)); animation: fx-pop .5s ease; }
+.btn[disabled] { opacity: .5; cursor: not-allowed; }
+
 /* ---------- All You Can Eat ---------- */
 .ayce { display: grid; gap: 12px; }
 .ayce-box { margin: 0 0 14px; padding: 16px; border-radius: 16px; border: 1px solid color-mix(in srgb, var(--gold) 50%, var(--line));
