@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Allura&family=Josefin+Sans:wght@300;400;600&family=Mulish:wght@400;600;700&display=swap">
-<link rel="stylesheet" href="style.css?v=14">
+<link rel="stylesheet" href="style.css?v=15">
 </head>
 <body>
 <!--APP-START-->
@@ -190,10 +190,21 @@
     <div id="cs-body"></div>
   </div>
 </div>
+<button type="button" id="cart-bar" class="cart-bar" hidden>
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l-1.2 12.1a1 1 0 0 1-1 .9H7.2a1 1 0 0 1-1-.9Z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/></svg>
+  <span id="cart-bar-txt"></span><span class="cart-bar-go">Vedi ordine →</span>
+</button>
+<div id="carrello" class="sheet" role="dialog" aria-modal="true" aria-labelledby="ord-title" hidden>
+  <div class="sheet-bg" data-close></div>
+  <div class="sheet-card">
+    <button type="button" class="sheet-x" data-close aria-label="Chiudi">×</button>
+    <div id="ord-body"></div>
+  </div>
+</div>
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 <!--APP-END-->
-<script src="config.js?v=14"></script>
-<script src="anim.js?v=14"></script>
-<script type="module" src="app.js?v=14"></script>
+<script src="config.js?v=15"></script>
+<script src="anim.js?v=15"></script>
+<script type="module" src="app.js?v=15"></script>
 </body>
 </html>
