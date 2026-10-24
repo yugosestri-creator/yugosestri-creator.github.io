@@ -124,7 +124,7 @@ async function prenotazione(env, body) {
 
 /* ---------------- ordini da casa ---------------- */
 const ZONE = { "Sestri Levante": 1, "Riva Trigoso": 2.5, "Casarza Ligure": 3.5, "Moneglia": 5 };
-const FASCE = [["12:00", "14:30"], ["19:00", "22:30"]];
+const FASCE = [["12:00", "14:30"], ["19:00", "22:00"]]; // orari di consegna/ritiro; dopo le 14:30 e le 22:00 niente ordini
 const MINIMO = 20;
 const eur = (n) => "€ " + n.toFixed(2).replace(".", ",");
 const minuti = (hhmm) => { const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; };
@@ -145,13 +145,13 @@ async function ordine(env, body) {
   if (!righe.length) throw new Errore("L'ordine è vuoto");
   const o = {
     nome: pulisci(body.nome, 80), telefono: pulisci(body.telefono, 30), note: pulisci(body.note, 400),
-    indirizzo: pulisci(body.indirizzo, 160), zona: pulisci(body.zona, 40), ora: body.ora === "asap" ? "asap" : (/^\d{2}:\d{2}$/.test(body.ora) ? body.ora : "")
+    indirizzo: pulisci(body.indirizzo, 160), zona: pulisci(body.zona, 40), ora: /^\d{2}:\d{2}$/.test(body.ora) ? body.ora : ""
   };
   if (!o.nome || o.telefono.replace(/\D/g, "").length < 8) throw new Errore("Servono nome e telefono");
   if (!o.ora) throw new Errore("Scegli l'orario");
   const ora = minutiRoma();
-  const dentro = FASCE.some(([a, b]) => o.ora === "asap" ? ora >= minuti(a) - 15 && ora <= minuti(b) : minuti(o.ora) >= minuti(a) && minuti(o.ora) <= minuti(b) && minuti(o.ora) > ora);
-  if (!dentro) throw new Errore("A quest'ora non accettiamo ordini. Orari: 12:00–14:30 e 19:00–22:30");
+  const dentro = FASCE.some(([a, b]) => ora <= minuti(b) && minuti(o.ora) >= minuti(a) && minuti(o.ora) <= minuti(b) + 30 && minuti(o.ora) >= ora + 15);
+  if (!dentro) throw new Errore("Orario non disponibile. Si ordina dalle 12:00 alle 14:30 e dalle 19:00 alle 22:00");
   const sub = Math.round(righe.reduce((a, r) => a + r.q * r.prezzo, 0) * 100) / 100;
   let costo = 0;
   if (consegna) {
@@ -167,7 +167,7 @@ async function ordine(env, body) {
   const ins = await env.DB.prepare("INSERT INTO ordini (uid, email, totale, creato) VALUES (?, ?, ?, ?)").bind(u.uid, u.email, tot, adessoISO()).run();
   const numero = ins.meta && ins.meta.last_row_id;
 
-  const quando = o.ora === "asap" ? "Prima possibile" : `Alle ${o.ora}`;
+  const quando = `Alle ${o.ora}`;
   const lista = righe.map((r) => `${r.q}× ${r.n != null ? r.n + " " : ""}${r.nome} — ${eur(r.q * r.prezzo)}`);
   const t = oraRoma();
   const it = [
@@ -182,7 +182,7 @@ async function ordine(env, body) {
     consegna ? `🛵 新订单 ${numero}号 – 外送` : `🥡 新订单 ${numero}号 – 自取`, "",
     `👤 姓名：${o.nome}`, `📞 电话：${o.telefono}`,
     consegna ? `📍 地址：${o.indirizzo}（${o.zona}）` : "📍 到店自取",
-    `🕗 时间：${o.ora === "asap" ? "尽快" : o.ora}`, "", ...lista, "",
+    `🕗 时间：${o.ora}`, "", ...lista, "",
     consegna ? `菜品 ${eur(sub)} + 配送费 ${eur(costo)}` : null, `💶 合计 ${eur(tot)}（${consegna ? "送达时付款" : "取餐时付款"}）`,
     o.note ? `📝 备注：${o.note}` : null, `⏱ 提交时间：${t.zh}`
   ];
