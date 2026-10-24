@@ -1,6 +1,6 @@
 /* Service worker: fa aprire Yugo velocemente e anche con poca connessione */
-const CACHE = "yugo-v6";
-const FILES = ["./", "./index.html", "./style.css", "./app.js", "./anim.js", "./config.js", "./manifest.json", "./icon-192.png", "./apple-touch-icon.png", "./logo-word.webp", "./piatto.jpg"];
+const CACHE = "yugo-v7";
+const FILES = ["./", "./index.html", "./style.css", "./app.js", "./anim.js", "./config.js", "./i18n.js", "./manifest.json", "./icon-192.png", "./apple-touch-icon.png", "./logo-word.webp", "./piatto.jpg"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));
