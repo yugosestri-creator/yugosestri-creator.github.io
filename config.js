@@ -40,7 +40,7 @@ window.YUGO_CONFIG = {
       { nome: "Family F3", quando: "8 piatti a scelta + 2 bibite in lattina", prezzo: 40 },
       { nome: "Family F4", quando: "12 piatti a scelta + 3 bibite in lattina", prezzo: 60 }
     ],
-    notaFormule: "Piatti special e dim sum non sono disponibili da asporto. Carpaccio e sashimi: non nel menu F1, una volta per tipo con F2, due con F3, tre con F4. I piatti 155 e 156 si ordinano una sola volta. Consegna a domicilio 12:00–14:30 e 19:00–22:30, ordine minimo € 20: Sestri Levante € 1, Riva Trigoso € 2,50, Casarza Ligure € 3,50, Moneglia € 5.",
+    notaFormule: "Piatti special e dim sum non sono disponibili da asporto. Carpaccio e sashimi: non nel menu F1, una volta per tipo con F2, due con F3, tre con F4. I piatti 155 e 156 si ordinano una sola volta. Consegna a domicilio 12:00–14:30 e 19:00–22:00, ordine minimo € 20: Sestri Levante € 1, Riva Trigoso € 2,50, Casarza Ligure € 3,50, Moneglia € 5.",
 
     orari: [
       { giorno: "Lunedì",    ore: "12:00 – 15:00 · 19:00 – 23:00" },
@@ -68,8 +68,8 @@ window.YUGO_CONFIG = {
     ordini: {
       justEat: "https://www.justeat.it/restaurants-yugo-sushi-experience-sestri-levante/menu",
       minimo: 20,              // ordine minimo per la consegna (€)
-      anticipo: 40,            // minuti minimi tra ordine e consegna/ritiro
-      fasce: [["12:00", "14:30"], ["19:00", "22:30"]],
+      anticipo: 30,            // minuti minimi tra ordine e consegna/ritiro
+      fasce: [["12:00", "14:30"], ["19:00", "22:00"]], // dopo le 14:30 e dopo le 22:00 niente ordini
       zone: [
         { nome: "Sestri Levante", costo: 1 },
         { nome: "Riva Trigoso", costo: 2.5 },
@@ -81,7 +81,7 @@ window.YUGO_CONFIG = {
       titolo: "All You Can Eat",
       quando: "A cena · tutti i giorni",
       prezzo: 26.9,
-      righe: ["Bambini sotto i 130 cm € 13,90", "Esclusi coperto (€ 2,00), bevande, dolci e caffè", "Per evitare sprechi il cibo avanzato ha un supplemento di € 5–10; puoi portarlo via con un piccolo costo extra"]
+      righe: ["Bambini sotto i 130 cm € 13,90", "Esclusi coperto (€ 2,00), bevande, dolci e caffè"]
     },
     // Menu del ristorante (foto del 24 ottobre 2026): prezzi alla carta
     menuRistorante: [
