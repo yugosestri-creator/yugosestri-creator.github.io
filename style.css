@@ -222,6 +222,7 @@ textarea.input { min-height: 84px; resize: vertical; }
 .bdate b { display: block; font-family: var(--f-display); font-size: 22px; color: var(--gold-hi); }
 .bdate span { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
 .bitem.past { opacity: .6; }
+.bitem.bye { opacity: 0; transform: translateX(40px); transition: opacity .3s, transform .3s; }
 
 .install ol { margin: 0; padding-left: 1.2em; display: grid; gap: 4px; }
 
@@ -504,6 +505,27 @@ textarea.input { min-height: 84px; resize: vertical; }
 .cs-actions { display: grid; gap: 10px; justify-items: center; }
 
 .dish-sub { grid-column: 2 / -1; color: var(--muted); font-size: 14px; line-height: 1.45; padding-top: 2px; }
+
+/* ---------- Lingue ---------- */
+html.i18n-wait body { visibility: hidden; }
+.lang-btn { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; min-height: 36px; padding: 0 10px; border-radius: 999px;
+  border: 1px solid var(--line); background: transparent; color: var(--fg); font: 700 12px/1 var(--f-body); letter-spacing: .08em; cursor: pointer; }
+.lang-btn svg { width: 16px; height: 16px; fill: none; stroke: var(--gold-hi); stroke-width: 1.6; }
+.lang-pick { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; padding: 20px;
+  background: radial-gradient(120% 80% at 50% 0%, color-mix(in srgb, var(--gold) 14%, transparent), transparent 60%), var(--bg);
+  animation: fx-fade .35s ease both; transition: opacity .35s ease; }
+.lang-pick.out { opacity: 0; }
+.lang-card { position: relative; width: 100%; max-width: 420px; display: grid; gap: 18px; justify-items: center; text-align: center; }
+.lang-logo { height: 66px; width: auto; }
+.lang-title { margin: 0; color: var(--muted); font-size: 15px; }
+.lang-grid { width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.lang-grid button { min-height: 58px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); cursor: pointer;
+  display: flex; align-items: center; justify-content: space-between; padding: 0 16px; font: 600 17px var(--f-body); transition: border-color .2s, transform .15s; }
+.lang-grid button small { color: var(--muted); font-size: 11px; letter-spacing: .1em; }
+.lang-grid button:hover, .lang-grid button:focus-visible, .lang-grid button.on { border-color: var(--gold); }
+.lang-grid button:active { transform: scale(.97); }
+.lang-grid button:last-child:nth-child(odd) { grid-column: 1 / -1; }
+.lang-x { position: absolute; top: -6px; right: 0; width: 40px; height: 40px; border-radius: 50%; border: 0; background: var(--surface-2); color: var(--fg); font-size: 24px; cursor: pointer; }
 
 /* ---------- Ordine da casa ---------- */
 .menu-list.shop .dish-more, .menu-list.shop .dish-desc, .menu-list.shop .dish-sub { grid-column: 2 / 3; }
