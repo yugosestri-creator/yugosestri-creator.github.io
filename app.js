@@ -415,6 +415,7 @@ function go(view, push = true) {
   if (view === "account") renderAccount();
   if (view === "promo") renderInvite();
   if (view === "home") requestAnimationFrame(drawWaves);
+  if (typeof aggiornaBarra === "function") aggiornaBarra();
   if (push) { try { history.replaceState(null, "", (view === "invito" ? location.search : location.pathname) + "#" + view); } catch { /* frame senza history */ } }
   window.scrollTo({ top: 0 });
 }
@@ -483,14 +484,168 @@ function mostraModo() {
   if (box) { box.hidden = casa || !R.allYouCanEat; box.innerHTML = casa ? "" : ayceHTML(false); }
 }
 
+
+/* ------------------------------------------------------------------ */
+/* Ordine da casa: carrello, consegna o ritiro, invio su Telegram      */
+/* ------------------------------------------------------------------ */
+const ORD = R.ordini || null;
+let carrello = store.get("yugo-carrello", {});
+const chiave = (p) => String(p.n != null ? p.n : p.nome);
+const righeCarrello = () => Object.values(carrello).filter((r) => r.q > 0);
+const pezzi = () => righeCarrello().reduce((a, r) => a + r.q, 0);
+const subtotale = () => Math.round(righeCarrello().reduce((a, r) => a + r.q * r.prezzo, 0) * 100) / 100;
+const salvaCarrello = () => store.set("yugo-carrello", carrello);
+
+function qtyHTML(p) {
+  const k = chiave(p), q = (carrello[k] && carrello[k].q) || 0;
+  return q
+    ? `<span class="qty on" data-k="${esc(k)}"><button type="button" data-d="-1" aria-label="Togli un ${esc(pul(p.nome))}">−</button><output>${q}</output><button type="button" data-d="1" aria-label="Aggiungi un ${esc(pul(p.nome))}">+</button></span>`
+    : `<span class="qty" data-k="${esc(k)}"><button type="button" class="qty-add" data-d="1" aria-label="Aggiungi ${esc(pul(p.nome))} all'ordine">+</button></span>`;
+}
+function cambiaQta(p, d) {
+  const k = chiave(p), r = carrello[k] || { n: p.n ?? null, nome: pul(p.nome), prezzo: p.prezzo, q: 0 };
+  r.q = Math.max(0, Math.min(20, r.q + d));
+  if (r.q) carrello[k] = r; else delete carrello[k];
+  salvaCarrello(); aggiornaBarra();
+}
+function aggiornaBarra() {
+  const bar = $("#cart-bar"); if (!bar) return;
+  const n = pezzi(), vedi = ORD && MODO === "casa" && n > 0 && !$("#view-menu").hidden;
+  bar.hidden = !vedi; document.body.classList.toggle("has-cart", vedi);
+  if (vedi) $("#cart-bar-txt").innerHTML = `<b>${n} ${n === 1 ? "piatto" : "piatti"}</b> · € ${euro(subtotale())}`;
+}
+
+/* Orari in cui si può ordinare oggi */
+function fasceOggi() {
+  const now = new Date(), m = now.getHours() * 60 + now.getMinutes(), anticipo = ORD.anticipo || 40;
+  const slots = []; let asap = false;
+  for (const [da, a] of ORD.fasce || []) {
+    const s = toMin(da), e = toMin(a);
+    if (m >= s - 15 && m <= e - 15) asap = true;
+    for (let t = s; t <= e; t += 15) if (t >= m + anticipo) slots.push(fromMin(t));
+  }
+  return { asap, slots };
+}
+
+let ordDati = store.get("yugo-ordine-dati", { modo: "consegna", zona: 0, indirizzo: "", ora: "asap", note: "" });
+function apriCarrello() {
+  const s = $("#carrello"); s.hidden = false; document.documentElement.classList.add("no-scroll");
+  disegnaCarrello();
+}
+function chiudiCarrello() { $("#carrello").hidden = true; document.documentElement.classList.remove("no-scroll"); }
+document.addEventListener("click", (e) => { if (e.target.closest("#carrello [data-close]")) chiudiCarrello(); });
+
+function disegnaCarrello() {
+  const body = $("#ord-body"), righe = righeCarrello();
+  if (!righe.length) {
+    body.innerHTML = `<p class="cs-kicker">Il tuo ordine</p><h2 id="ord-title">Ancora vuoto</h2>
+      <p class="muted">Tocca <b>+</b> accanto ai piatti del menu per aggiungerli.</p>
+      <button class="btn btn-block" type="button" data-close>Torna al menu</button>`;
+    return;
+  }
+  const d = ordDati, consegna = d.modo === "consegna", zone = ORD.zone || [];
+  const zona = zone[d.zona] || zone[0], costo = consegna && zona ? zona.costo : 0;
+  const sub = subtotale(), tot = Math.round((sub + costo) * 100) / 100;
+  const { asap, slots } = fasceOggi();
+  if (d.ora !== "asap" && !slots.includes(d.ora)) d.ora = asap ? "asap" : (slots[0] || "");
+  if (d.ora === "asap" && !asap) d.ora = slots[0] || "";
+  const chiuso = !asap && !slots.length;
+  const sottoMinimo = consegna && sub < (ORD.minimo || 0);
+  const n = pezzi();
+  const fam = (R.formule || []).map((f) => ({ f, k: parseInt(f.quando, 10) })).find(({ f, k }) => k === n && sub > f.prezzo && !/F1/.test(f.nome));
+  body.innerHTML = `<p class="cs-kicker">Il tuo ordine</p><h2 id="ord-title">${n} ${n === 1 ? "piatto" : "piatti"}</h2>
+    <ul class="cs-list ord-list">${righe.map((r) => `<li data-k="${esc(String(r.n != null ? r.n : r.nome))}"><span class="dish-n">${r.n != null ? esc(r.n) : ""}</span>
+      <span><b>${esc(r.nome)}</b><small>€ ${euro(r.prezzo)} l'uno</small></span>
+      <span class="qty on"><button type="button" data-d="-1" aria-label="Togli uno">−</button><output>${r.q}</output><button type="button" data-d="1" aria-label="Aggiungi uno">+</button></span></li>`).join("")}</ul>
+    ${fam ? `<p class="hint">💡 Hai ${n} piatti: con il <b>${esc(fam.f.nome)}</b> li paghi <b>€ ${euro(fam.f.prezzo)}</b> e c'è la bibita. Scrivilo nelle note.</p>` : ""}
+    <div class="tabs2" role="tablist" aria-label="Consegna o ritiro">
+      <button role="tab" type="button" data-modo-ord="consegna" aria-selected="${consegna}">🛵 Consegna</button>
+      <button role="tab" type="button" data-modo-ord="ritiro" aria-selected="${!consegna}">🥡 Ritiro</button>
+    </div>
+    ${consegna ? `<div class="field"><label for="o-zona">Zona</label><select class="input" id="o-zona">${zone.map((z, i) => `<option value="${i}" ${i === d.zona ? "selected" : ""}>${esc(z.nome)} · consegna € ${euro(z.costo)}</option>`).join("")}</select></div>
+      <div class="field"><label for="o-ind">Indirizzo</label><input class="input" id="o-ind" autocomplete="street-address" placeholder="Via, numero civico, citofono" value="${esc(d.indirizzo || "")}"></div>`
+      : `<p class="hint">Ritiri da noi in ${esc(R.indirizzo || "")}.</p>`}
+    <div class="field"><label for="o-ora">${consegna ? "Quando lo vuoi" : "Quando passi"}</label>
+      ${chiuso ? `<p class="notice">Per oggi gli ordini sono chiusi. Ordiniamo ${esc((ORD.fasce || []).map(([a, b]) => a + "–" + b).join(" e "))}.</p>`
+        : `<select class="input" id="o-ora">${asap ? `<option value="asap" ${d.ora === "asap" ? "selected" : ""}>Prima possibile</option>` : ""}${slots.map((t) => `<option ${t === d.ora ? "selected" : ""}>${t}</option>`).join("")}</select>`}</div>
+    <div class="field"><label for="o-nome">Nome</label><input class="input" id="o-nome" autocomplete="name" value="${esc(d.nome || (user && user.nome) || "")}"></div>
+    <div class="field"><label for="o-tel">Telefono</label><input class="input" id="o-tel" type="tel" inputmode="tel" autocomplete="tel" placeholder="+39 333 123 4567" value="${esc(d.telefono || store.get("yugo-draft", {}).telefono || "")}"></div>
+    <div class="field"><label for="o-note">Note (facoltativo)</label><textarea class="input" id="o-note" placeholder="Allergie, menu Family, bacchette…">${esc(d.note || "")}</textarea></div>
+    <div class="ord-sum">
+      <div><span>Piatti</span><span>€ ${euro(sub)}</span></div>
+      ${consegna ? `<div><span>Consegna</span><span>€ ${euro(costo)}</span></div>` : ""}
+      <div class="cs-total"><span>Totale</span><b>€ ${euro(tot)}</b></div>
+    </div>
+    <p class="hint">Paghi alla ${consegna ? "consegna" : "cassa quando ritiri"}.${sottoMinimo ? ` <b>Per la consegna l'ordine minimo è € ${euro(ORD.minimo)}.</b>` : ""}</p>
+    <p class="error" id="o-err" hidden></p>
+    <div class="cs-actions">
+      ${user ? `<button class="btn btn-gold btn-block" id="o-send" type="button" ${chiuso || sottoMinimo ? "disabled" : ""}>Invia ordine · € ${euro(tot)}</button>`
+        : `<a href="#account" data-go="account" data-close class="btn btn-gold btn-block">Accedi per inviare l'ordine</a>`}
+      ${ORD.justEat ? `<button class="btn btn-ghost btn-block" id="o-je" type="button">Ordina su Just Eat</button>
+      <p class="hint" style="text-align:center">Su Just Eat i piatti vanno aggiunti di nuovo: ti copiamo la lista da seguire.</p>` : ""}
+    </div>`;
+
+  const leggi = () => {
+    if ($("#o-zona")) d.zona = Number($("#o-zona").value);
+    if ($("#o-ind")) d.indirizzo = $("#o-ind").value;
+    if ($("#o-ora")) d.ora = $("#o-ora").value;
+    d.nome = $("#o-nome").value; d.telefono = $("#o-tel").value; d.note = $("#o-note").value;
+    store.set("yugo-ordine-dati", { ...d, note: "" });
+  };
+  body.querySelectorAll("[data-modo-ord]").forEach((b) => b.onclick = () => { leggi(); d.modo = b.dataset.modoOrd; disegnaCarrello(); });
+  if ($("#o-zona")) $("#o-zona").onchange = () => { leggi(); disegnaCarrello(); };
+  body.querySelector(".ord-list").onclick = (e) => {
+    const btn = e.target.closest("[data-d]"); if (!btn) return;
+    const li = btn.closest("li"), r = carrello[li.dataset.k]; if (!r) return;
+    leggi(); cambiaQta(r, Number(btn.dataset.d)); disegnaCarrello(); ridisegnaQta();
+  };
+  if ($("#o-je")) $("#o-je").onclick = async () => {
+    leggi();
+    const lista = righeCarrello().map((r) => `${r.q}× ${r.nome}${r.n != null ? ` (n. ${r.n})` : ""}`).join("\n");
+    try { await navigator.clipboard.writeText(lista); toast("Lista copiata: su Just Eat aggiungi gli stessi piatti."); } catch { toast("Su Just Eat aggiungi gli stessi piatti della lista."); }
+    window.open(ORD.justEat, "_blank", "noopener");
+  };
+  if ($("#o-send")) $("#o-send").onclick = async () => {
+    leggi();
+    const err = $("#o-err"), btn = $("#o-send"); err.hidden = true;
+    const fail = (m) => { err.textContent = m; err.hidden = false; };
+    if (!d.nome.trim()) return fail("Scrivi il tuo nome.");
+    if (d.telefono.replace(/\D/g, "").length < 8) return fail("Serve un numero di telefono: ti chiamiamo se c'è un problema.");
+    if (consegna && d.indirizzo.trim().length < 5) return fail("Scrivi l'indirizzo di consegna.");
+    btn.disabled = true; btn.textContent = "Invio…";
+    try {
+      const ordine = { modo: d.modo, zona: consegna ? zona.nome : "", indirizzo: consegna ? d.indirizzo : "", ora: d.ora,
+        nome: d.nome, telefono: d.telefono, note: d.note, righe: righeCarrello().map(({ n, nome, prezzo, q }) => ({ n, nome, prezzo, q })) };
+      const res = DEMO ? { ok: true, numero: Math.floor(Math.random() * 90) + 10 } : await api("/ordine", { idToken: await backend.token(), ...ordine });
+      carrello = {}; salvaCarrello(); aggiornaBarra(); ridisegnaQta();
+      body.innerHTML = `<div class="ord-ok"><div class="ord-check" aria-hidden="true">✓</div>
+        <p class="cs-kicker">Ordine n. ${esc(res.numero)} inviato</p><h2 id="ord-title">Grazie ${esc(d.nome.split(" ")[0])}!</h2>
+        <p class="muted">Il ristorante l'ha ricevuto ora. ${consegna ? "Ti portiamo tutto" : "Ti aspettiamo"} ${d.ora === "asap" ? "il prima possibile" : "per le " + esc(d.ora)}. Se c'è un problema ti chiamiamo al ${esc(d.telefono)}.</p>
+        <p class="hint">Per modifiche chiama il ${esc(R.telefono || "")}.</p>
+        <button class="btn btn-block" type="button" data-close>Chiudi</button></div>`;
+    } catch (ex) { fail(ex.message); btn.disabled = false; btn.textContent = `Invia ordine · € ${euro(tot)}`; }
+  };
+}
+function ridisegnaQta() {
+  document.querySelectorAll("#menu-list .qty[data-k]").forEach((el) => {
+    const p = el.closest(".dish") && el.closest(".dish").__p; if (p) el.outerHTML = qtyHTML(p);
+  });
+}
+
 function renderMenu() {
   const chips = $("#menu-chips");
   let cats = [];
   const draw = (sel) => {
+    const shop = !!ORD && MODO === "casa";
+    $("#menu-list").classList.toggle("shop", shop);
     $("#menu-list").innerHTML = cats.map((c, i) => (sel === "all" || String(i) === sel) ? `
       <section class="menu-cat"><h2>${esc(c.categoria)}</h2>
-        ${c.piatti.map((p, j) => c.extra ? `<div class="dish">${p.n != null ? `<span class="dish-n">${esc(p.n)}</span>` : `<span></span>`}<span class="dish-name">${esc(pul(p.nome))}</span><span class="dish-price">${p.prezzo != null ? "€ " + euro(p.prezzo) : ""}</span>${p.desc ? `<span class="dish-sub">${esc(pul(p.desc))}</span>` : ""}</div>` : `<div class="dish${p.desc ? " has-desc" : ""}">${p.n != null ? `<span class="dish-n">${esc(p.n)}</span>` : `<span></span>`}<span class="dish-name">${esc(pul(p.nome))}</span><span class="dish-price">${p.prezzo != null ? "€ " + euro(p.prezzo) : ""}</span>${p.desc ? `<button type="button" class="dish-more" aria-expanded="false" aria-controls="dd-${i}-${j}"><span>Ingredienti</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><div class="dish-desc" id="dd-${i}-${j}"><div>${esc(pul(p.desc))}</div></div>` : ""}</div>`).join("")}
+        ${c.piatti.map((p, j) => c.extra ? `<div class="dish">${p.n != null ? `<span class="dish-n">${esc(p.n)}</span>` : `<span></span>`}<span class="dish-name">${esc(pul(p.nome))}</span><span class="dish-price">${p.prezzo != null ? "€ " + euro(p.prezzo) : ""}</span>${p.desc ? `<span class="dish-sub">${esc(pul(p.desc))}</span>` : ""}</div>` : `<div class="dish${p.desc ? " has-desc" : ""}">${p.n != null ? `<span class="dish-n">${esc(p.n)}</span>` : `<span></span>`}<span class="dish-name">${esc(pul(p.nome))}</span><span class="dish-price">${p.prezzo != null ? "€ " + euro(p.prezzo) : ""}</span>${shop && p.prezzo != null ? qtyHTML(p) : ""}${p.desc ? `<button type="button" class="dish-more" aria-expanded="false" aria-controls="dd-${i}-${j}"><span>Ingredienti</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><div class="dish-desc" id="dd-${i}-${j}"><div>${esc(pul(p.desc))}</div></div>` : ""}</div>`).join("")}
       </section>` : "").join("");
+    // ricorda il piatto di ogni riga, serve al carrello
+    const flat = []; cats.forEach((c, i) => { if (sel === "all" || String(i) === sel) c.piatti.forEach((p) => flat.push(p)); });
+    document.querySelectorAll("#menu-list .dish").forEach((el, i) => { el.__p = flat[i]; });
+    aggiornaBarra();
   };
   menuReset = () => {
     cats = menuAttivo();
@@ -516,18 +671,27 @@ function renderMenu() {
     const b = e.target.closest("[data-modo]"); if (!b) return;
     MODO = b.dataset.modo;
     try { sessionStorage.setItem("yugo-modo", MODO); } catch { /* ok */ }
-    mostraModo(); menuReset(); apriCat(false);
+    mostraModo(); menuReset(); apriCat(false); aggiornaBarra();
     window.scrollTo({ top: 0 });
   });
   $("#mode-change").addEventListener("click", () => {
     MODO = null;
     try { sessionStorage.removeItem("yugo-modo"); } catch { /* ok */ }
-    mostraModo(); window.scrollTo({ top: 0 });
+    mostraModo(); aggiornaBarra(); window.scrollTo({ top: 0 });
   });
+  $("#cart-bar").addEventListener("click", apriCarrello);
   menuReset();
   mostraModo();
   // Freccetta "Ingredienti": tocca il piatto per aprire o chiudere la descrizione
   $("#menu-list").addEventListener("click", (e) => {
+    const qb = e.target.closest(".qty [data-d]");
+    if (qb) {
+      const dish = qb.closest(".dish"), p = dish && dish.__p; if (!p) return;
+      cambiaQta(p, Number(qb.dataset.d));
+      const nuovo = qtyHTML(p); qb.closest(".qty").outerHTML = nuovo;
+      if (Number(qb.dataset.d) > 0) { const q = dish.querySelector(".qty"); q.classList.add("pop"); }
+      return;
+    }
     const d = e.target.closest(".dish.has-desc"); if (!d) return;
     const b = d.querySelector(".dish-more"), open = b.getAttribute("aria-expanded") !== "true";
     b.setAttribute("aria-expanded", String(open)); d.classList.toggle("open", open);
