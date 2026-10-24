@@ -120,8 +120,9 @@
     try {
       const v = (document.querySelector('script[src*="i18n.js"]') || {}).src || "";
       const ver = (v.match(/\?v=(\w+)/) || [])[1] || "";
-      const r = await fetch(`lang/${l}.json?v=${ver}`);
-      prepara(await r.json());
+      const [k, t] = await Promise.all([`lang/chiavi.json?v=${ver}`, `lang/${l}.json?v=${ver}`].map((u) => fetch(u).then((r) => r.json())));
+      const dict = {}; k.forEach((x, i) => { if (t[i] != null) dict[x] = t[i]; });
+      prepara(dict);
     } catch { /* senza dizionario resta in italiano */ }
     clearTimeout(fine);
     const go = () => avvia();
