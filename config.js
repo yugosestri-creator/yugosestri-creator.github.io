@@ -64,6 +64,19 @@ window.YUGO_CONFIG = {
     notaMenuCasa: "Prezzi del menu da asporto e consegna.",
     notaMenuRistorante: "Prezzi alla carta. Coperto € 2,00.",
     // Menu da tavolo: quando c'è, mettilo qui con la stessa forma di "menu". Finché è vuoto si usa "menu".
+    // Ordini da casa dal sito: arrivano su Telegram. Il cliente paga alla consegna o al ritiro.
+    ordini: {
+      justEat: "https://www.justeat.it/restaurants-yugo-sushi-experience-sestri-levante/menu",
+      minimo: 20,              // ordine minimo per la consegna (€)
+      anticipo: 40,            // minuti minimi tra ordine e consegna/ritiro
+      fasce: [["12:00", "14:30"], ["19:00", "22:30"]],
+      zone: [
+        { nome: "Sestri Levante", costo: 1 },
+        { nome: "Riva Trigoso", costo: 2.5 },
+        { nome: "Casarza Ligure", costo: 3.5 },
+        { nome: "Moneglia", costo: 5 }
+      ]
+    },
     allYouCanEat: {
       titolo: "All You Can Eat",
       quando: "A cena · tutti i giorni",
