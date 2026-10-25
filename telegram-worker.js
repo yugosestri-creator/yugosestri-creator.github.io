@@ -17,7 +17,8 @@ const CONFIG = {
   CHAT_ID: "-5444686738",                                   // gruppo "Prenotazioni Yugo"
   CHAT_ORDINI: "",                                          // gruppo per gli ordini da casa (vuoto = stesso gruppo)
   FIREBASE_API_KEY: "AIzaSyAEnC8afPxW6XJhdZnfiTTHxZ1qun_MFwc", // pubblica, è la stessa del sito
-  ORIGINE: "https://yugosestri-creator.github.io"
+  ORIGINE: "https://yugosestri-creator.github.io",
+  PREMI: ["una bibita in omaggio", "un dolce in omaggio", "−10% sul conto", "un antipasto in omaggio", "−15% sul conto", "una bottiglia di vino oppure 5 bibite", "−20% sul conto", "una cena gratis", "una cena gratis + 15% di sconto quando torni"]
 };
 const LIVELLI = [2, 10, 25, 30, 40, 55, 70, 90, 110];
 const target = (livello) => LIVELLI[Math.min(livello, LIVELLI.length - 1)];
@@ -43,7 +44,10 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS prenot (
      id INTEGER PRIMARY KEY AUTOINCREMENT, doc TEXT, uid TEXT NOT NULL, email TEXT, nome TEXT, telefono TEXT,
      data TEXT, ora TEXT, persone INTEGER, stato TEXT NOT NULL DEFAULT 'confermata', creato TEXT NOT NULL)`,
-  `CREATE INDEX IF NOT EXISTS prenot_uid ON prenot (uid, stato)`
+  `CREATE INDEX IF NOT EXISTS prenot_uid ON prenot (uid, stato)`,
+  `CREATE TABLE IF NOT EXISTS gestore_codice (id INTEGER PRIMARY KEY CHECK (id = 1), codice TEXT NOT NULL, msgId INTEGER, scade INTEGER NOT NULL, creato INTEGER NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS gestore_sess (token TEXT PRIMARY KEY, scade INTEGER NOT NULL, creato INTEGER NOT NULL, ip TEXT)`,
+  `CREATE TABLE IF NOT EXISTS gestore_tent (ip TEXT PRIMARY KEY, n INTEGER NOT NULL DEFAULT 0, blocco INTEGER NOT NULL DEFAULT 0, ultimo INTEGER NOT NULL)`
 ];
 const NUOVE_COLONNE = ["ALTER TABLE ordini ADD COLUMN stato TEXT DEFAULT 'inviato'", "ALTER TABLE ordini ADD COLUMN nome TEXT",
   "ALTER TABLE ordini ADD COLUMN telefono TEXT", "ALTER TABLE ordini ADD COLUMN ora TEXT", "ALTER TABLE ordini ADD COLUMN lang TEXT"];
@@ -550,6 +554,149 @@ async function segnaVerificato(env, uid) {
   if (!r.ok) throw new Errore("Non sono riuscito a confermare l'email. Riprova.", 502);
 }
 
+/* ---------------- Gestore (pagina riservata) ----------------
+   Protetta da due chiavi:
+   - password fissa, salvata come segreto ADMIN_PASSWORD su Cloudflare;
+   - codice di 6 cifre che il bot pubblica (e spilla) nel gruppo Telegram ogni 12 ore.
+   Dopo 5 tentativi sbagliati, l'IP è bloccato per 10 minuti. */
+const GEST_BLOCCO = 10 * 60 * 1000, GEST_TENT_MAX = 5;
+const randomToken = () => [...crypto.getRandomValues(new Uint8Array(24))].map((b) => b.toString(16).padStart(2, "0")).join("");
+
+async function gestNuovoCodice(env) {
+  if (!env.TELEGRAM_TOKEN) return;
+  await init(env);
+  const n = crypto.getRandomValues(new Uint32Array(1))[0] % 1000000;
+  const codice = String(n).padStart(6, "0");
+  const ora = Date.now();
+  const scade = ora + 12 * 3600 * 1000 + 15 * 60 * 1000; // 12 ore + 15 min di tolleranza
+  // togli dal pin il vecchio
+  const vecchio = await env.DB.prepare("SELECT msgId FROM gestore_codice WHERE id = 1").first();
+  if (vecchio && vecchio.msgId) {
+    await fetch(`https://api.telegram.org/bot${env.TELEGRAM_TOKEN}/unpinChatMessage`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: CONFIG.CHAT_ID, message_id: vecchio.msgId })
+    }).catch(() => {});
+  }
+  const testo = `🔴🔴🔴 CODICE GESTORE 🔴🔴🔴\n\n*${codice}*\n\nValido 12 ore. Non condividere.\n下一个密码（12小时内有效）`;
+  const r = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_TOKEN}/sendMessage`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: CONFIG.CHAT_ID, text: testo, parse_mode: "Markdown" })
+  });
+  const d = await r.json().catch(() => ({}));
+  const msgId = d && d.result && d.result.message_id;
+  if (msgId) {
+    await fetch(`https://api.telegram.org/bot${env.TELEGRAM_TOKEN}/pinChatMessage`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: CONFIG.CHAT_ID, message_id: msgId, disable_notification: true })
+    }).catch(() => {});
+  }
+  await env.DB.prepare("INSERT INTO gestore_codice (id, codice, msgId, scade, creato) VALUES (1, ?1, ?2, ?3, ?4) ON CONFLICT(id) DO UPDATE SET codice = ?1, msgId = ?2, scade = ?3, creato = ?4")
+    .bind(codice, msgId || null, scade, ora).run();
+}
+
+async function gestLogin(env, body, ip) {
+  if (!env.ADMIN_PASSWORD) throw new Errore("Password gestore non impostata su Cloudflare. Aggiungi il segreto ADMIN_PASSWORD.", 503);
+  await init(env);
+  const ora = Date.now();
+  const bl = await env.DB.prepare("SELECT * FROM gestore_tent WHERE ip = ?").bind(ip).first();
+  if (bl && bl.blocco > ora) throw new Errore("Troppi tentativi. Riprova tra qualche minuto.", 429);
+  const pw = String(body.password || "");
+  const cod = String(body.codice || "").replace(/\D/g, "");
+  const codRow = await env.DB.prepare("SELECT * FROM gestore_codice WHERE id = 1").first();
+  const okPw = pw && pw === env.ADMIN_PASSWORD;
+  const okCod = codRow && codRow.codice === cod && codRow.scade > ora;
+  if (!okPw || !okCod) {
+    const n = ((bl && bl.n) || 0) + 1;
+    const blocco = n >= GEST_TENT_MAX ? ora + GEST_BLOCCO : 0;
+    await env.DB.prepare("INSERT INTO gestore_tent (ip, n, blocco, ultimo) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(ip) DO UPDATE SET n = ?2, blocco = ?3, ultimo = ?4")
+      .bind(ip, n, blocco, ora).run();
+    throw new Errore(!codRow ? "Codice gestore non ancora pubblicato. Riprova tra poco." : "Password o codice sbagliati.", 401);
+  }
+  await env.DB.prepare("DELETE FROM gestore_tent WHERE ip = ?").bind(ip).run();
+  const token = randomToken();
+  await env.DB.prepare("INSERT INTO gestore_sess (token, scade, creato, ip) VALUES (?, ?, ?, ?)").bind(token, codRow.scade, ora, ip).run();
+  // pulizia sessioni vecchie
+  await env.DB.prepare("DELETE FROM gestore_sess WHERE scade < ?").bind(ora).run();
+  return { ok: true, token, scade: codRow.scade };
+}
+
+async function gestVerifica(env, body) {
+  const t = String(body.token || "");
+  if (!t) throw new Errore("Accesso scaduto. Rientra.", 401);
+  const r = await env.DB.prepare("SELECT * FROM gestore_sess WHERE token = ?").bind(t).first();
+  if (!r || r.scade < Date.now()) throw new Errore("Accesso scaduto. Rientra.", 401);
+  return r;
+}
+
+async function gestDati(env, body) {
+  await gestVerifica(env, body);
+  await init(env);
+  const oggi = new Date().toISOString().slice(0, 10);
+  const limite = Date.now() - 24 * 3600 * 1000;
+  const [prenot, ordini, follower] = await Promise.all([
+    env.DB.prepare("SELECT id, nome, telefono, data, ora, persone, email, stato, creato FROM prenot WHERE data >= ? AND stato IN ('confermata', 'annullata_ristorante') ORDER BY data, ora LIMIT 200").bind(oggi).all(),
+    env.DB.prepare("SELECT id, nome, telefono, ora, totale, email, stato, creato FROM ordini WHERE creato > ? ORDER BY id DESC LIMIT 100").bind(new Date(limite).toISOString()).all(),
+    env.DB.prepare("SELECT f.id, f.codice, f.username, f.piattaforma, f.creato, p.nome AS daChi FROM follow f LEFT JOIN promoter p ON p.codice = f.codice WHERE f.stato = 'attesa' ORDER BY f.id DESC LIMIT 100").all()
+  ]);
+  return { ok: true, prenot: prenot.results || [], ordini: ordini.results || [], follower: follower.results || [] };
+}
+
+async function gestAzione(env, body) {
+  await gestVerifica(env, body);
+  await init(env);
+  const az = String(body.azione || "");
+  const id = parseInt(body.id, 10);
+  if (az === "prenot-annulla") {
+    const r = await env.DB.prepare("SELECT * FROM prenot WHERE id = ?").bind(id).first();
+    if (!r) throw new Errore("Prenotazione non trovata.", 404);
+    await env.DB.prepare("UPDATE prenot SET stato = 'annullata_ristorante' WHERE id = ?").bind(id).run();
+    await avvisaCliente(env, r.email, "it", false, `${r.data.split("-").reverse().join("/")} ${r.ora}`);
+    return { ok: true };
+  }
+  if (az === "prenot-cambia") {
+    const nuovaOra = String(body.ora || "").match(/^\d{2}:\d{2}$/) ? body.ora : null;
+    if (!nuovaOra) throw new Errore("Orario non valido.", 400);
+    await env.DB.prepare("UPDATE prenot SET ora = ? WHERE id = ?").bind(nuovaOra, id).run();
+    return { ok: true };
+  }
+  if (az === "ordine-annulla") {
+    const r = await env.DB.prepare("SELECT * FROM ordini WHERE id = ?").bind(id).first();
+    if (!r) throw new Errore("Ordine non trovato.", 404);
+    await env.DB.prepare("UPDATE ordini SET stato = 'annullata_ristorante' WHERE id = ?").bind(id).run();
+    await avvisaCliente(env, r.email, r.lang || "it", true, `n. ${id}${r.ora ? " (" + r.ora + ")" : ""}`);
+    return { ok: true };
+  }
+  if (az === "ordine-cambia") {
+    const nuovaOra = String(body.ora || "").match(/^\d{2}:\d{2}$/) ? body.ora : null;
+    if (!nuovaOra) throw new Errore("Orario non valido.", 400);
+    await env.DB.prepare("UPDATE ordini SET ora = ? WHERE id = ?").bind(nuovaOra, id).run();
+    return { ok: true };
+  }
+  if (az === "follow-ok" || az === "follow-no") {
+    const f = await env.DB.prepare("SELECT * FROM follow WHERE id = ?").bind(id).first();
+    if (!f) throw new Errore("Segnalazione non trovata.", 404);
+    if (f.stato !== "attesa") throw new Errore(`Già ${f.stato}.`, 400);
+    const nuovo = az === "follow-ok" ? "ok" : "no";
+    await env.DB.prepare("UPDATE follow SET stato = ?, deciso = ? WHERE id = ?").bind(nuovo, adessoISO(), id).run();
+    return { ok: true };
+  }
+  if (az === "coupon-cerca") {
+    const codice = String(body.codice || "").replace(/\D/g, "");
+    if (!codice) throw new Errore("Scrivi il codice del coupon.", 400);
+    const c = await env.DB.prepare("SELECT c.*, p.nome, p.telefono, p.codice AS invito FROM coupon c JOIN promoter p ON p.id = c.promoter_id WHERE c.codice = ?").bind(codice).first();
+    if (!c) return { ok: true, coupon: null };
+    const premio = ((CONFIG && CONFIG.PREMI) || [])[c.livello - 1] || `livello ${c.livello}`;
+    return { ok: true, coupon: { codice: c.codice, stato: c.stato, livello: c.livello, premio, nome: c.nome, telefono: c.telefono, invito: c.invito, usato: c.usato, creato: c.creato } };
+  }
+  if (az === "coupon-usato") {
+    const codice = String(body.codice || "").replace(/\D/g, "");
+    const r = await env.DB.prepare("UPDATE coupon SET stato = 'usato', usato = ? WHERE codice = ? AND stato = 'valido'").bind(adessoISO(), codice).run();
+    if (!r.meta || r.meta.changes !== 1) throw new Errore("Coupon già usato o non valido.", 400);
+    return { ok: true };
+  }
+  throw new Errore("Azione sconosciuta.", 400);
+}
+
 /* ---------------- router ---------------- */
 export default {
   async fetch(request, env) {
@@ -587,11 +734,16 @@ export default {
       if (url.pathname === "/promo/follow") return json(await promoFollow(env, body, ip));
       if (url.pathname === "/promo/premio") return json(await promoPremio(env, body));
       if (url.pathname === "/prenotazioni/annullate") return json(await prenotAnnullate(env, body));
+      if (url.pathname === "/gestore/login") return json(await gestLogin(env, body, ip));
+      if (url.pathname === "/gestore/dati") return json(await gestDati(env, body));
+      if (url.pathname === "/gestore/azione") return json(await gestAzione(env, body));
+      if (url.pathname === "/gestore/nuovo-codice") { if (String(body.password || "") !== (env.ADMIN_PASSWORD || "---no---")) throw new Errore("Password sbagliata.", 401); await gestNuovoCodice(env); return json({ ok: true }); }
       if (url.pathname === "/otp/invia") return json(await otpInvia(env, body));
       if (url.pathname === "/otp/verifica") return json(await otpVerifica(env, body));
       return json({ errore: "Pagina non trovata" }, 404);
     } catch (e) {
       return json({ errore: e instanceof Errore ? e.message : "Errore del server. Riprova." }, e.status || 500);
     }
-  }
+  },
+  async scheduled(event, env, ctx) { ctx.waitUntil(gestNuovoCodice(env)); }
 };
