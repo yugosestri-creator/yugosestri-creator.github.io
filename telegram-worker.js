@@ -14,7 +14,7 @@
    ===================================================================== */
 
 const CONFIG = {
-  CHAT_ID: "-5444686738",                                   // gruppo "Prenotazioni Yugo"
+  CHAT_ID: "-1004497012689",                                   // gruppo "Prenotazioni Yugo"
   CHAT_ORDINI: "",                                          // gruppo per gli ordini da casa (vuoto = stesso gruppo)
   FIREBASE_API_KEY: "AIzaSyAEnC8afPxW6XJhdZnfiTTHxZ1qun_MFwc", // pubblica, è la stessa del sito
   ORIGINE: "https://yugosestri-creator.github.io",
