@@ -584,14 +584,17 @@ async function gestNuovoCodice(env) {
   });
   const d = await r.json().catch(() => ({}));
   const msgId = d && d.result && d.result.message_id;
+  let pinErr = null;
   if (msgId) {
-    await fetch(`https://api.telegram.org/bot${env.TELEGRAM_TOKEN}/pinChatMessage`, {
+    const rp = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_TOKEN}/pinChatMessage`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chat_id: CONFIG.CHAT_ID, message_id: msgId, disable_notification: true })
-    }).catch(() => {});
+    }).catch(() => null);
+    if (rp) { const dp = await rp.json().catch(() => ({})); if (!dp.ok) pinErr = dp; }
   }
   await env.DB.prepare("INSERT INTO gestore_codice (id, codice, msgId, scade, creato) VALUES (1, ?1, ?2, ?3, ?4) ON CONFLICT(id) DO UPDATE SET codice = ?1, msgId = ?2, scade = ?3, creato = ?4")
     .bind(codice, msgId || null, scade, ora).run();
+  return { sendStatus: r.status, sendOk: !!msgId, sendErr: msgId ? null : d, pinErr, chatId: CONFIG.CHAT_ID };
 }
 
 async function gestLogin(env, body, ip) {
@@ -737,7 +740,7 @@ export default {
       if (url.pathname === "/gestore/login") return json(await gestLogin(env, body, ip));
       if (url.pathname === "/gestore/dati") return json(await gestDati(env, body));
       if (url.pathname === "/gestore/azione") return json(await gestAzione(env, body));
-      if (url.pathname === "/gestore/nuovo-codice") { if (String(body.password || "") !== (env.ADMIN_PASSWORD || "---no---")) throw new Errore("Password sbagliata.", 401); await gestNuovoCodice(env); return json({ ok: true }); }
+      if (url.pathname === "/gestore/nuovo-codice") { if (!env.ADMIN_PASSWORD) throw new Errore("Password gestore non impostata su Cloudflare.", 503); if (String(body.password || "") !== env.ADMIN_PASSWORD) throw new Errore("Password sbagliata.", 401); const diag = await gestNuovoCodice(env); return json({ ok: !!(diag && diag.sendOk), diag }); }
       if (url.pathname === "/otp/invia") return json(await otpInvia(env, body));
       if (url.pathname === "/otp/verifica") return json(await otpVerifica(env, body));
       return json({ errore: "Pagina non trovata" }, 404);
