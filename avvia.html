@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Avvia Gestore Yugo</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#03132D">
+<style>
+  body { margin:0; min-height:100vh; display:grid; place-items:center; background:linear-gradient(135deg,#03132D 0%,#0b1d3d 100%); color:#eef0f5; font:16px/1.5 -apple-system,"Segoe UI",Roboto,sans-serif; padding:20px; box-sizing:border-box; }
+  .card { background:#122144; border:1px solid rgba(255,255,255,.14); border-radius:16px; padding:28px; max-width:420px; width:100%; }
+  h1 { margin:0 0 6px; font-size:22px; color:#d1a85c; letter-spacing:.02em; }
+  p { margin:0 0 18px; color:#a9b2c6; font-size:14px; }
+  label { display:block; font-size:13px; color:#a9b2c6; font-weight:600; margin-bottom:6px; }
+  input { width:100%; box-sizing:border-box; padding:12px 14px; border:1px solid rgba(255,255,255,.2); border-radius:10px; background:rgba(0,0,0,.25); color:#fff; font:16px inherit; }
+  button { width:100%; margin-top:16px; padding:14px; border:0; border-radius:10px; background:#d1a85c; color:#03132D; font:700 15px inherit; cursor:pointer; letter-spacing:.04em; }
+  button:disabled { opacity:.5; cursor:default; }
+  .out { margin-top:18px; padding:14px; border-radius:10px; font-size:14px; min-height:20px; }
+  .out.ok { background:rgba(11,122,59,.22); color:#7fd199; }
+  .out.err { background:rgba(176,58,46,.22); color:#f0a194; }
+  .hint { margin-top:14px; font-size:12px; color:#8995a9; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>🔒 Avvia il Gestore</h1>
+  <p>Scrivi la password che hai salvato su Cloudflare (ADMIN_PASSWORD). Appena tocchi «Pubblica codice», il bot manda e spilla il codice di 6 cifre nel gruppo Telegram.</p>
+  <form id="f">
+    <label for="pw">Password gestore</label>
+    <input type="password" id="pw" autocomplete="off" required>
+    <button type="submit">Pubblica codice su Telegram</button>
+  </form>
+  <div id="out" class="out"></div>
+  <p class="hint">La password resta sul tuo browser e va solo al worker Yugo.</p>
+</div>
+<script>
+const WORKER = "https://yugo-bot.yugosestri.workers.dev";
+const f=document.getElementById('f'),out=document.getElementById('out'),pw=document.getElementById('pw');
+f.addEventListener('submit',async e=>{
+  e.preventDefault();out.className='out';out.textContent='';
+  const b=f.querySelector('button');b.disabled=true;b.textContent='Attendi…';
+  try{
+    const r=await fetch(WORKER+'/gestore/nuovo-codice',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pw.value})});
+    const d=await r.json().catch(()=>({}));
+    if(r.ok){
+      out.className='out ok';out.innerHTML='✅ Fatto! Il codice è stato pubblicato nel gruppo Telegram e spillato in alto.<br>Ora apri Yugo → Account → 🔒 Gestore e scrivi la password + il codice.';
+      pw.value='';
+    } else {
+      out.className='out err';out.textContent='❌ '+(d.errore||('Errore '+r.status));
+    }
+  } catch(ex){ out.className='out err';out.textContent='❌ '+ex.message; }
+  b.disabled=false;b.textContent='Pubblica codice su Telegram';
+});
+pw.focus();
+</script>
+</body>
+</html>
