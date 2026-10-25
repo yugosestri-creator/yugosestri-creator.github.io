@@ -1075,6 +1075,7 @@ function renderAccount() {
     <div class="stack" style="margin-top:0">
       <article class="block"><h2>Le mie prenotazioni</h2><div id="my-list" class="blist"><p class="muted">Caricamento…</p></div></article>
       ${installBlock()}
+      <a class="btn btn-ghost" href="gestore.html">🔒 Gestore</a>
       <button class="btn btn-ghost" id="btn-logout">Esci dall'account</button>
       <p class="legal"><a href="privacy.html">Informativa privacy</a> · Per cancellare l'account chiama il ${esc(R.telefono || "")}.</p>
     </div>`;
