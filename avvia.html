@@ -42,9 +42,11 @@ f.addEventListener('submit',async e=>{
   try{
     const r=await fetch(WORKER+'/gestore/nuovo-codice',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pw.value})});
     const d=await r.json().catch(()=>({}));
-    if(r.ok){
+    if(r.ok && d.ok){
       out.className='out ok';out.innerHTML='✅ Fatto! Il codice è stato pubblicato nel gruppo Telegram e spillato in alto.<br>Ora apri Yugo → Account → 🔒 Gestore e scrivi la password + il codice.';
       pw.value='';
+    } else if(r.ok && !d.ok){
+      out.className='out err';out.innerHTML='❌ Telegram ha rifiutato il messaggio.<br><br><pre style="white-space:pre-wrap;font:12px monospace;color:#f0a194;max-height:260px;overflow:auto">'+JSON.stringify(d.diag,null,2)+'</pre>';
     } else {
       out.className='out err';out.textContent='❌ '+(d.errore||('Errore '+r.status));
     }
