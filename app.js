@@ -1076,6 +1076,7 @@ function renderAccount() {
       <article class="block"><h2>Le mie prenotazioni</h2><div id="my-list" class="blist"><p class="muted">Caricamento…</p></div></article>
       ${installBlock()}
       <button class="btn btn-ghost" id="btn-logout">Esci dall'account</button>
+      <p class="legal"><a href="privacy.html">Informativa privacy</a> · Per cancellare l'account chiama il ${esc(R.telefono || "")}.</p>
     </div>`;
   $("#btn-logout").onclick = async () => { await backend.logout(); lastBooking = null; toast("Sei uscito."); };
   if (!user.verified) verifyBox($("#acc-verify"));
@@ -1146,7 +1147,7 @@ function renderAuth(area) {
           ${reg ? `<p class="hint">Almeno 6 caratteri.</p>` : ""}</div>
         <p class="error" id="a-err" hidden></p>
         <button class="btn btn-block" type="submit" id="a-submit">${reg ? "Crea account" : "Accedi"}</button>
-        ${reg ? `<p class="hint">Ti mandiamo un'email per confermare l'indirizzo.</p>` : `<button type="button" class="linkbtn" id="a-forgot">Password dimenticata?</button>`}
+        ${reg ? `<p class="hint">Ti mandiamo un'email per confermare l'indirizzo.</p><p class="hint">Creando l'account confermi di aver letto l'<a href="privacy.html">informativa privacy</a>.</p>` : `<button type="button" class="linkbtn" id="a-forgot">Password dimenticata?</button>`}
       </form>
     </div>
     <div style="margin-top:14px">${installBlock()}</div>`;
