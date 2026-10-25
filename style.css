@@ -200,6 +200,10 @@ textarea.input { min-height: 84px; resize: vertical; }
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 18px; display: grid; gap: 14px; }
 .notice { padding: 14px 16px; border-radius: 12px; background: var(--warn-bg); color: var(--warn-fg); display: grid; gap: 10px; }
 .notice p { margin: 0; }
+.notice.otp .linkbtn { color: inherit; justify-self: start; font-size: 14px; }
+.notice.otp .error { color: inherit; font-weight: 600; }
+.otp-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.otp-in { text-align: center; font: 700 24px/1 var(--f-body); letter-spacing: .35em; padding-left: .35em; min-width: 0; }
 
 .tabs2 { display: grid; grid-template-columns: 1fr 1fr; background: var(--line); border-radius: 12px; padding: 4px; gap: 4px; }
 .tabs2 button { border: 0; border-radius: 9px; min-height: 40px; background: transparent; color: var(--muted); font: 700 15px var(--f-body); cursor: pointer; }
