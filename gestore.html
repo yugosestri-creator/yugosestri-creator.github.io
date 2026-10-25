@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Gestore · Yugo</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#0b1d3d">
+<link rel="icon" type="image/png" href="icon-192.png">
+<style>
+  :root { --bg: #f6f7fa; --surface: #fff; --fg: #0b1d3d; --muted: #6b7a92; --gold: #a8843c; --line: #e3e7ef; --ok: #0b7a3b; --warn: #a8843c; --err: #b03a2e; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }
+  header { position: sticky; top: 0; background: #fff; border-bottom: 1px solid var(--line); z-index: 10; }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 10px 14px; display: flex; align-items: center; gap: 10px; }
+  .wrap img { height: 32px; width: auto; }
+  .wrap h1 { font-size: 16px; margin: 0; flex: 1; letter-spacing: .04em; }
+  .wrap .pill { font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; }
+  nav { display: flex; gap: 4px; max-width: 960px; margin: 0 auto; padding: 0 10px; overflow-x: auto; }
+  nav button { flex: 0 0 auto; background: none; border: 0; padding: 10px 14px; font: 600 14px inherit; color: var(--muted); cursor: pointer; border-bottom: 3px solid transparent; }
+  nav button.on { color: var(--fg); border-bottom-color: var(--gold); }
+  main { max-width: 960px; margin: 0 auto; padding: 16px 14px 80px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 10px; }
+  .card h3 { margin: 0 0 4px; font-size: 16px; }
+  .meta { color: var(--muted); font-size: 13px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  button.b { min-height: 38px; padding: 0 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--fg); font: 600 14px inherit; cursor: pointer; }
+  button.b.gold { background: var(--gold); color: #fff; border-color: var(--gold); }
+  button.b.ok { background: var(--ok); color: #fff; border-color: var(--ok); }
+  button.b.err { background: var(--err); color: #fff; border-color: var(--err); }
+  button.b:disabled { opacity: .5; cursor: default; }
+  input, select { min-height: 42px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--fg); font: 15px inherit; width: 100%; }
+  .field { display: grid; gap: 6px; margin-bottom: 10px; }
+  .field label { font-size: 13px; color: var(--muted); font-weight: 600; }
+  .pin { font-weight: 700; }
+  .tag { display: inline-block; font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; margin-left: 6px; }
+  .tag.att { background: #fff5e0; color: var(--warn); }
+  .tag.ok { background: #e5f5ec; color: var(--ok); }
+  .tag.off { background: #fde7e4; color: var(--err); }
+  .empty { text-align: center; color: var(--muted); padding: 40px 20px; }
+  .top-right { margin-left: auto; display: flex; gap: 6px; }
+  .login { max-width: 360px; margin: 60px auto; }
+  .login h2 { font-size: 20px; margin: 0 0 10px; }
+  .err { color: var(--err); font-size: 14px; min-height: 20px; margin: 6px 0 0; }
+  .hint { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+  .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--fg); color: #fff; padding: 10px 16px; border-radius: 999px; font-weight: 600; font-size: 14px; opacity: 0; transition: opacity .2s; z-index: 20; }
+  .toast.on { opacity: .95; }
+  .orari { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+  .cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-top: 10px; }
+  .cal .d { aspect-ratio: 1; display: grid; place-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; font-weight: 600; cursor: pointer; position: relative; }
+  .cal .d.empty { background: transparent; border: 0; cursor: default; }
+  .cal .d.has::after { content: attr(data-n); position: absolute; top: 2px; right: 4px; background: var(--gold); color: #fff; font-size: 10px; border-radius: 999px; padding: 1px 5px; }
+  .cal .h { font-weight: 700; color: var(--muted); text-align: center; padding: 4px 0; font-size: 12px; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0b1326; --surface: #122144; --fg: #eef0f5; --muted: #a9b2c6; --line: rgba(255,255,255,.14); --gold: #d1a85c; }
+    header { background: var(--surface); }
+    .tag.att { background: rgba(168,132,60,.18); } .tag.ok { background: rgba(11,122,59,.22); } .tag.off { background: rgba(176,58,46,.22); }
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div class="toast" id="toast"></div>
+<script>
+const WORKER = "https://yugo-bot.yugosestri.workers.dev";
+const $ = (q) => document.querySelector(q);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const toast = (m) => { const t = $("#toast"); t.textContent = m; t.classList.add("on"); clearTimeout(toast._); toast._ = setTimeout(() => t.classList.remove("on"), 2500); };
+const store = { get: (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }, del: (k) => { try { localStorage.removeItem(k); } catch {} } };
+
+async function api(path, body) {
+  const r = await fetch(WORKER + path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { const e = new Error(d.errore || "Errore."); e.status = r.status; throw e; }
+  return d;
+}
+
+let sessione = store.get("yugo-gest", null);
+let dati = { prenot: [], ordini: [], follower: [] };
+let tab = "oggi";
+
+function logout() { store.del("yugo-gest"); sessione = null; render(); }
+
+async function carica() {
+  if (!sessione) return;
+  try { dati = await api("/gestore/dati", { token: sessione.token }); render(); }
+  catch (e) { if (e.status === 401) { logout(); toast("Accesso scaduto. Rientra."); } else toast(e.message); }
+}
+
+async function azione(az, p = {}) {
+  try { await api("/gestore/azione", { token: sessione.token, azione: az, ...p }); toast("Fatto"); carica(); }
+  catch (e) { if (e.status === 401) { logout(); toast("Accesso scaduto."); } else toast(e.message); }
+}
+
+function viewLogin() {
+  const err = viewLogin.err || "";
+  return `
+    <header><div class="wrap"><img src="logo-word.webp" alt="Yugo"><h1>Gestore</h1></div></header>
+    <main><div class="login">
+      <div class="card">
+        <h2>🔒 Accesso riservato</h2>
+        <p class="hint">Scrivi la password del gestore e il codice di 6 cifre che il bot ha pubblicato nel gruppo Telegram (è spillato in alto).</p>
+        <form id="f">
+          <div class="field"><label>Password</label><input type="password" id="pw" autocomplete="current-password" required></div>
+          <div class="field"><label>Codice di 6 cifre (da Telegram)</label><input id="cod" inputmode="numeric" maxlength="6" required placeholder="123456"></div>
+          <p class="err" id="e">${esc(err)}</p>
+          <button class="b gold" type="submit" style="width:100%">Entra</button>
+        </form>
+      </div>
+    </div></main>`;
+}
+
+function bindLogin() {
+  const f = $("#f");
+  $("#cod").addEventListener("input", (e) => { e.target.value = e.target.value.replace(/\D/g, "").slice(0, 6); });
+  f.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const pw = $("#pw").value, cod = $("#cod").value;
+    $("#e").textContent = ""; const b = f.querySelector("button"); b.disabled = true; b.textContent = "Entro…";
+    try {
+      const r = await api("/gestore/login", { password: pw, codice: cod });
+      sessione = { token: r.token, scade: r.scade }; store.set("yugo-gest", sessione);
+      carica();
+    } catch (ex) { viewLogin.err = ex.message; render(); }
+  });
+}
+
+function viewHome() {
+  return `
+    <header>
+      <div class="wrap">
+        <img src="logo-word.webp" alt="Yugo"><h1>Gestore</h1>
+        <span class="pill">${new Date(sessione.scade).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}</span>
+        <button class="b" id="refresh">↻</button>
+        <button class="b" id="logout">Esci</button>
+      </div>
+      <nav>
+        ${["oggi", "ordini", "coupon", "follower", "calendario"].map((k) => `<button data-t="${k}" class="${k === tab ? "on" : ""}">${{oggi:"📅 Oggi",ordini:"🛵 Ordini",coupon:"🎁 Coupon",follower:"🔔 Follower",calendario:"🗓 Calendario"}[k]}</button>`).join("")}
+      </nav>
+    </header>
+    <main>${{oggi: viewOggi, ordini: viewOrdini, coupon: viewCoupon, follower: viewFollower, calendario: viewCalendario}[tab]()}</main>`;
+}
+
+function bindHome() {
+  $("#refresh").onclick = carica; $("#logout").onclick = logout;
+  document.querySelectorAll("nav button").forEach((b) => b.onclick = () => { tab = b.dataset.t; render(); });
+  if (tab === "oggi" || tab === "calendario") bindOggi();
+  if (tab === "ordini") bindOrdini();
+  if (tab === "coupon") bindCoupon();
+  if (tab === "follower") bindFollower();
+}
+
+function iso(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
+function fmtDay(s) { const d = new Date(s + "T00:00"); return d.toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" }); }
+
+const ORARI_PRENOT = (() => { const a = []; for (let m = 12 * 60; m <= 14 * 60 + 30; m += 15) a.push(fmt(m)); for (let m = 19 * 60; m <= 22 * 60 + 30; m += 15) a.push(fmt(m)); return a; function fmt(m) { return String(m / 60 | 0).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0"); } })();
+const ORARI_ORDINE = (() => { const a = []; for (let m = 12 * 60; m <= 14 * 60; m += 15) a.push(fmt(m)); for (let m = 19 * 60; m <= 22 * 60; m += 15) a.push(fmt(m)); return a; function fmt(m) { return String(m / 60 | 0).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0"); } })();
+
+function viewOggi() {
+  const oggi = iso(new Date());
+  const future = (dati.prenot || []).filter((p) => p.data >= oggi);
+  const giorni = {}; future.forEach((p) => { (giorni[p.data] = giorni[p.data] || []).push(p); });
+  const keys = Object.keys(giorni).sort().slice(0, 7);
+  if (!keys.length) return `<div class="empty">Nessuna prenotazione nei prossimi giorni.</div>`;
+  return keys.map((k) => `<h3 style="text-transform:capitalize;margin:14px 0 6px">${esc(fmtDay(k))}</h3>` + giorni[k].map(cardPrenot).join("")).join("");
+}
+
+function cardPrenot(p) {
+  const off = p.stato === "annullata_ristorante";
+  return `
+    <div class="card" data-p="${p.id}">
+      <h3>${esc(p.ora)} · ${esc(p.nome)}
+        ${off ? '<span class="tag off">Annullata</span>' : `<span class="tag ok">${esc(p.persone)} pers.</span>`}
+      </h3>
+      <p class="meta">${esc(p.telefono || "no telefono")} · ${esc(p.email || "")}</p>
+      ${!off ? `<div class="row">
+        <button class="b" data-a="cambia">Cambia orario</button>
+        <button class="b err" data-a="annulla">Annulla</button>
+        ${p.telefono ? `<a class="b" href="tel:${esc(p.telefono.replace(/\\s+/g,""))}">📞 Chiama</a>` : ""}
+      </div>` : ""}
+    </div>`;
+}
+
+function bindOggi() {
+  document.querySelectorAll("[data-p]").forEach((c) => {
+    const id = +c.dataset.p;
+    c.querySelector('[data-a="annulla"]')?.addEventListener("click", async () => {
+      if (!confirm("Annullare questa prenotazione? Il cliente riceve un'email.")) return;
+      azione("prenot-annulla", { id });
+    });
+    c.querySelector('[data-a="cambia"]')?.addEventListener("click", () => {
+      const sel = document.createElement("select");
+      sel.innerHTML = ORARI_PRENOT.map((o) => `<option>${o}</option>`).join("");
+      sel.style.margin = "8px 0";
+      c.querySelector(".row").insertAdjacentElement("beforebegin", sel);
+      const ok = document.createElement("button"); ok.className = "b ok"; ok.textContent = "Salva nuovo orario";
+      sel.insertAdjacentElement("afterend", ok);
+      ok.onclick = () => azione("prenot-cambia", { id, ora: sel.value });
+    });
+  });
+}
+
+function viewOrdini() {
+  const list = (dati.ordini || []).filter((o) => o.stato !== "annullata_ristorante");
+  if (!list.length) return `<div class="empty">Nessun ordine attivo.</div>`;
+  return list.map(cardOrdine).join("");
+}
+function cardOrdine(o) {
+  return `
+    <div class="card" data-o="${o.id}">
+      <h3>Ordine #${o.id} · ${esc(o.ora || "")} · € ${(+o.totale||0).toFixed(2).replace(".", ",")}</h3>
+      <p class="meta">${esc(o.nome || "")} · ${esc(o.telefono || "")} · ${esc(o.email || "")}</p>
+      <div class="row">
+        <button class="b" data-a="cambia">Cambia orario</button>
+        <button class="b err" data-a="annulla">Annulla</button>
+        ${o.telefono ? `<a class="b" href="tel:${esc(String(o.telefono).replace(/\\s+/g,""))}">📞 Chiama</a>` : ""}
+      </div>
+    </div>`;
+}
+function bindOrdini() {
+  document.querySelectorAll("[data-o]").forEach((c) => {
+    const id = +c.dataset.o;
+    c.querySelector('[data-a="annulla"]')?.addEventListener("click", async () => {
+      if (!confirm(`Annullare l'ordine #${id}? Il cliente riceve un'email.`)) return;
+      azione("ordine-annulla", { id });
+    });
+    c.querySelector('[data-a="cambia"]')?.addEventListener("click", () => {
+      const sel = document.createElement("select");
+      sel.innerHTML = ORARI_ORDINE.map((o) => `<option>${o}</option>`).join("");
+      sel.style.margin = "8px 0";
+      c.querySelector(".row").insertAdjacentElement("beforebegin", sel);
+      const ok = document.createElement("button"); ok.className = "b ok"; ok.textContent = "Salva";
+      sel.insertAdjacentElement("afterend", ok);
+      ok.onclick = () => azione("ordine-cambia", { id, ora: sel.value });
+    });
+  });
+}
+
+function viewCoupon() {
+  return `
+    <div class="card">
+      <h3>🎁 Controlla un coupon</h3>
+      <div class="field"><label>Codice (quello che il cliente ti mostra)</label><input id="cod-in" inputmode="numeric" placeholder="es. 234543"></div>
+      <button class="b gold" id="cod-cerca">Cerca</button>
+      <div id="cod-out" style="margin-top:14px"></div>
+    </div>`;
+}
+function bindCoupon() {
+  const out = $("#cod-out");
+  $("#cod-cerca").onclick = async () => {
+    const codice = $("#cod-in").value.replace(/\D/g, "");
+    if (!codice) return toast("Scrivi un codice.");
+    out.innerHTML = `<p class="meta">Cerco…</p>`;
+    try {
+      const r = await api("/gestore/azione", { token: sessione.token, azione: "coupon-cerca", codice });
+      if (!r.coupon) { out.innerHTML = `<div class="card" style="border-color:var(--err)"><h3>❌ Coupon ${esc(codice)} non esiste.</h3></div>`; return; }
+      const c = r.coupon;
+      const stato = c.stato === "valido" ? `<span class="tag ok">Disponibile</span>` : `<span class="tag off">Già usato</span>`;
+      out.innerHTML = `<div class="card">
+        <h3>Coupon ${esc(c.codice)} ${stato}</h3>
+        <p><strong>Premio: ${esc(c.premio)}</strong></p>
+        <p class="meta">Cliente: ${esc(c.nome)} · ${esc(c.telefono)}<br>Invito ${esc(c.invito)} · livello ${esc(c.livello)}</p>
+        ${c.stato === "valido" ? `<div class="row"><button class="b ok" id="use">Segna come usato</button></div>` : `<p class="meta">Usato il ${esc(c.usato || "")}</p>`}
+      </div>`;
+      $("#use")?.addEventListener("click", async () => { await azione("coupon-usato", { codice: c.codice }); bindCoupon(); out.innerHTML = ""; $("#cod-in").value = ""; });
+    } catch (e) { out.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+  };
+}
+
+function viewFollower() {
+  const list = dati.follower || [];
+  if (!list.length) return `<div class="empty">Nessuna segnalazione in attesa.</div>`;
+  return list.map((f) => {
+    const u = (f.username || "").replace(/^@/, "");
+    const ig = `https://instagram.com/${u}`, tt = `https://tiktok.com/@${u}`;
+    return `<div class="card" data-f="${f.id}">
+      <h3>@${esc(u)} <span class="tag att">In attesa</span></h3>
+      <p class="meta">Invito ${esc(f.codice)}${f.daChi ? " · " + esc(f.daChi) : ""}</p>
+      <div class="row">
+        <a class="b" href="${esc(ig)}" target="_blank" rel="noopener">Instagram ↗</a>
+        <a class="b" href="${esc(tt)}" target="_blank" rel="noopener">TikTok ↗</a>
+      </div>
+      <div class="row">
+        <button class="b ok" data-a="ok">✅ Conferma</button>
+        <button class="b err" data-a="no">❌ Rifiuta</button>
+      </div>
+    </div>`;
+  }).join("");
+}
+function bindFollower() {
+  document.querySelectorAll("[data-f]").forEach((c) => {
+    const id = +c.dataset.f;
+    c.querySelector('[data-a="ok"]').onclick = () => azione("follow-ok", { id });
+    c.querySelector('[data-a="no"]').onclick = () => azione("follow-no", { id });
+  });
+}
+
+function viewCalendario() {
+  const d = viewCalendario.d || new Date();
+  const anno = d.getFullYear(), mese = d.getMonth();
+  const primo = new Date(anno, mese, 1), ultimo = new Date(anno, mese + 1, 0);
+  const start = (primo.getDay() + 6) % 7; // lun = 0
+  const nomeMese = d.toLocaleDateString("it-IT", { month: "long", year: "numeric" });
+  const giorni = (dati.prenot || []).reduce((a, p) => { a[p.data] = (a[p.data] || 0) + 1; return a; }, {});
+  const cells = [];
+  for (let i = 0; i < start; i++) cells.push(`<div class="d empty"></div>`);
+  for (let n = 1; n <= ultimo.getDate(); n++) {
+    const k = `${anno}-${String(mese + 1).padStart(2, "0")}-${String(n).padStart(2, "0")}`;
+    const q = giorni[k] || 0;
+    cells.push(`<div class="d${q ? " has" : ""}" data-d="${k}" data-n="${q}">${n}</div>`);
+  }
+  return `<div class="card">
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <button class="b" id="prev">←</button>
+      <strong style="text-transform:capitalize">${esc(nomeMese)}</strong>
+      <button class="b" id="next">→</button>
+    </div>
+    <div class="cal">
+      ${["L","M","M","G","V","S","D"].map((h) => `<div class="h">${h}</div>`).join("")}
+      ${cells.join("")}
+    </div>
+    <div id="cal-day" style="margin-top:12px"></div>
+  </div>`;
+}
+
+function bindCalendario() {
+  $("#prev").onclick = () => { const d = viewCalendario.d || new Date(); d.setMonth(d.getMonth() - 1); viewCalendario.d = d; render(); };
+  $("#next").onclick = () => { const d = viewCalendario.d || new Date(); d.setMonth(d.getMonth() + 1); viewCalendario.d = d; render(); };
+  document.querySelectorAll(".cal .d.has").forEach((e) => e.onclick = () => {
+    const k = e.dataset.d, list = (dati.prenot || []).filter((p) => p.data === k);
+    $("#cal-day").innerHTML = `<h3 style="text-transform:capitalize">${esc(fmtDay(k))}</h3>` + list.map(cardPrenot).join("");
+    bindOggi();
+  });
+}
+
+function render() {
+  $("#app").innerHTML = sessione ? viewHome() : viewLogin();
+  if (sessione) { bindHome(); if (tab === "calendario") bindCalendario(); } else bindLogin();
+}
+
+if (sessione && sessione.scade && sessione.scade > Date.now()) carica();
+render();
+setInterval(() => { if (sessione) carica(); }, 60000); // ricarica ogni minuto
+</script>
+</body>
+</html>
