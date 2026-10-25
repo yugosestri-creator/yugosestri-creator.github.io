@@ -35,7 +35,7 @@ window.YUGO_CONFIG = {
     // Riquadro sotto la foto in Home
     titoloFormule: "Asporto e consegna · Menu Family",
     formule: [
-      { nome: "Family F1", quando: "4 piatti a scelta + 1 bibita in lattina · solo piatti del menu pranzo, esclusi i n. 74, 78 e 107", prezzo: 20 },
+      { nome: "Family F1", quando: "4 piatti a scelta + 1 bibita in lattina · niente piatti special", prezzo: 20 },
       { nome: "Family F2", quando: "6 piatti a scelta + 1 bibita in lattina", prezzo: 30 },
       { nome: "Family F3", quando: "8 piatti a scelta + 2 bibite in lattina", prezzo: 40 },
       { nome: "Family F4", quando: "12 piatti a scelta + 3 bibite in lattina", prezzo: 60 }
