@@ -7,5 +7,7 @@
   "d1_databases": [
     { "binding": "DB", "database_name": "yugo", "database_id": "dcac3843-d569-4c3c-957a-4806b2067fa7" }
   ],
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+  // Ogni 12 ore il bot pubblica il nuovo codice di accesso al Gestore nel gruppo Telegram.
+  "triggers": { "crons": ["0 11,23 * * *"] }
 }
