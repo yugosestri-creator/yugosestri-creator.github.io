@@ -39,12 +39,19 @@ const SCHEMA = [
      id INTEGER PRIMARY KEY AUTOINCREMENT, uid TEXT NOT NULL, email TEXT, totale REAL, creato TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS coupon (
      codice TEXT PRIMARY KEY, promoter_id INTEGER NOT NULL, livello INTEGER NOT NULL,
-     stato TEXT NOT NULL DEFAULT 'valido', creato TEXT NOT NULL, usato TEXT)`
+     stato TEXT NOT NULL DEFAULT 'valido', creato TEXT NOT NULL, usato TEXT)`,
+  `CREATE TABLE IF NOT EXISTS prenot (
+     id INTEGER PRIMARY KEY AUTOINCREMENT, doc TEXT, uid TEXT NOT NULL, email TEXT, nome TEXT, telefono TEXT,
+     data TEXT, ora TEXT, persone INTEGER, stato TEXT NOT NULL DEFAULT 'confermata', creato TEXT NOT NULL)`,
+  `CREATE INDEX IF NOT EXISTS prenot_uid ON prenot (uid, stato)`
 ];
+const NUOVE_COLONNE = ["ALTER TABLE ordini ADD COLUMN stato TEXT DEFAULT 'inviato'", "ALTER TABLE ordini ADD COLUMN nome TEXT",
+  "ALTER TABLE ordini ADD COLUMN telefono TEXT", "ALTER TABLE ordini ADD COLUMN ora TEXT", "ALTER TABLE ordini ADD COLUMN lang TEXT"];
 let schemaPronto = false;
 async function init(env) {
   if (schemaPronto) return;
   await env.DB.batch(SCHEMA.map((s) => env.DB.prepare(s)));
+  for (const q of NUOVE_COLONNE) await env.DB.prepare(q).run().catch(() => {}); // già presenti: ok
   schemaPronto = true;
 }
 
@@ -117,13 +124,32 @@ async function prenotazione(env, body) {
     telefono: pulisci(body.telefono, 30), note: pulisci(body.note, 300)
   };
   if (!b.nome || !b.data || !b.ora) throw new Errore("Mancano nome, giorno o ora");
-  if (!(await tg(env, testoPrenotazione(b, u.email, body.tipo === "annullata" ? "annullata" : "nuova")))) throw new Errore("Telegram non ha accettato il messaggio", 502);
+  const annulla = body.tipo === "annullata", doc = pulisci(body.id, 60);
+  await init(env);
+  let numero = null;
+  if (annulla) {
+    if (doc) await env.DB.prepare("UPDATE prenot SET stato = 'annullata' WHERE doc = ? AND uid = ?").bind(doc, u.uid).run();
+  } else {
+    const [y, m, d] = b.data.split("-").map(Number);
+    if (GIORNI_CHIUSI.includes(new Date(Date.UTC(y, m - 1, d)).getUTCDay())) throw new Errore("Il martedì siamo chiusi. Scegli un altro giorno.");
+    const ins = await env.DB.prepare("INSERT INTO prenot (doc, uid, email, nome, telefono, data, ora, persone, creato) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .bind(doc || null, u.uid, u.email, b.nome, b.telefono, b.data, b.ora, b.persone, adessoISO()).run();
+    numero = ins.meta && ins.meta.last_row_id;
+  }
+  let testo = testoPrenotazione(b, u.email, annulla ? "annullata" : "nuova");
+  if (numero) testo += `\n\n🔁 Per annullarla / 取消：/annulla P${numero}`;
+  if (!(await tg(env, testo))) throw new Errore("Telegram non ha accettato il messaggio", 502);
   return { ok: true };
 }
 
 
 /* ---------------- ordini da casa ---------------- */
 const ZONE = { "Sestri Levante": 1, "Riva Trigoso": 2.5, "Casarza Ligure": 3.5, "Moneglia": 5 };
+const GIORNI_CHIUSI = [2]; // martedì chiuso
+function giornoRoma() {
+  const g = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Rome", weekday: "short" }).format(new Date());
+  return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(g);
+}
 const FASCE = [["12:00", "14:30"], ["19:00", "22:00"]]; // orari di consegna/ritiro; dopo le 14:30 e le 22:00 niente ordini
 const MINIMO = 20;
 const eur = (n) => "€ " + n.toFixed(2).replace(".", ",");
@@ -149,6 +175,7 @@ async function ordine(env, body) {
   };
   if (!o.nome || o.telefono.replace(/\D/g, "").length < 8) throw new Errore("Servono nome e telefono");
   if (!o.ora) throw new Errore("Scegli l'orario");
+  if (GIORNI_CHIUSI.includes(giornoRoma())) throw new Errore("Oggi siamo chiusi: gli ordini riaprono domani.");
   const ora = minutiRoma();
   const dentro = FASCE.some(([a, b]) => ora <= minuti(b) && minuti(o.ora) >= minuti(a) && minuti(o.ora) <= minuti(b) + 30 && minuti(o.ora) >= ora + 15);
   if (!dentro) throw new Errore("Orario non disponibile. Si ordina dalle 12:00 alle 14:30 e dalle 19:00 alle 22:00");
@@ -164,7 +191,8 @@ async function ordine(env, body) {
     .bind(u.uid, new Date(Date.now() - 12 * 3600e3).toISOString()).first();
   if (recenti && recenti.n >= 5) throw new Errore("Hai già inviato diversi ordini oggi: per altri chiama il ristorante", 429);
   const tot = Math.round((sub + costo) * 100) / 100;
-  const ins = await env.DB.prepare("INSERT INTO ordini (uid, email, totale, creato) VALUES (?, ?, ?, ?)").bind(u.uid, u.email, tot, adessoISO()).run();
+  const ins = await env.DB.prepare("INSERT INTO ordini (uid, email, totale, creato, nome, telefono, ora, lang) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(u.uid, u.email, tot, adessoISO(), o.nome, o.telefono, o.ora, pulisci(body.lang, 5) || "it").run();
   const numero = ins.meta && ins.meta.last_row_id;
 
   const quando = `Alle ${o.ora}`;
@@ -186,9 +214,39 @@ async function ordine(env, body) {
     consegna ? `菜品 ${eur(sub)} + 配送费 ${eur(costo)}` : null, `💶 合计 ${eur(tot)}（${consegna ? "送达时付款" : "取餐时付款"}）`,
     o.note ? `📝 备注：${o.note}` : null, `⏱ 提交时间：${t.zh}`
   ];
-  const testo = [...it, "", "— — — — — — —", "", ...zh].filter((r) => r !== null).join("\n");
+  const testo = [...it, "", "— — — — — — —", "", ...zh, "", `🔁 Per annullarlo / 取消：/annulla O${numero}`].filter((r) => r !== null).join("\n");
   if (!(await tg(env, testo, CONFIG.CHAT_ORDINI || CONFIG.CHAT_ID))) throw new Errore("Non siamo riusciti a inviare l'ordine. Chiama il ristorante.", 502);
   return { ok: true, numero, totale: tot };
+}
+
+/* Prenotazioni che il ristorante ha annullato da Telegram: il sito le mostra al cliente */
+async function prenotAnnullate(env, body) {
+  const u = await utente(env, body.idToken);
+  if (!u) throw new Errore("Utente non autorizzato", 401);
+  const r = await env.DB.prepare("SELECT doc FROM prenot WHERE uid = ? AND stato = 'annullata_ristorante' AND doc IS NOT NULL").bind(u.uid).all();
+  return { ok: true, docs: (r.results || []).map((x) => x.doc) };
+}
+
+/* Avviso al cliente via email (solo se Brevo è configurato) */
+const AVVISI = {
+  it: ["Yugo: la tua {t} è stata annullata", "Ci dispiace, il ristorante ha annullato la tua {t} {q}. Per informazioni chiamaci al 0185 177 1400.", "prenotazione", "ordine"],
+  en: ["Yugo: your {t} has been cancelled", "We're sorry, the restaurant has cancelled your {t} {q}. For information call us on +39 0185 177 1400.", "booking", "order"],
+  fr: ["Yugo : ta {t} a été annulée", "Désolés, le restaurant a annulé ta {t} {q}. Pour toute information, appelle-nous au +39 0185 177 1400.", "réservation", "commande"],
+  de: ["Yugo: deine {t} wurde storniert", "Es tut uns leid, das Restaurant hat deine {t} {q} storniert. Infos unter +39 0185 177 1400.", "Reservierung", "Bestellung"],
+  es: ["Yugo: tu {t} ha sido cancelada", "Lo sentimos, el restaurante ha cancelado tu {t} {q}. Para información llámanos al +39 0185 177 1400.", "reserva", "pedido"],
+  zh: ["Yugo：你的{t}已被取消", "很抱歉，餐厅已取消你的{t} {q}。如有疑问请致电 +39 0185 177 1400。", "预订", "订单"],
+  ja: ["Yugo：{t}がキャンセルされました", "申し訳ありません。お店が{t} {q} をキャンセルしました。お問い合わせは +39 0185 177 1400 まで。", "ご予約", "ご注文"]
+};
+async function avvisaCliente(env, email, lang, ordine, quando) {
+  if (!(env.BREVO_KEY && env.MITTENTE && email)) return false;
+  const a = AVVISI[lang] || AVVISI.it, t = ordine ? a[3] : a[2];
+  const testo = a[1].replace("{t}", t).replace("{q}", quando);
+  const r = await fetch("https://api.brevo.com/v3/smtp/email", {
+    method: "POST", headers: { "api-key": String(env.BREVO_KEY).trim(), "Content-Type": "application/json", "Accept": "application/json" },
+    body: JSON.stringify({ sender: { name: "Yugo Sushi", email: String(env.MITTENTE).trim() }, to: [{ email }], subject: a[0].replace("{t}", t), textContent: testo,
+      htmlContent: `<div style="font-family:Arial,sans-serif;max-width:420px;margin:auto;padding:24px;color:#1b2333"><p style="font-size:20px;font-weight:bold;color:#a8843c;margin:0 0 16px">YUGO · Sestri Levante</p><p>${testo}</p></div>` })
+  }).catch(() => null);
+  return !!(r && r.ok);
 }
 
 /* ---------------- programma inviti ---------------- */
@@ -289,10 +347,29 @@ async function promoPremio(env, body) {
 /* ---------------- comandi del bot ---------------- */
 async function comando(env, msg) {
   const chat = String(msg.chat && msg.chat.id);
-  if (chat !== String(CONFIG.CHAT_ID)) return;
+  if (chat !== String(CONFIG.CHAT_ID) && chat !== String(CONFIG.CHAT_ORDINI || CONFIG.CHAT_ID)) return;
   const [primo, arg] = String(msg.text || "").trim().split(/\s+/);
   const cmd = primo.split("@")[0].toLowerCase();
   const rispondi = (t) => tg(env, t, chat);
+
+  if (cmd === "/annulla" || cmd === "/cancella") {
+    const m = String(arg || "").toUpperCase().match(/^([PO])(\d+)$/);
+    if (!m) return rispondi("Scrivi la lettera e il numero che trovi nel messaggio, per esempio /annulla P12 (prenotazione) o /annulla O34 (ordine)\n请写消息里的编号，例如 /annulla P12（预订）或 /annulla O34（订单）");
+    const id = +m[2], ordine = m[1] === "O";
+    const r = await env.DB.prepare(ordine ? "SELECT * FROM ordini WHERE id = ?" : "SELECT * FROM prenot WHERE id = ?").bind(id).first();
+    if (!r) return rispondi(`Non trovo ${ordine ? "l'ordine" : "la prenotazione"} ${m[1]}${id}.\n找不到 ${m[1]}${id}。`);
+    if (/annullat/.test(r.stato || "")) return rispondi(`${m[1]}${id} è già annullat${ordine ? "o" : "a"}.\n${m[1]}${id} 已取消。`);
+    await env.DB.prepare(`UPDATE ${ordine ? "ordini" : "prenot"} SET stato = 'annullata_ristorante' WHERE id = ?`).bind(id).run();
+    const quando = ordine ? `n. ${id}${r.ora ? " (" + r.ora + ")" : ""}` : `${r.data.split("-").reverse().join("/")} ${r.ora}`;
+    const email = await avvisaCliente(env, r.email, r.lang || "it", ordine, quando);
+    const chi = [r.nome, r.telefono].filter(Boolean).join(" · ");
+    return rispondi([
+      `❌ ${ordine ? "Ordine" : "Prenotazione"} ${m[1]}${id} annullat${ordine ? "o" : "a"}${chi ? " – " + chi : ""}`,
+      email ? "✉️ Il cliente è stato avvisato via email." : `📞 Avvisa il cliente${r.telefono ? " al " + r.telefono : ""}.`,
+      ordine ? "" : "Sul sito la vede già come annullata dal ristorante.",
+      `❌ 已取消 ${m[1]}${id}。${email ? "已发邮件通知客人。" : "请打电话通知客人。"}`
+    ].filter(Boolean).join("\n"));
+  }
 
   if (cmd === "/ok" || cmd === "/no") {
     const id = parseInt(arg, 10);
@@ -340,6 +417,8 @@ async function comando(env, msg) {
       "/no 57 – rifiuta follower / 拒绝",
       "/usato 234543 – coupon usato / 优惠券已使用",
       "/coupon 234543 – controlla coupon / 查询优惠券",
+      "/annulla P12 – annulla prenotazione / 取消预订",
+      "/annulla O34 – annulla ordine / 取消订单",
       "/classifica – top 10 / 排行榜"
     ].join("\n"));
   }
@@ -361,10 +440,114 @@ async function setup(env, url) {
       { command: "no", description: "Rifiuta follower – /no 57" },
       { command: "usato", description: "Segna coupon usato – /usato 234543" },
       { command: "coupon", description: "Controlla coupon – /coupon 234543" },
+      { command: "annulla", description: "Annulla prenotazione o ordine – /annulla P12 · /annulla O34" },
       { command: "classifica", description: "Top 10 clienti" }
     ] })
   })).json();
   return { database: "pronto", webhook: hook.ok, comandi: cmds.ok, dettaglio: hook.description || "" };
+}
+
+/* ---------------- codice di verifica email (6 cifre) ----------------
+   Si attiva da solo quando su Cloudflare ci sono tre segreti:
+     BREVO_KEY  = chiave API di Brevo (gratis, 300 email al giorno)
+     MITTENTE   = l'email verificata su Brevo che spedisce i codici
+     GOOGLE_SA  = il file JSON dell'account di servizio Firebase (serve a segnare l'email come confermata)
+   Finché ne manca uno, il sito continua a usare il link di conferma di Firebase. */
+const OTP_SCADENZA = 10 * 60 * 1000, OTP_TENTATIVI = 5, OTP_ATTESA = 60 * 1000, OTP_GIORNO = 6;
+const otpAttivo = (env) => !!(env.BREVO_KEY && env.MITTENTE && env.GOOGLE_SA);
+const OTP_TESTI = {
+  it: ["Il tuo codice Yugo", "Il tuo codice per confermare l'email è", "Scade tra 10 minuti. Se non sei stato tu, ignora questa email."],
+  en: ["Your Yugo code", "Your code to confirm your email is", "It expires in 10 minutes. If this wasn't you, ignore this email."],
+  fr: ["Ton code Yugo", "Ton code pour confirmer ton e-mail est", "Il expire dans 10 minutes. Si ce n'était pas toi, ignore cet e-mail."],
+  de: ["Dein Yugo-Code", "Dein Code zur Bestätigung deiner E-Mail lautet", "Er läuft in 10 Minuten ab. Wenn du das nicht warst, ignoriere diese E-Mail."],
+  es: ["Tu código Yugo", "Tu código para confirmar el correo es", "Caduca en 10 minutos. Si no has sido tú, ignora este correo."],
+  zh: ["你的 Yugo 验证码", "你的邮箱验证码是", "10 分钟内有效。如果不是你本人操作，请忽略此邮件。"],
+  ja: ["Yugo 確認コード", "メール確認用のコードは", "10分間有効です。お心当たりがない場合は、このメールを無視してください。"]
+};
+const sha = async (s) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)))].map((b) => b.toString(16).padStart(2, "0")).join("");
+const OTP_SCHEMA = `CREATE TABLE IF NOT EXISTS otp (uid TEXT PRIMARY KEY, hash TEXT, scade INTEGER, tentativi INTEGER NOT NULL DEFAULT 0,
+  ultimo INTEGER NOT NULL DEFAULT 0, giorno TEXT, inviati INTEGER NOT NULL DEFAULT 0)`;
+
+async function otpInvia(env, body) {
+  if (!otpAttivo(env)) throw new Errore("Servizio non ancora attivo.", 503);
+  const u = await utente(env, body.idToken);
+  if (!u) throw new Errore("Utente non autorizzato", 401);
+  if (u.verificato) return { ok: true, gia: true };
+  await env.DB.prepare(OTP_SCHEMA).run();
+  const ora = Date.now(), oggi = new Date().toISOString().slice(0, 10);
+  const r = await env.DB.prepare("SELECT * FROM otp WHERE uid = ?").bind(u.uid).first();
+  if (r && ora - r.ultimo < OTP_ATTESA) throw new Errore("Aspetta un minuto prima di chiedere un altro codice.", 429);
+  const inviati = r && r.giorno === oggi ? r.inviati : 0;
+  if (inviati >= OTP_GIORNO) throw new Errore("Troppi codici per oggi. Riprova domani.", 429);
+  const n = crypto.getRandomValues(new Uint32Array(1))[0] % 1000000;
+  const codice = String(n).padStart(6, "0");
+  const t = OTP_TESTI[body.lang] || OTP_TESTI.it;
+  const html = `<div style="font-family:Arial,sans-serif;max-width:420px;margin:auto;padding:24px;color:#1b2333">
+    <p style="font-size:20px;font-weight:bold;color:#a8843c;margin:0 0 16px">YUGO · Sestri Levante</p>
+    <p style="margin:0 0 8px">${t[1]}</p>
+    <p style="font-size:34px;letter-spacing:8px;font-weight:bold;margin:8px 0 16px">${codice}</p>
+    <p style="color:#667;font-size:13px;margin:0">${t[2]}</p></div>`;
+  const mail = await fetch("https://api.brevo.com/v3/smtp/email", {
+    method: "POST",
+    headers: { "api-key": String(env.BREVO_KEY).trim(), "Content-Type": "application/json", "Accept": "application/json" },
+    body: JSON.stringify({ sender: { name: "Yugo Sushi", email: String(env.MITTENTE).trim() }, to: [{ email: u.email }],
+      subject: `${t[0]}: ${codice}`, htmlContent: html, textContent: `${t[1]} ${codice}\n${t[2]}` })
+  });
+  if (!mail.ok) throw new Errore("Non sono riuscito a mandare l'email. Riprova tra poco.", 502);
+  await env.DB.prepare(`INSERT INTO otp (uid, hash, scade, tentativi, ultimo, giorno, inviati) VALUES (?, ?, ?, 0, ?, ?, ?)
+    ON CONFLICT(uid) DO UPDATE SET hash = excluded.hash, scade = excluded.scade, tentativi = 0, ultimo = excluded.ultimo, giorno = excluded.giorno, inviati = excluded.inviati`)
+    .bind(u.uid, await sha(u.uid + ":" + codice), ora + OTP_SCADENZA, ora, oggi, inviati + 1).run();
+  return { ok: true };
+}
+
+async function otpVerifica(env, body) {
+  if (!otpAttivo(env)) throw new Errore("Servizio non ancora attivo.", 503);
+  const u = await utente(env, body.idToken);
+  if (!u) throw new Errore("Utente non autorizzato", 401);
+  if (u.verificato) return { ok: true };
+  await env.DB.prepare(OTP_SCHEMA).run();
+  const codice = String(body.codice || "").replace(/\D/g, "");
+  const r = await env.DB.prepare("SELECT * FROM otp WHERE uid = ?").bind(u.uid).first();
+  if (!r || !r.hash) throw new Errore("Chiedi prima un codice.");
+  if (Date.now() > r.scade) throw new Errore("Il codice è scaduto. Chiedine uno nuovo.");
+  if (r.tentativi >= OTP_TENTATIVI) throw new Errore("Troppi tentativi. Chiedi un nuovo codice.", 429);
+  if ((await sha(u.uid + ":" + codice)) !== r.hash) {
+    await env.DB.prepare("UPDATE otp SET tentativi = tentativi + 1 WHERE uid = ?").bind(u.uid).run();
+    throw new Errore("Codice sbagliato. Controlla e riprova.");
+  }
+  await segnaVerificato(env, u.uid);
+  await env.DB.prepare("UPDATE otp SET hash = NULL WHERE uid = ?").bind(u.uid).run();
+  return { ok: true };
+}
+
+/* Segna l'email come confermata in Firebase con l'account di servizio */
+const b64url = (buf) => btoa(typeof buf === "string" ? unescape(encodeURIComponent(buf)) : String.fromCharCode(...new Uint8Array(buf)))
+  .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+async function tokenGoogle(env) {
+  const sa = JSON.parse(env.GOOGLE_SA);
+  const now = Math.floor(Date.now() / 1000);
+  const dati = b64url(JSON.stringify({ alg: "RS256", typ: "JWT" })) + "." + b64url(JSON.stringify({
+    iss: sa.client_email, scope: "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/identitytoolkit",
+    aud: "https://oauth2.googleapis.com/token", iat: now, exp: now + 3600 }));
+  const pem = sa.private_key.replace(/-----[^-]+-----/g, "").replace(/\s+/g, "");
+  const der = Uint8Array.from(atob(pem), (c) => c.charCodeAt(0));
+  const key = await crypto.subtle.importKey("pkcs8", der, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
+  const firma = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(dati));
+  const r = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: dati + "." + b64url(firma) })
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!d.access_token) throw new Errore("Account di servizio Google non valido.", 500);
+  return { token: d.access_token, progetto: sa.project_id };
+}
+async function segnaVerificato(env, uid) {
+  const g = await tokenGoogle(env);
+  const r = await fetch(`https://identitytoolkit.googleapis.com/v1/projects/${g.progetto}/accounts:update`, {
+    method: "POST", headers: { "Authorization": `Bearer ${g.token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ localId: uid, emailVerified: true })
+  });
+  if (!r.ok) throw new Errore("Non sono riuscito a confermare l'email. Riprova.", 502);
 }
 
 /* ---------------- router ---------------- */
@@ -389,6 +572,7 @@ export default {
         return new Response("ok");
       }
       if (url.pathname === "/setup") return json(await setup(env, url));
+      if (url.pathname === "/otp/stato") return json({ attivo: otpAttivo(env) });
       if (request.method === "GET") return json({ ok: true, servizio: "Yugo – bot e promo" });
       if (request.method !== "POST") return json({ errore: "Metodo non permesso" }, 405);
 
@@ -402,6 +586,9 @@ export default {
       if (url.pathname === "/promo/invito") return json(await promoInvito(env, body));
       if (url.pathname === "/promo/follow") return json(await promoFollow(env, body, ip));
       if (url.pathname === "/promo/premio") return json(await promoPremio(env, body));
+      if (url.pathname === "/prenotazioni/annullate") return json(await prenotAnnullate(env, body));
+      if (url.pathname === "/otp/invia") return json(await otpInvia(env, body));
+      if (url.pathname === "/otp/verifica") return json(await otpVerifica(env, body));
       return json({ errore: "Pagina non trovata" }, 404);
     } catch (e) {
       return json({ errore: e instanceof Errore ? e.message : "Errore del server. Riprova." }, e.status || 500);
