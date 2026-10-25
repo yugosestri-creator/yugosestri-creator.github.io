@@ -84,8 +84,7 @@ async function firebaseBackend(conf) {
     async register(nome, email, pw) {
       const c = await A.createUserWithEmailAndPassword(auth, email, pw);
       await A.updateProfile(c.user, { displayName: nome });
-      await A.sendEmailVerification(c.user, actionSettings).catch(() => A.sendEmailVerification(c.user));
-      return map(c.user);
+      return map(c.user); // il codice o il link di conferma partono subito dopo (inviaVerifica)
     },
     async login(email, pw) { const c = await A.signInWithEmailAndPassword(auth, email, pw); return map(c.user); },
     logout: () => A.signOut(auth),
@@ -167,7 +166,7 @@ async function notifyTelegram(b, tipo = "nuova") {
       const r = await fetch(tg.worker, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ idToken, tipo, nome: b.nome, persone: b.persone, data: b.data, ora: b.ora, telefono: b.telefono, note: b.note })
+        body: JSON.stringify({ idToken, tipo, id: b.id, nome: b.nome, persone: b.persone, data: b.data, ora: b.ora, telefono: b.telefono, note: b.note })
       });
       return r.ok;
     }
@@ -257,6 +256,60 @@ async function api(path, body) {
   return d;
 }
 
+/* Conferma email: codice di 6 cifre se il worker è pronto, altrimenti il link di Firebase */
+let OTP = null;
+const otpPronto = (WORKER ? fetch(WORKER + "/otp/stato").then((r) => r.json()).then((d) => !!d.attivo) : Promise.resolve(false))
+  .catch(() => false).then((v) => (OTP = v));
+async function inviaVerifica() {
+  if (DEMO) return;
+  await otpPronto;
+  if (OTP) return api("/otp/invia", { idToken: await backend.token(), lang: (window.YUGO_I18N && window.YUGO_I18N.lang) || "it" });
+  return backend.resend();
+}
+async function emailConfermata() {
+  user = await backend.reload();
+  if (!user.verified) return false;
+  toast("Email confermata!");
+  renderBooking(); renderAccount(); renderInvite();
+  return true;
+}
+function verifyBox(box) {
+  if (!box) return;
+  if (OTP === null) { box.innerHTML = `<p class="muted">Caricamento…</p>`; otpPronto.then(() => verifyBox(box)); return; }
+  if (!OTP) {
+    box.innerHTML = `<div class="notice">
+        <p><strong>Conferma la tua email.</strong> Ti abbiamo mandato un link a ${esc(user.email)}. Aprilo (se non lo vedi guarda in Spam), poi torna qui e tocca «Ho confermato».</p>
+        <div class="row-actions"><button class="btn" data-v="ok">Ho confermato</button><button class="btn btn-ghost" data-v="again">Rinvia email</button></div>
+      </div>`;
+    box.querySelector('[data-v="ok"]').onclick = async () => { if (!(await emailConfermata())) toast("Email non ancora confermata. Controlla anche nello spam."); };
+    box.querySelector('[data-v="again"]').onclick = async () => { try { await backend.resend(); toast("Email inviata di nuovo."); } catch (e) { toast(errMsg(e)); } };
+    return;
+  }
+  box.innerHTML = `<div class="notice otp">
+      <p><strong>Conferma la tua email.</strong> Ti abbiamo mandato un codice di 6 cifre a ${esc(user.email)} (se non lo vedi guarda in Spam).</p>
+      <form class="otp-row" novalidate>
+        <input class="input otp-in" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000" aria-label="Codice di 6 cifre">
+        <button class="btn" type="submit">Conferma</button>
+      </form>
+      <p class="error" hidden></p>
+      <button type="button" class="linkbtn" data-v="again">Mandami un nuovo codice</button>
+    </div>`;
+  const inp = box.querySelector(".otp-in"), err = box.querySelector(".error"), form = box.querySelector("form");
+  const mostra = (m) => { err.textContent = m; err.hidden = !m; };
+  inp.addEventListener("input", () => { inp.value = inp.value.replace(/\D/g, "").slice(0, 6); if (inp.value.length === 6) form.requestSubmit(); });
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault(); mostra("");
+    if (inp.value.length !== 6) return mostra("Scrivi le 6 cifre del codice.");
+    const b = form.querySelector("button"); b.disabled = true;
+    try { await api("/otp/verifica", { idToken: await backend.token(), codice: inp.value }); await emailConfermata(); }
+    catch (ex) { mostra(ex.code ? errMsg(ex) : ex.message); inp.value = ""; inp.focus(); }
+    b.disabled = false;
+  });
+  box.querySelector('[data-v="again"]').onclick = async () => {
+    try { await inviaVerifica(); toast("Nuovo codice inviato."); } catch (ex) { mostra(ex.code ? errMsg(ex) : ex.message); }
+  };
+}
+
 async function renderInvite() {
   const area = $("#invite-area"); if (!area) return;
   area.hidden = !WORKER; if (!WORKER) return;
@@ -264,7 +317,7 @@ async function renderInvite() {
   const intro = `<span class="promo-tag">Invita amici</span><h2>Porta i tuoi amici, vinci premi</h2>
     <p>Ogni amico che ci segue su TikTok o Instagram riempie la tua barra. Barra piena = un coupon da usare da Yugo.</p>`;
   if (!user) { area.innerHTML = `<article class="block invite">${intro}<a href="#account" data-go="account" class="btn">Accedi o registrati per partecipare</a></article>`; return; }
-  if (!user.verified) { area.innerHTML = `<article class="block invite">${intro}<div class="notice"><p>Prima conferma la tua email: apri il link che ti abbiamo mandato.</p></div></article>`; return; }
+  if (!user.verified) { area.innerHTML = `<article class="block invite">${intro}<div class="vbox"></div></article>`; verifyBox(area.querySelector(".vbox")); return; }
   if (!area.innerHTML.trim()) area.innerHTML = `<p class="muted">Caricamento…</p>`;
   try { drawInvite(area, await api("/promo/me", { idToken: await backend.token() })); }
   catch (e) { area.innerHTML = `<article class="block invite">${intro}<p class="error">${esc(e.message)}</p></article>`; }
@@ -523,6 +576,7 @@ function aggiornaBarra() {
 function fasceOggi() {
   const now = new Date(), m = now.getHours() * 60 + now.getMinutes(), anticipo = ORD.anticipo || 40;
   const slots = [];
+  if ((R.giorniChiusi || []).includes(now.getDay())) return { slots, chiusoOggi: true };
   for (const [da, a] of ORD.fasce || []) {
     const s = toMin(da), e = toMin(a);
     if (m > e) continue; // dopo le 14:30 e dopo le 22:00 niente ordini
@@ -550,7 +604,7 @@ function disegnaCarrello() {
   const d = ordDati, consegna = d.modo === "consegna", zone = ORD.zone || [];
   const zona = zone[d.zona] || zone[0], costo = consegna && zona ? zona.costo : 0;
   const sub = subtotale(), tot = Math.round((sub + costo) * 100) / 100;
-  const { slots } = fasceOggi();
+  const { slots, chiusoOggi } = fasceOggi();
   if (!slots.includes(d.ora)) d.ora = slots[0] || "";
   const chiuso = !slots.length;
   const sottoMinimo = consegna && sub < (ORD.minimo || 0);
@@ -569,7 +623,8 @@ function disegnaCarrello() {
       <div class="field"><label for="o-ind">Indirizzo</label><input class="input" id="o-ind" autocomplete="street-address" placeholder="Via, numero civico, citofono" value="${esc(d.indirizzo || "")}"></div>`
       : `<p class="hint">Ritiri da noi in ${esc(R.indirizzo || "")}.</p>`}
     <div class="field"><label for="o-ora">${consegna ? "Quando lo vuoi" : "Quando passi"}</label>
-      ${chiuso ? `<p class="notice">Per oggi gli ordini sono chiusi. Si ordina dalle ${esc((ORD.fasce || []).map(([a, b]) => a + " alle " + b).join(" e dalle "))}.</p>`
+      ${chiusoOggi ? `<p class="notice">Oggi siamo chiusi: gli ordini riaprono domani.</p>`
+        : chiuso ? `<p class="notice">Per oggi gli ordini sono chiusi. Si ordina dalle ${esc((ORD.fasce || []).map(([a, b]) => a + " alle " + b).join(" e dalle "))}.</p>`
         : `<select class="input" id="o-ora">${slots.map((t) => `<option ${t === d.ora ? "selected" : ""}>${t}</option>`).join("")}</select>`}</div>
     <div class="field"><label for="o-nome">Nome</label><input class="input" id="o-nome" autocomplete="name" value="${esc(d.nome || (user && user.nome) || "")}"></div>
     <div class="field"><label for="o-tel">Telefono</label><input class="input" id="o-tel" type="tel" inputmode="tel" autocomplete="tel" placeholder="+39 333 123 4567" value="${esc(d.telefono || store.get("yugo-draft", {}).telefono || "")}"></div>
@@ -619,7 +674,7 @@ function disegnaCarrello() {
     try {
       const ordine = { modo: d.modo, zona: consegna ? zona.nome : "", indirizzo: consegna ? d.indirizzo : "", ora: d.ora,
         nome: d.nome, telefono: d.telefono, note: d.note, righe: righeCarrello().map(({ n, nome, prezzo, q }) => ({ n, nome, prezzo, q })) };
-      const res = DEMO ? { ok: true, numero: Math.floor(Math.random() * 90) + 10 } : await api("/ordine", { idToken: await backend.token(), ...ordine });
+      const res = DEMO ? { ok: true, numero: Math.floor(Math.random() * 90) + 10 } : await api("/ordine", { idToken: await backend.token(), lang: (window.YUGO_I18N && window.YUGO_I18N.lang) || "it", ...ordine });
       carrello = {}; salvaCarrello(); aggiornaBarra(); ridisegnaQta();
       body.innerHTML = `<div class="ord-ok"><div class="ord-check" aria-hidden="true">✓</div>
         <p class="cs-kicker">Ordine n. ${esc(res.numero)} inviato</p><h2 id="ord-title">Grazie ${esc(d.nome.split(" ")[0])}!</h2>
@@ -880,15 +935,7 @@ function renderBooking() {
   if (lastBooking) return renderConfirmation(area, lastBooking);
   if (user === undefined) { area.innerHTML = `<p class="muted">Caricamento…</p>`; return; }
   if (!user) return needLogin(area, "Accedi per prenotare");
-  if (!user.verified) {
-    area.innerHTML = `<div class="notice">
-        <p><strong>Conferma la tua email.</strong> Ti abbiamo mandato un link a ${esc(user.email)}. Aprilo (se non lo vedi guarda in Spam), poi torna qui e tocca «Ho confermato».</p>
-        <div class="row-actions"><button class="btn" id="btn-verified">Ho confermato</button><button class="btn btn-ghost" id="btn-resend">Rinvia email</button></div>
-      </div>`;
-    $("#btn-verified").onclick = async () => { user = await backend.reload(); if (!user.verified) toast("Email non ancora confermata. Controlla anche nello spam."); renderBooking(); };
-    $("#btn-resend").onclick = async () => { try { await backend.resend(); toast("Email inviata di nuovo."); } catch (e) { toast(errMsg(e)); } };
-    return;
-  }
+  if (!user.verified) return verifyBox(area);
 
   const draft = store.get("yugo-draft", {});
   const today = new Date();
@@ -1024,14 +1071,17 @@ function renderAccount() {
 
   area.innerHTML = `
     <div class="view-head"><h1>Ciao ${esc(user.nome || "")}</h1><p class="muted">${esc(user.email)}</p></div>
-    ${!user.verified ? `<div class="notice" style="margin-bottom:14px"><p>Email non ancora confermata: apri il link che ti abbiamo mandato per poter prenotare.</p></div>` : ""}
+    ${!user.verified ? `<div class="vbox" id="acc-verify" style="margin-bottom:14px"></div>` : ""}
     <div class="stack" style="margin-top:0">
       <article class="block"><h2>Le mie prenotazioni</h2><div id="my-list" class="blist"><p class="muted">Caricamento…</p></div></article>
       ${installBlock()}
       <button class="btn btn-ghost" id="btn-logout">Esci dall'account</button>
     </div>`;
   $("#btn-logout").onclick = async () => { await backend.logout(); lastBooking = null; toast("Sei uscito."); };
-  backend.mine(user.uid).then((list) => {
+  if (!user.verified) verifyBox($("#acc-verify"));
+  const annRist = WORKER && !DEMO ? backend.token().then((t) => api("/prenotazioni/annullate", { idToken: t })).then((d) => d.docs || []).catch(() => []) : Promise.resolve([]);
+  Promise.all([backend.mine(user.uid), annRist]).then(([list, daRist]) => {
+    list.forEach((b) => { if (daRist.includes(b.id)) { b.stato = "annullata"; b.daRistorante = true; } });
     const el = $("#my-list"); if (!el) return;
     if (!list.length) { el.innerHTML = `<p class="muted">Nessuna prenotazione per ora.</p><a href="#prenota" data-go="prenota" class="btn">Prenota un tavolo</a>`; return; }
     const todayS = isoDate(new Date());
@@ -1047,7 +1097,7 @@ function renderAccount() {
       const tardi = !annullata && !passata && !puoi;
       return `<div class="bitem ${passata || annullata ? "past" : ""}">
         <div class="bdate"><b>${d.getDate()}</b><span>${d.toLocaleDateString(LOC(), { month: "short" })}</span></div>
-        <div class="binfo"><strong>${esc(cap(d.toLocaleDateString(LOC(), { weekday: "long" })))} · ore ${esc(b.ora)}</strong>${annullata ? ` <span class="tag-off">Annullata</span>` : ""}<br><span class="muted">${b.persone} ${b.persone === 1 ? "persona" : "persone"} · a nome ${esc(b.nome)}</span>
+        <div class="binfo"><strong>${esc(cap(d.toLocaleDateString(LOC(), { weekday: "long" })))} · ore ${esc(b.ora)}</strong>${annullata ? ` <span class="tag-off">${b.daRistorante ? "Annullata dal ristorante" : "Annullata"}</span>` : ""}<br><span class="muted">${b.persone} ${b.persone === 1 ? "persona" : "persone"} · a nome ${esc(b.nome)}</span>
           ${puoi ? `<div class="bactions"><button class="btn btn-ghost btn-sm" data-cancel="${esc(b.id)}">Annulla prenotazione</button></div>` : ""}
           ${annullata || passata ? `<div class="bactions"><button class="btn btn-ghost btn-sm" data-del="${esc(b.id)}">Elimina dalla lista</button></div>` : ""}
           ${tardi ? `<p class="hint tardi">Manca meno di un'ora: per annullare chiama il ristorante al <a href="tel:${telLink}">${esc(R.telefono || "")}</a>.</p>` : ""}
@@ -1058,6 +1108,8 @@ function renderAccount() {
     el.querySelectorAll("[data-del]").forEach((btn) => btn.addEventListener("click", async () => {
       const item = btn.closest(".bitem"); btn.disabled = true;
       try {
+        const b0 = list.find((x) => x.id === btn.dataset.del);
+        if (b0 && b0.daRistorante) await backend.cancel(b0.id).catch(() => {}); // prima la segno annullata anche su Firebase
         await backend.remove(btn.dataset.del);
         item.classList.add("bye"); setTimeout(() => { item.remove(); if (!el.querySelector(".bitem")) renderAccount(); }, 350);
         toast("Prenotazione eliminata dalla lista.");
@@ -1122,6 +1174,7 @@ function renderAuth(area) {
     const btn = $("#a-submit"); btn.disabled = true;
     try {
       user = reg ? await backend.register(nome, email, pw) : await backend.login(email, pw);
+      if (reg) await inviaVerifica().catch(() => {});
       toast(reg ? (DEMO ? "Account creato." : "Account creato. Controlla la tua email per confermarla.") : `Ciao ${user.nome || ""}!`);
       go("prenota");
     } catch (ex) { showErr(errMsg(ex)); btn.disabled = false; }
