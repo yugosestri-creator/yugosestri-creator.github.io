@@ -596,3 +596,6 @@ body.has-cart .menu-list { padding-bottom: 80px; }
   .fx-r { opacity: 1 !important; transform: none !important; }
   .fx-sheen::after, .btn::before { display: none; }
 }
+
+.legal { text-align: center; font-size: 13px; color: var(--muted); margin: 8px 0 0; }
+.legal a, .hint a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
