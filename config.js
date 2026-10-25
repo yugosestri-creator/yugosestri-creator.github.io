@@ -13,6 +13,10 @@ window.YUGO_CONFIG = {
     citta: "Sestri Levante",
     indirizzo: "Corso Colombo 9, 16039 Sestri Levante (GE)",
     telefono: "0185 177 1400",
+    // Per la pagina privacy (privacy.html): compila quando li hai
+    ragioneSociale: "",   // es. "Yugo di Mario Rossi" oppure "Yugo S.r.l."
+    piva: "",             // partita IVA
+    emailPrivacy: "",     // email a cui scrivere per i dati personali
     instagram: "",
 
     // Social: si aprono nell'app se è installata sul telefono
@@ -384,13 +388,13 @@ window.YUGO_CONFIG = {
         { nome: "Caffè d'orzo", prezzo: 2 },
         { nome: "Caffè ginseng", prezzo: 2 },
         { nome: "Cappuccino", prezzo: 2.5 },
-        { nome: "Tè caldo", prezzo: 4 },
+        { nome: "Tè caldo", prezzo: null },
         { nome: "Grappa cinese", prezzo: 4 },
         { nome: "Sake giapponese", prezzo: 4 },
         { nome: "Amaro", prezzo: 4 },
         { nome: "Cognac", prezzo: 4 },
-        { nome: "Grappa", prezzo: 6 },
-        { nome: "Whisky", prezzo: 8 }
+        { nome: "Grappa", prezzo: null },
+        { nome: "Whisky", prezzo: null }
       ]},
       { categoria: "Vini · bottiglia 0,75 l", extra: true, piatti: [
         { nome: "Millesimato Extra Dry", desc: "Bianco", prezzo: 18 },
