@@ -28,7 +28,7 @@ window.YUGO_CONFIG = {
 
     descrizione: [
       "Yugo è sushi experience a Sestri Levante, in Corso Colombo 9: sushi, crudi, tartare, piatti caldi e griglia, preparati al momento.",
-      "Siamo aperti tutti i giorni a pranzo e a cena. Puoi mangiare da noi, ritirare da asporto o farti portare tutto a casa.",
+      "Siamo aperti a pranzo e a cena, tranne il martedì. Puoi mangiare da noi, ritirare da asporto o farti portare tutto a casa.",
       "Prenota il tavolo da qui in pochi secondi: il ristorante riceve subito la tua richiesta."
     ],
 
@@ -44,7 +44,7 @@ window.YUGO_CONFIG = {
 
     orari: [
       { giorno: "Lunedì",    ore: "12:00 – 15:00 · 19:00 – 23:00" },
-      { giorno: "Martedì",   ore: "12:00 – 15:00 · 19:00 – 23:00" },
+      { giorno: "Martedì",   ore: "Chiuso" },
       { giorno: "Mercoledì", ore: "12:00 – 15:00 · 19:00 – 23:00" },
       { giorno: "Giovedì",   ore: "12:00 – 15:00 · 19:00 – 23:00" },
       { giorno: "Venerdì",   ore: "12:00 – 15:00 · 19:00 – 23:00" },
@@ -57,7 +57,7 @@ window.YUGO_CONFIG = {
       { nome: "Pranzo", da: "12:00", a: "14:30" },
       { nome: "Cena",   da: "19:00", a: "22:30" }
     ],
-    giorniChiusi: [],
+    giorniChiusi: [2], // 0 = domenica … 2 = martedì
     maxPersone: 12,
     giorniPrenotabili: 60,
 
@@ -79,7 +79,7 @@ window.YUGO_CONFIG = {
     },
     allYouCanEat: {
       titolo: "All You Can Eat",
-      quando: "A cena · tutti i giorni",
+      quando: "A cena · tranne il martedì",
       prezzo: 26.9,
       righe: ["Bambini sotto i 130 cm € 13,90", "Esclusi coperto (€ 2,00), bevande, dolci e caffè"]
     },
