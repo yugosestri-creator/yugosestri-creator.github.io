@@ -496,7 +496,7 @@ function renderHome() {
   $("#menu-note").textContent = R.notaMenu || "";
   $("#hero-slogan").textContent = R.slogan || "";
   $("#home-formule").previousElementSibling.textContent = R.titoloFormule || "All You Can Eat";
-  $("#home-formule").innerHTML = (R.formule || []).map((f) => `<div class="formula"><span class="f-name">${esc(f.nome)}</span><span class="f-when">${esc(f.quando || "")}</span><span class="f-price">€ ${euro(f.prezzo)}</span></div>`).join("");
+  $("#home-formule").innerHTML = (R.formule || []).map((f, i) => `<div class="formula" role="button" tabindex="0" data-fam-home="${i}"><span class="f-name">${esc(f.nome)}</span><span class="f-when">${esc(f.quando || "")}</span><span class="f-price">€ ${euro(f.prezzo)}</span></div>`).join("");
   $("#home-formule-nota").textContent = R.notaFormule || "";
   const ay = $("#home-ayce"); if (ay) { ay.hidden = !ayceAttivo(); ay.innerHTML = ayceHTML(true); }
   $("#home-desc").innerHTML = (R.descrizione || []).map((p) => `<p>${esc(p)}</p>`).join("");
@@ -530,8 +530,11 @@ const servizio = () => {
 };
 const aPranzo = () => !!R.allYouCanEatPranzo && servizio() === "pranzo";
 const menuAttivo = () => {
-  if (!(MODO === "ristorante" && R.menuRistorante && R.menuRistorante.length))
-    return (R.menu || []).filter((c) => !c.soloRistorante); // piatti special e dim sum non vanno da asporto
+  if (!(MODO === "ristorante" && R.menuRistorante && R.menuRistorante.length)) {
+    const f = famAtt(), no = new Set(f && f.i === 0 ? R.familyNonF1 || [] : []); // con il Family F1 niente sashimi, carpaccio e special roll
+    return (R.menu || []).filter((c) => !c.soloRistorante) // piatti special e dim sum non vanno da asporto
+      .map((c) => no.size ? { ...c, piatti: c.piatti.filter((p) => !no.has(p.n)) } : c).filter((c) => c.piatti.length);
+  }
   if (!aPranzo()) return R.menuRistorante;
   const no = new Set(R.nonAPranzo || []), max1 = new Set(R.max1Pranzo || []);
   return R.menuRistorante
@@ -561,6 +564,7 @@ function mostraModo() {
   $("#menu-note").textContent = (casa ? R.notaMenuCasa : (aPranzo() ? R.notaMenuPranzo : R.notaMenuCena) || R.notaMenuRistorante) || "";
   const box = $("#menu-ayce");
   if (box) { box.hidden = casa || !ayceAttivo(); box.innerHTML = casa ? "" : ayceHTML(false); }
+  disegnaFamily();
 }
 
 
@@ -575,6 +579,57 @@ const pezzi = () => righeCarrello().reduce((a, r) => a + r.q, 0);
 const subtotale = () => Math.round(righeCarrello().reduce((a, r) => a + r.q * r.prezzo, 0) * 100) / 100;
 const salvaCarrello = () => store.set("yugo-carrello", carrello);
 
+/* Menu Family da casa: scelto F1…F4, i piatti costano 0 e se ne prendono al massimo quanti ne prevede il menu */
+const FORMULE = (R.formule || []).map((f, i) => ({ ...f, i, piatti: parseInt(f.quando, 10) || 0, bibite: parseInt((String(f.quando).match(/\+\s*(\d+)\s*bibit/) || [])[1], 10) || 0 }));
+let FAM = store.get("yugo-family", null);
+if (FAM == null || !FORMULE[FAM]) FAM = null;
+function famAtt() { return ORD && MODO === "casa" && FAM != null ? FORMULE[FAM] : null; }
+function famBlocco(p, f) {
+  const n = pezzi(), q = (carrello[chiave(p)] || {}).q || 0;
+  if (n >= f.piatti) return `Hai già scelto tutti i piatti del menu (${f.piatti}).`;
+  if ((R.familyUnaVolta || []).includes(p.n) && q >= 1) return "Questo piatto si ordina una volta sola.";
+  for (const [tipo, nums] of Object.entries(R.familyLimite || {})) {
+    if (!nums.includes(p.n)) continue;
+    const gia = righeCarrello().filter((r) => nums.includes(r.n)).reduce((a, r) => a + r.q, 0);
+    if (gia >= f.i) return `Con questo menu ${tipo} al massimo ${f.i}.`; // F2 = 1, F3 = 2, F4 = 3
+  }
+  return null;
+}
+function scegliFamily(i) {
+  const nuovo = i === "" || i == null ? null : Number(i);
+  if (nuovo === FAM) return;
+  if (pezzi()) { carrello = {}; salvaCarrello(); toast("Hai cambiato menu: l'ordine è stato svuotato."); }
+  FAM = nuovo; store.set("yugo-family", FAM);
+  disegnaFamily(); menuReset(); aggiornaBarra();
+}
+function disegnaFamily() {
+  let box = $("#menu-family");
+  if (!box && $("#menu-ayce")) { box = document.createElement("div"); box.id = "menu-family"; box.className = "fam-bar"; $("#menu-ayce").after(box); }
+  if (!box) return;
+  const vedi = !!ORD && MODO === "casa" && FORMULE.length > 0;
+  box.hidden = !vedi; if (!vedi) { box.innerHTML = ""; return; }
+  const f = famAtt();
+  box.innerHTML = `<div class="fam-chips" role="tablist" aria-label="Menu Family">
+      <button type="button" class="chip" role="tab" data-fam="" aria-selected="${!f}">Alla carta</button>
+      ${FORMULE.map((x) => `<button type="button" class="chip" role="tab" data-fam="${x.i}" aria-selected="${f === x}">${esc(x.nome.replace(/^Family\s*/i, ""))} · € ${euro(x.prezzo)}</button>`).join("")}
+    </div>
+    ${f ? `<p class="fam-info"><b>${esc(f.nome)}</b> · ${esc(f.quando)}</p><p class="fam-count"></p>`
+      : `<p class="hint">Scegli un menu Family: i piatti sono inclusi nel prezzo.</p>`}`;
+  aggiornaFam();
+}
+function aggiornaFam() {
+  const f = famAtt(), n = pezzi(), full = !!f && n >= f.piatti;
+  const el = $("#menu-family .fam-count");
+  if (el && f) { el.textContent = `${n} di ${f.piatti} piatti scelti`; el.classList.toggle("full", full); }
+  const l = $("#menu-list"); if (l) l.classList.toggle("famfull", full);
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("#menu-family [data-fam]"); if (b) return scegliFamily(b.dataset.fam);
+  const h = e.target.closest("[data-fam-home]"); if (!h || !ORD) return;
+  MODO = "casa"; try { sessionStorage.setItem("yugo-modo", MODO); } catch { /* ok */ }
+  scegliFamily(h.dataset.famHome); mostraModo(); menuReset(); aggiornaBarra(); go("menu");
+});
+
 function qtyHTML(p) {
   const k = chiave(p), q = (carrello[k] && carrello[k].q) || 0;
   return q
@@ -582,7 +637,9 @@ function qtyHTML(p) {
     : `<span class="qty" data-k="${esc(k)}"><button type="button" class="qty-add" data-d="1" aria-label="Aggiungi ${esc(pul(p.nome))} all'ordine">+</button></span>`;
 }
 function cambiaQta(p, d) {
-  const k = chiave(p), r = carrello[k] || { n: p.n ?? null, nome: pul(p.nome), prezzo: p.prezzo, q: 0 };
+  const f = famAtt();
+  if (f && d > 0) { const no = famBlocco(p, f); if (no) { toast(no); return false; } }
+  const k = chiave(p), r = carrello[k] || { n: p.n ?? null, nome: pul(p.nome), prezzo: f ? 0 : p.prezzo, q: 0 };
   r.q = Math.max(0, Math.min(20, r.q + d));
   if (r.q) carrello[k] = r; else delete carrello[k];
   salvaCarrello(); aggiornaBarra();
@@ -591,7 +648,9 @@ function aggiornaBarra() {
   const bar = $("#cart-bar"); if (!bar) return;
   const n = pezzi(), vedi = ORD && MODO === "casa" && n > 0 && !$("#view-menu").hidden;
   bar.hidden = !vedi; document.body.classList.toggle("has-cart", vedi);
-  if (vedi) $("#cart-bar-txt").innerHTML = `<b>${n} ${n === 1 ? "piatto" : "piatti"}</b> · € ${euro(subtotale())}`;
+  const f = famAtt();
+  if (vedi) $("#cart-bar-txt").innerHTML = `<b>${n} ${n === 1 ? "piatto" : "piatti"}</b> · € ${euro(f ? f.prezzo : subtotale())}`;
+  aggiornaFam();
 }
 
 /* Orari in cui si può ordinare oggi */
@@ -625,16 +684,18 @@ function disegnaCarrello() {
   }
   const d = ordDati, consegna = d.modo === "consegna", zone = ORD.zone || [];
   const zona = zone[d.zona] || zone[0], costo = consegna && zona ? zona.costo : 0;
-  const sub = subtotale(), tot = Math.round((sub + costo) * 100) / 100;
+  const F = famAtt(), mancano = F ? Math.max(0, F.piatti - pezzi()) : 0;
+  const sub = F ? F.prezzo : subtotale(), tot = Math.round((sub + costo) * 100) / 100;
   const { slots, chiusoOggi } = fasceOggi();
   if (!slots.includes(d.ora)) d.ora = slots[0] || "";
   const chiuso = !slots.length;
   const sottoMinimo = consegna && sub < (ORD.minimo || 0);
   const n = pezzi();
-  const fam = (R.formule || []).map((f) => ({ f, k: parseInt(f.quando, 10) })).find(({ f, k }) => k === n && sub > f.prezzo && !/F1/.test(f.nome));
-  body.innerHTML = `<p class="cs-kicker">Il tuo ordine</p><h2 id="ord-title">${n} ${n === 1 ? "piatto" : "piatti"}</h2>
+  const fam = F ? null : (R.formule || []).map((f) => ({ f, k: parseInt(f.quando, 10) })).find(({ f, k }) => k === n && sub > f.prezzo && !/F1/.test(f.nome));
+  body.innerHTML = `<p class="cs-kicker">Il tuo ordine</p><h2 id="ord-title">${F ? `${esc(F.nome)} · € ${euro(F.prezzo)}` : `${n} ${n === 1 ? "piatto" : "piatti"}`}</h2>
+    ${F ? `<p class="hint">${n} di ${F.piatti} piatti scelti</p>` : ""}
     <ul class="cs-list ord-list">${righe.map((r) => `<li data-k="${esc(String(r.n != null ? r.n : r.nome))}"><span class="dish-n">${r.n != null ? esc(r.n) : ""}</span>
-      <span><b>${esc(r.nome)}</b><small>€ ${euro(r.prezzo)} l'uno</small></span>
+      <span><b>${esc(r.nome)}</b><small>${F ? "incluso" : `€ ${euro(r.prezzo)} l'uno`}</small></span>
       <span class="qty on"><button type="button" data-d="-1" aria-label="Togli uno">−</button><output>${r.q}</output><button type="button" data-d="1" aria-label="Aggiungi uno">+</button></span></li>`).join("")}</ul>
     ${fam ? `<p class="hint">💡 Hai ${n} piatti: con il <b>${esc(fam.f.nome)}</b> li paghi <b>€ ${euro(fam.f.prezzo)}</b> e c'è la bibita. Scrivilo nelle note.</p>` : ""}
     <div class="tabs2" role="tablist" aria-label="Consegna o ritiro">
@@ -650,16 +711,18 @@ function disegnaCarrello() {
         : `<select class="input" id="o-ora">${slots.map((t) => `<option ${t === d.ora ? "selected" : ""}>${t}</option>`).join("")}</select>`}</div>
     <div class="field"><label for="o-nome">Nome</label><input class="input" id="o-nome" autocomplete="name" value="${esc(d.nome || (user && user.nome) || "")}"></div>
     <div class="field"><label for="o-tel">Telefono</label><input class="input" id="o-tel" type="tel" inputmode="tel" autocomplete="tel" placeholder="+39 333 123 4567" value="${esc(d.telefono || store.get("yugo-draft", {}).telefono || "")}"></div>
+    ${F && F.bibite ? `<div class="field"><label for="o-bib">Bibite in lattina incluse (${F.bibite})</label><input class="input" id="o-bib" placeholder="Coca-Cola, Fanta, Sprite…" value="${esc(d.bibita || "")}"></div>` : ""}
     <div class="field"><label for="o-note">Note (facoltativo)</label><textarea class="input" id="o-note" placeholder="Allergie, menu Family, bacchette…">${esc(d.note || "")}</textarea></div>
     <div class="ord-sum">
-      <div><span>Piatti</span><span>€ ${euro(sub)}</span></div>
+      <div><span>${F ? esc(F.nome) : "Piatti"}</span><span>€ ${euro(sub)}</span></div>
       ${consegna ? `<div><span>Consegna</span><span>€ ${euro(costo)}</span></div>` : ""}
       <div class="cs-total"><span>Totale</span><b>€ ${euro(tot)}</b></div>
     </div>
     <p class="hint">Paghi alla ${consegna ? "consegna" : "cassa quando ritiri"}.${sottoMinimo ? ` <b>Per la consegna l'ordine minimo è € ${euro(ORD.minimo)}.</b>` : ""}</p>
     <p class="error" id="o-err" hidden></p>
     <div class="cs-actions">
-      ${user ? `<button class="btn btn-gold btn-block" id="o-send" type="button" ${chiuso || sottoMinimo ? "disabled" : ""}>Invia ordine · € ${euro(tot)}</button>`
+      ${user ? (mancano ? `<button class="btn btn-gold btn-block" type="button" disabled>Scegli ancora ${mancano} ${mancano === 1 ? "piatto" : "piatti"}</button>`
+        : `<button class="btn btn-gold btn-block" id="o-send" type="button" ${chiuso || sottoMinimo ? "disabled" : ""}>Invia ordine · € ${euro(tot)}</button>`)
         : `<a href="#account" data-go="account" data-close class="btn btn-gold btn-block">Accedi per inviare l'ordine</a>`}
       ${ORD.justEat ? `<button class="btn btn-ghost btn-block" id="o-je" type="button">Ordina su Just Eat</button>
       <p class="hint" style="text-align:center">Su Just Eat i piatti vanno aggiunti di nuovo: ti copiamo la lista da seguire.</p>` : ""}
@@ -670,6 +733,7 @@ function disegnaCarrello() {
     if ($("#o-ind")) d.indirizzo = $("#o-ind").value;
     if ($("#o-ora")) d.ora = $("#o-ora").value;
     d.nome = $("#o-nome").value; d.telefono = $("#o-tel").value; d.note = $("#o-note").value;
+    if ($("#o-bib")) d.bibita = $("#o-bib").value;
     store.set("yugo-ordine-dati", { ...d, note: "" });
   };
   body.querySelectorAll("[data-modo-ord]").forEach((b) => b.onclick = () => { leggi(); d.modo = b.dataset.modoOrd; disegnaCarrello(); });
@@ -692,12 +756,16 @@ function disegnaCarrello() {
     if (!d.nome.trim()) return fail("Scrivi il tuo nome.");
     if (d.telefono.replace(/\D/g, "").length < 8) return fail("Serve un numero di telefono: ti chiamiamo se c'è un problema.");
     if (consegna && d.indirizzo.trim().length < 5) return fail("Scrivi l'indirizzo di consegna.");
+    if (F && F.bibite && !(d.bibita || "").trim()) return fail("Scrivi quale bibita vuoi.");
     btn.disabled = true; btn.textContent = "Invio…";
     try {
       const ordine = { modo: d.modo, zona: consegna ? zona.nome : "", indirizzo: consegna ? d.indirizzo : "", ora: d.ora,
-        nome: d.nome, telefono: d.telefono, note: d.note, righe: righeCarrello().map(({ n, nome, prezzo, q }) => ({ n, nome, prezzo, q })) };
+        nome: d.nome, telefono: d.telefono,
+        note: (F && F.bibite ? `Bibite: ${(d.bibita || "").trim()}. ` : "") + d.note,
+        righe: (F ? [{ n: null, nome: F.nome, prezzo: F.prezzo, q: 1 }] : []).concat(righeCarrello().map(({ n, nome, prezzo, q }) => ({ n, nome, prezzo: F ? 0 : prezzo, q }))) };
       const res = DEMO ? { ok: true, numero: Math.floor(Math.random() * 90) + 10 } : await api("/ordine", { idToken: await backend.token(), lang: (window.YUGO_I18N && window.YUGO_I18N.lang) || "it", ...ordine });
       carrello = {}; salvaCarrello(); aggiornaBarra(); ridisegnaQta();
+      if (F) { FAM = null; store.set("yugo-family", null); disegnaFamily(); menuReset(); }
       body.innerHTML = `<div class="ord-ok"><div class="ord-check" aria-hidden="true">✓</div>
         <p class="cs-kicker">Ordine n. ${esc(res.numero)} inviato</p><h2 id="ord-title">Grazie ${esc(d.nome.split(" ")[0])}!</h2>
         <p class="muted">Il ristorante l'ha ricevuto ora. ${consegna ? "Ti portiamo tutto" : "Ti aspettiamo"} per le ${esc(d.ora)}. Se c'è un problema ti chiamiamo al ${esc(d.telefono)}.</p>
@@ -720,7 +788,7 @@ function renderMenu() {
     $("#menu-list").classList.toggle("shop", shop);
     $("#menu-list").innerHTML = cats.map((c, i) => (sel === "all" || String(i) === sel) ? `
       <section class="menu-cat"><h2>${esc(c.categoria)}</h2>
-        ${c.piatti.map((p, j) => c.extra ? `<div class="dish">${p.n != null ? `<span class="dish-n">${esc(p.n)}</span>` : `<span></span>`}<span class="dish-name">${esc(pul(p.nome))}</span><span class="dish-price">${p.prezzo != null ? "€ " + euro(p.prezzo) : ""}</span>${p.desc ? `<span class="dish-sub">${esc(pul(p.desc))}</span>` : ""}</div>` : `<div class="dish${p.desc ? " has-desc" : ""}">${p.n != null ? `<span class="dish-n">${esc(p.n)}</span>` : `<span></span>`}<span class="dish-name">${esc(pul(p.nome))}${p.max1 ? `<small class="dish-max">max 1 a persona</small>` : ""}</span><span class="dish-price">${p.prezzo != null ? "€ " + euro(p.prezzo) : ""}</span>${shop && p.prezzo != null ? qtyHTML(p) : ""}${p.desc ? `<button type="button" class="dish-more" aria-expanded="false" aria-controls="dd-${i}-${j}"><span>Ingredienti</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><div class="dish-desc" id="dd-${i}-${j}"><div>${esc(pul(p.desc))}</div></div>` : ""}</div>`).join("")}
+        ${c.piatti.map((p, j) => c.extra ? `<div class="dish">${p.n != null ? `<span class="dish-n">${esc(p.n)}</span>` : `<span></span>`}<span class="dish-name">${esc(pul(p.nome))}</span><span class="dish-price">${p.prezzo != null ? "€ " + euro(p.prezzo) : ""}</span>${p.desc ? `<span class="dish-sub">${esc(pul(p.desc))}</span>` : ""}</div>` : `<div class="dish${p.desc ? " has-desc" : ""}">${p.n != null ? `<span class="dish-n">${esc(p.n)}</span>` : `<span></span>`}<span class="dish-name">${esc(pul(p.nome))}${p.max1 ? `<small class="dish-max">max 1 a persona</small>` : ""}</span><span class="dish-price">${p.prezzo != null ? "€ " + euro(famAtt() ? 0 : p.prezzo) : ""}</span>${shop && p.prezzo != null ? qtyHTML(p) : ""}${p.desc ? `<button type="button" class="dish-more" aria-expanded="false" aria-controls="dd-${i}-${j}"><span>Ingredienti</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><div class="dish-desc" id="dd-${i}-${j}"><div>${esc(pul(p.desc))}</div></div>` : ""}</div>`).join("")}
       </section>` : "").join("");
     // ricorda il piatto di ogni riga, serve al carrello
     const flat = []; cats.forEach((c, i) => { if (sel === "all" || String(i) === sel) c.piatti.forEach((p) => flat.push(p)); });
