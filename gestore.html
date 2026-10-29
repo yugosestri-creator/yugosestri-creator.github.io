@@ -30,6 +30,7 @@
   button.b.err { background: var(--err); color: #fff; border-color: var(--err); }
   button.b:disabled { opacity: .5; cursor: default; }
   input, select { min-height: 42px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--fg); font: 15px inherit; width: 100%; }
+  textarea { padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--fg); font: 15px/1.4 inherit; width: 100%; resize: vertical; }
   .field { display: grid; gap: 6px; margin-bottom: 10px; }
   .field label { font-size: 13px; color: var(--muted); font-weight: 600; }
   .pin { font-weight: 700; }
@@ -135,10 +136,10 @@ function viewHome() {
         <button class="b" id="logout">Esci</button>
       </div>
       <nav>
-        ${["oggi", "ordini", "coupon", "follower", "calendario"].map((k) => `<button data-t="${k}" class="${k === tab ? "on" : ""}">${{oggi:"📅 Oggi",ordini:"🛵 Ordini",coupon:"🎁 Coupon",follower:"🔔 Follower",calendario:"🗓 Calendario"}[k]}</button>`).join("")}
+        ${["oggi", "ordini", "coupon", "follower", "eventi", "calendario"].map((k) => `<button data-t="${k}" class="${k === tab ? "on" : ""}">${{oggi:"📅 Oggi",ordini:"🛵 Ordini",coupon:"🎁 Coupon",follower:"🔔 Follower",eventi:"🎉 Eventi",calendario:"🗓 Calendario"}[k]}</button>`).join("")}
       </nav>
     </header>
-    <main>${{oggi: viewOggi, ordini: viewOrdini, coupon: viewCoupon, follower: viewFollower, calendario: viewCalendario}[tab]()}</main>`;
+    <main>${{oggi: viewOggi, ordini: viewOrdini, coupon: viewCoupon, follower: viewFollower, eventi: viewEventi, calendario: viewCalendario}[tab]()}</main>`;
 }
 
 function bindHome() {
@@ -148,6 +149,7 @@ function bindHome() {
   if (tab === "ordini") bindOrdini();
   if (tab === "coupon") bindCoupon();
   if (tab === "follower") bindFollower();
+  if (tab === "eventi") bindEventi();
 }
 
 function iso(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
@@ -295,6 +297,49 @@ function bindFollower() {
   });
 }
 
+/* Eventi e promozioni: compaiono nel sito (pagina Promo e Home) tra le due date */
+function viewEventi() {
+  const list = dati.eventi || [], oggi = iso(new Date());
+  const fmt = (s) => s ? new Date(s + "T00:00").toLocaleDateString("it-IT", { day: "numeric", month: "short", year: "numeric" }) : "";
+  return `
+    <div class="card">
+      <h3>➕ Nuovo evento</h3>
+      <form id="ev-f">
+        <div class="field"><label>Nome dell'evento</label><input id="ev-nome" maxlength="120" required placeholder="es. Serata giapponese"></div>
+        <div class="row">
+          <div class="field" style="flex:1"><label>Dal</label><input type="date" id="ev-dal" required value="${oggi}"></div>
+          <div class="field" style="flex:1"><label>Al</label><input type="date" id="ev-al" required></div>
+        </div>
+        <div class="field"><label>Cosa si fa</label><textarea id="ev-desc" rows="3" maxlength="600" placeholder="es. Menu speciale con sake in omaggio per ogni tavolo"></textarea></div>
+        <div class="field"><label>Sconto (facoltativo)</label><input id="ev-sconto" maxlength="60" placeholder="es. 10% oppure 2 € a persona"></div>
+        <button class="b gold" type="submit" style="width:100%">Pubblica sul sito</button>
+      </form>
+    </div>
+    <h3 style="margin:16px 0 8px">Eventi in corso e futuri</h3>
+    ${list.length ? list.map((e) => {
+      const ora = e.dal <= oggi && (!e.al || e.al >= oggi);
+      return `<div class="card" data-ev="${e.id}">
+        <h3>${esc(e.nome)} ${ora ? `<span class="tag ok">In corso</span>` : `<span class="tag att">Dal ${esc(fmt(e.dal))}</span>`}</h3>
+        <p class="meta">${esc(fmt(e.dal))} → ${esc(fmt(e.al))}${e.sconto ? ` · Sconto: <strong>${esc(e.sconto)}</strong>` : ""}</p>
+        ${e.descrizione ? `<p>${esc(e.descrizione)}</p>` : ""}
+        <div class="row"><button class="b err" data-a="del">🗑 Elimina</button></div>
+      </div>`;
+    }).join("") : `<div class="empty">Nessun evento. Creane uno qui sopra.</div>`}`;
+}
+function bindEventi() {
+  $("#ev-f").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const b = e.target.querySelector("button"); b.disabled = true; b.textContent = "Pubblico…";
+    await azione("evento-aggiungi", { nome: $("#ev-nome").value, dal: $("#ev-dal").value, al: $("#ev-al").value, descrizione: $("#ev-desc").value, sconto: $("#ev-sconto").value });
+    b.disabled = false; b.textContent = "Pubblica sul sito";
+  });
+  document.querySelectorAll("[data-ev]").forEach((c) => {
+    c.querySelector('[data-a="del"]').onclick = () => {
+      if (confirm("Eliminare questo evento? Sparisce subito dal sito.")) azione("evento-elimina", { id: +c.dataset.ev });
+    };
+  });
+}
+
 function viewCalendario() {
   const d = viewCalendario.d || new Date();
   const anno = d.getFullYear(), mese = d.getMonth();
@@ -340,7 +385,7 @@ function render() {
 
 if (sessione && sessione.scade && sessione.scade > Date.now()) carica();
 render();
-setInterval(() => { if (sessione) carica(); }, 60000); // ricarica ogni minuto
+setInterval(() => { if (sessione && tab !== "eventi") carica(); }, 60000); // ricarica ogni minuto (non mentre scrivi un evento)
 </script>
 </body>
 </html>
