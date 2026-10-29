@@ -1,5 +1,5 @@
 /* Service worker: fa aprire Yugo velocemente e anche con poca connessione */
-const CACHE = "yugo-v13";
+const CACHE = "yugo-v14";
 const FILES = ["./", "./index.html", "./style.css", "./app.js", "./anim.js", "./config.js", "./i18n.js", "./manifest.json", "./icon-192.png", "./apple-touch-icon.png", "./logo-word.webp", "./piatto.jpg"];
 
 self.addEventListener("install", (e) => {
@@ -19,4 +19,21 @@ self.addEventListener("fetch", (e) => {
       return res;
     }).catch(() => caches.match(e.request).then((r) => r || caches.match("./index.html")))
   );
+});
+
+/* Notifiche dal ristorante (orario cambiato, prenotazione o ordine annullato) */
+self.addEventListener("push", (e) => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch { d = { testo: e.data && e.data.text() }; }
+  e.waitUntil(self.registration.showNotification(d.titolo || "Yugo", {
+    body: d.testo || "", icon: "icon-192.png", badge: "icon-192.png", tag: "yugo-" + Date.now(), data: { url: d.url || "./#account" }
+  }));
+});
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  const url = new URL((e.notification.data && e.notification.data.url) || "./#account", self.registration.scope).href;
+  e.waitUntil(clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+    for (const c of list) if (c.url.startsWith(self.registration.scope)) { c.navigate(url).catch(() => {}); return c.focus(); }
+    return clients.openWindow(url);
+  }));
 });
