@@ -218,9 +218,19 @@ function socialLinks() {
   ].filter(Boolean);
   return `<div class="social">${items.map((s) => `<a class="social-btn" href="${s.url}" target="_blank" rel="noopener">${s.icon}<span><b>${s.nome}</b><small>@${esc(s.handle)}</small></span></a>`).join("")}</div>`;
 }
+/* Eventi e promozioni: li gestisce lo staff dalla pagina Gestore. Se il servizio non risponde si usano quelli di config.js */
+let EVENTI = null;
+function caricaEventi() {
+  if (!WORKER || DEMO) return;
+  fetch(WORKER + "/eventi").then((r) => r.json()).then((d) => {
+    if (!d || !Array.isArray(d.eventi)) return;
+    EVENTI = d.eventi.map((e) => ({ etichetta: e.etichetta || "Evento", titolo: e.nome, descrizione: e.descrizione || "", sconto: e.sconto || "", dal: e.dal, al: e.al }));
+    renderPromo();
+  }).catch(() => {});
+}
 function promoAttive() {
   const oggi = isoDate(new Date());
-  return (R.promozioni || []).filter((p) => (!p.dal || p.dal <= oggi) && (!p.al || p.al >= oggi));
+  return (EVENTI || R.promozioni || []).filter((p) => (!p.dal || p.dal <= oggi) && (!p.al || p.al >= oggi));
 }
 function renderPromo() {
   const list = promoAttive();
@@ -228,6 +238,7 @@ function renderPromo() {
       <span class="promo-tag">${esc(p.etichetta || "Promo")}</span>
       <h2>${esc(p.titolo)}</h2>
       <p>${esc(p.descrizione || "")}</p>
+      ${p.sconto ? `<p class="promo-sconto"><b>Sconto</b> <span translate="no">${esc(p.sconto)}</span></p>` : ""}
       ${p.quando ? `<p class="hint">${esc(p.quando)}</p>` : ""}
       ${p.al ? `<p class="hint">Valida fino a ${esc(fmtData(p.al))}</p>` : ""}
     </article>`).join("")
@@ -513,6 +524,43 @@ function renderHome() {
   if (R.instagram) { $("#home-ig").hidden = false; $("#home-ig").href = "https://instagram.com/" + R.instagram; $("#home-ig").textContent = "@" + R.instagram; }
 }
 
+/* ------------------------------------------------------------------ */
+/* Notifiche sul telefono: il ristorante ti avvisa se annulla o sposta  */
+/* ------------------------------------------------------------------ */
+const pushOk = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window && !!WORKER && !DEMO;
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const standalone = () => window.navigator.standalone || window.matchMedia("(display-mode: standalone)").matches;
+const b64ToU8 = (s) => Uint8Array.from(atob((s + "===".slice((s.length + 3) % 4)).replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+async function attivaNotifiche(prova) {
+  if (!pushOk()) throw new Error(isIOS() && !standalone() ? "Su iPhone aggiungi prima Yugo alla schermata Home, poi apri l'app e attiva le notifiche." : "Questo telefono non supporta le notifiche.");
+  if (!user) throw new Error("Accedi per attivare le notifiche.");
+  const perm = await Notification.requestPermission();
+  if (perm !== "granted") throw new Error("Notifiche non permesse: puoi attivarle dalle impostazioni del telefono.");
+  const reg = await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) {
+    const { chiave } = await fetch(WORKER + "/push/chiave").then((r) => r.json());
+    sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToU8(chiave) });
+  }
+  await api("/push/iscrivi", { idToken: await backend.token(), sub: sub.toJSON(), prova: !!prova });
+  return true;
+}
+async function notificheAttive() {
+  if (!pushOk() || Notification.permission !== "granted") return false;
+  const reg = await navigator.serviceWorker.getRegistration(); if (!reg) return false;
+  const sub = await reg.pushManager.getSubscription(); if (!sub) return false;
+  if (user) backend.token().then((t) => api("/push/iscrivi", { idToken: t, sub: sub.toJSON() })).catch(() => {}); // la collega all'account giusto
+  return true;
+}
+const bottoneNotifiche = () => pushOk() && Notification.permission !== "granted"
+  ? `<button class="btn btn-ghost btn-block" type="button" data-notif>🔔 Avvisami se cambia qualcosa</button>` : "";
+document.addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-notif]"); if (!b) return;
+  b.disabled = true;
+  try { await attivaNotifiche(true); toast("Notifiche attive: ti avvisiamo se cambia qualcosa."); b.remove(); if (!$("#view-account").hidden) renderAccount(); }
+  catch (ex) { toast(ex.message); b.disabled = false; }
+});
+
 /* Toglie gli asterischi dal testo dei piatti */
 const pul = (s) => String(s ?? "").replace(/\*/g, "").replace(/\s{2,}/g, " ").replace(/\s+([,.])/g, "$1").trim();
 
@@ -770,6 +818,7 @@ function disegnaCarrello() {
         <p class="cs-kicker">Ordine n. ${esc(res.numero)} inviato</p><h2 id="ord-title">Grazie ${esc(d.nome.split(" ")[0])}!</h2>
         <p class="muted">Il ristorante l'ha ricevuto ora. ${consegna ? "Ti portiamo tutto" : "Ti aspettiamo"} per le ${esc(d.ora)}. Se c'è un problema ti chiamiamo al ${esc(d.telefono)}.</p>
         <p class="hint">Per modifiche chiama il ${esc(R.telefono || "")}.</p>
+        ${bottoneNotifiche()}
         <button class="btn btn-block" type="button" data-close>Chiudi</button></div>`;
     } catch (ex) { fail(ex.message); btn.disabled = false; btn.textContent = `Invia ordine · € ${euro(tot)}`; }
   };
@@ -1150,6 +1199,7 @@ function renderConfirmation(area, b) {
       </dl>
       ${!b.notificato ? `<p class="error" style="padding:0 18px 16px">La prenotazione è salvata, ma l'avviso al ristorante potrebbe non essere arrivato. Per sicurezza chiama ${esc(R.telefono || "")}.</p>` : ""}
     </div>
+    ${bottoneNotifiche() ? `<div style="margin-top:14px">${bottoneNotifiche()}</div>` : ""}
     <div class="row-actions" style="margin-top:14px">
       <button class="btn" id="btn-new">Nuova prenotazione</button>
       <a class="btn btn-ghost" href="#account" data-go="account">Le mie prenotazioni</a>
@@ -1172,6 +1222,8 @@ function renderAccount() {
     ${!user.verified ? `<div class="vbox" id="acc-verify" style="margin-bottom:14px"></div>` : ""}
     <div class="stack" style="margin-top:0">
       <article class="block"><h2>Le mie prenotazioni</h2><div id="my-list" class="blist"><p class="muted">Caricamento…</p></div></article>
+      <article class="block" id="my-ord-box" hidden><h2>I miei ordini</h2><div id="my-ord" class="blist"></div></article>
+      <article class="block" id="notif-box" hidden></article>
       ${installBlock()}
       <a class="btn btn-ghost" href="gestore.html">🔒 Gestore</a>
       <button class="btn btn-ghost" id="btn-logout">Esci dall'account</button>
@@ -1179,9 +1231,17 @@ function renderAccount() {
     </div>`;
   $("#btn-logout").onclick = async () => { await backend.logout(); lastBooking = null; toast("Sei uscito."); };
   if (!user.verified) verifyBox($("#acc-verify"));
-  const annRist = WORKER && !DEMO ? backend.token().then((t) => api("/prenotazioni/annullate", { idToken: t })).then((d) => d.docs || []).catch(() => []) : Promise.resolve([]);
-  Promise.all([backend.mine(user.uid), annRist]).then(([list, daRist]) => {
-    list.forEach((b) => { if (daRist.includes(b.id)) { b.stato = "annullata"; b.daRistorante = true; } });
+  disegnaNotifiche();
+  const dalRist = WORKER && !DEMO ? backend.token().then((t) => api("/miei", { idToken: t })).catch(() => ({ prenot: [], ordini: [] })) : Promise.resolve({ prenot: [], ordini: [] });
+  dalRist.then((d) => disegnaOrdini(d.ordini || []));
+  Promise.all([backend.mine(user.uid), dalRist]).then(([list, dr]) => {
+    const perDoc = new Map((dr.prenot || []).map((x) => [x.doc, x]));
+    list.forEach((b) => {
+      const x = perDoc.get(b.id); if (!x) return;
+      if (x.stato === "annullata_ristorante") { b.stato = "annullata"; b.daRistorante = true; }
+      else if (x.oraPrima && x.ora && x.ora !== b.ora) { b.oraPrima = b.ora; b.ora = x.ora; delete b.quandoMs; }
+      else if (x.oraPrima && x.ora && x.oraPrima !== x.ora) b.oraPrima = x.oraPrima;
+    });
     const el = $("#my-list"); if (!el) return;
     if (!list.length) { el.innerHTML = `<p class="muted">Nessuna prenotazione per ora.</p><a href="#prenota" data-go="prenota" class="btn">Prenota un tavolo</a>`; return; }
     const todayS = isoDate(new Date());
@@ -1197,7 +1257,7 @@ function renderAccount() {
       const tardi = !annullata && !passata && !puoi;
       return `<div class="bitem ${passata || annullata ? "past" : ""}">
         <div class="bdate"><b>${d.getDate()}</b><span>${d.toLocaleDateString(LOC(), { month: "short" })}</span></div>
-        <div class="binfo"><strong>${esc(cap(d.toLocaleDateString(LOC(), { weekday: "long" })))} · ore ${esc(b.ora)}</strong>${annullata ? ` <span class="tag-off">${b.daRistorante ? "Annullata dal ristorante" : "Annullata"}</span>` : ""}<br><span class="muted">${b.persone} ${b.persone === 1 ? "persona" : "persone"} · a nome ${esc(b.nome)}</span>
+        <div class="binfo"><strong>${esc(cap(d.toLocaleDateString(LOC(), { weekday: "long" })))} · ore ${b.oraPrima && !annullata ? `<s class="ora-vecchia">${esc(b.oraPrima)}</s> <span class="ora-nuova">${esc(b.ora)}</span>` : esc(b.ora)}</strong>${annullata ? ` <span class="tag-off">${b.daRistorante ? "Annullata dal ristorante" : "Annullata"}</span>` : ""}${b.oraPrima && !annullata ? ` <span class="tag-off">Orario cambiato dal ristorante</span>` : ""}<br><span class="muted">${b.persone} ${b.persone === 1 ? "persona" : "persone"} · a nome ${esc(b.nome)}</span>
           ${puoi ? `<div class="bactions"><button class="btn btn-ghost btn-sm" data-cancel="${esc(b.id)}">Annulla prenotazione</button></div>` : ""}
           ${annullata || passata ? `<div class="bactions"><button class="btn btn-ghost btn-sm" data-del="${esc(b.id)}">Elimina dalla lista</button></div>` : ""}
           ${tardi ? `<p class="hint tardi">Manca meno di un'ora: per annullare chiama il ristorante al <a href="tel:${telLink}">${esc(R.telefono || "")}</a>.</p>` : ""}
@@ -1216,6 +1276,43 @@ function renderAccount() {
       } catch { btn.disabled = false; toast("Non sono riuscito a eliminarla. Riprova."); }
     }));
   }).catch(() => { const el = $("#my-list"); if (el) el.innerHTML = `<p class="muted">Non riesco a caricare le prenotazioni. Riprova più tardi.</p>`; });
+}
+
+/* Ordini da casa nell'account: annullati dal ristorante o con orario cambiato */
+function disegnaOrdini(ordini) {
+  const box = $("#my-ord-box"), el = $("#my-ord"); if (!box || !el) return;
+  box.hidden = !ordini.length; if (!ordini.length) return;
+  const oggi = isoDate(new Date());
+  el.innerHTML = ordini.map((o) => {
+    const ann = o.stato === "annullata_ristorante", cambiato = !ann && o.oraPrima && o.oraPrima !== o.ora;
+    const d = new Date(o.creato), vecchio = isoDate(d) < oggi;
+    return `<div class="bitem ${ann || vecchio ? "past" : ""}">
+      <div class="bdate"><b>${d.getDate()}</b><span>${d.toLocaleDateString(LOC(), { month: "short" })}</span></div>
+      <div class="binfo"><strong>Ordine n. ${esc(o.id)}${o.ora ? ` · ore ${cambiato ? `<s class="ora-vecchia">${esc(o.oraPrima)}</s> <span class="ora-nuova">${esc(o.ora)}</span>` : esc(o.ora)}` : ""}</strong>
+        ${ann ? ` <span class="tag-off">Annullato dal ristorante</span>` : ""}${cambiato ? ` <span class="tag-off">Orario cambiato dal ristorante</span>` : ""}
+        <br><span class="muted">€ ${euro(o.totale || 0)}</span>
+        ${ann || vecchio ? `<div class="bactions"><button class="btn btn-ghost btn-sm" data-del-ord="${esc(o.id)}">Elimina dalla lista</button></div>` : ""}
+      </div></div>`;
+  }).join("");
+  el.querySelectorAll("[data-del-ord]").forEach((btn) => btn.addEventListener("click", async () => {
+    const item = btn.closest(".bitem"); btn.disabled = true;
+    try {
+      await api("/ordine/nascondi", { idToken: await backend.token(), id: btn.dataset.delOrd });
+      item.classList.add("bye"); setTimeout(() => { item.remove(); if (!el.querySelector(".bitem")) box.hidden = true; }, 350);
+      toast("Ordine eliminato dalla lista.");
+    } catch { btn.disabled = false; toast("Non sono riuscito a eliminarlo. Riprova."); }
+  }));
+}
+async function disegnaNotifiche() {
+  const box = $("#notif-box"); if (!box) return;
+  if (!WORKER || DEMO) return;
+  const attive = await notificheAttive().catch(() => false);
+  box.hidden = false;
+  box.innerHTML = `<h2>Notifiche</h2>${attive
+    ? `<p class="muted">🔔 Attive su questo telefono: ti avvisiamo se il ristorante cambia l'orario o annulla una prenotazione o un ordine.</p>`
+    : pushOk() ? `<p class="muted">Ricevi un avviso sul telefono, anche a schermo spento, se il ristorante cambia l'orario o annulla.</p><button class="btn btn-gold btn-block" type="button" data-notif>🔔 Attiva le notifiche</button>`
+    : isIOS() && !standalone() ? `<p class="muted">Su iPhone le notifiche funzionano con Yugo aggiunto alla schermata Home: aggiungilo (qui sotto), apri l'app da lì e torna in questa pagina.</p>`
+    : `<p class="muted">Questo browser non supporta le notifiche.</p>`}`;
 }
 
 function installBlock() {
@@ -1311,6 +1408,7 @@ async function start() {
   renderHome();
   renderMenu();
   renderPromo();
+  caricaEventi();
   requestAnimationFrame(drawWaves);
   const initial = (location.hash || "").replace("#", "");
   if (INVITO) { go("invito", false); renderLanding(INVITO); }
