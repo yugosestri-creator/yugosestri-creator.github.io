@@ -47,10 +47,22 @@ const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS prenot_uid ON prenot (uid, stato)`,
   `CREATE TABLE IF NOT EXISTS gestore_codice (id INTEGER PRIMARY KEY CHECK (id = 1), codice TEXT NOT NULL, msgId INTEGER, scade INTEGER NOT NULL, creato INTEGER NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS gestore_sess (token TEXT PRIMARY KEY, scade INTEGER NOT NULL, creato INTEGER NOT NULL, ip TEXT)`,
-  `CREATE TABLE IF NOT EXISTS gestore_tent (ip TEXT PRIMARY KEY, n INTEGER NOT NULL DEFAULT 0, blocco INTEGER NOT NULL DEFAULT 0, ultimo INTEGER NOT NULL)`
+  `CREATE TABLE IF NOT EXISTS gestore_tent (ip TEXT PRIMARY KEY, n INTEGER NOT NULL DEFAULT 0, blocco INTEGER NOT NULL DEFAULT 0, ultimo INTEGER NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS eventi (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT NOT NULL, descrizione TEXT, sconto TEXT,
+     etichetta TEXT, dal TEXT, al TEXT, eliminato INTEGER NOT NULL DEFAULT 0, creato TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS push_sub (endpoint TEXT PRIMARY KEY, uid TEXT NOT NULL, p256dh TEXT NOT NULL, auth TEXT NOT NULL, creato TEXT NOT NULL)`,
+  `CREATE INDEX IF NOT EXISTS push_uid ON push_sub (uid)`,
+  `CREATE TABLE IF NOT EXISTS chiavi (nome TEXT PRIMARY KEY, valore TEXT NOT NULL)`,
+  // primo evento: la promo di Halloween che prima stava nel sito (solo se la tabella è vuota)
+  `INSERT INTO eventi (nome, descrizione, sconto, etichetta, dal, al, creato)
+     SELECT 'Halloween da Yugo: fino al 20% di sconto', 'Per tutti il 10% di sconto. Se ci segui su Instagram o TikTok lo sconto sale al 20%. Mostra alla cassa che ci segui per avere il 20%.',
+            '10% · 20% se ci segui', 'Halloween', '2026-10-21', '2026-11-02', datetime('now')
+     WHERE NOT EXISTS (SELECT 1 FROM eventi)`
 ];
 const NUOVE_COLONNE = ["ALTER TABLE ordini ADD COLUMN stato TEXT DEFAULT 'inviato'", "ALTER TABLE ordini ADD COLUMN nome TEXT",
-  "ALTER TABLE ordini ADD COLUMN telefono TEXT", "ALTER TABLE ordini ADD COLUMN ora TEXT", "ALTER TABLE ordini ADD COLUMN lang TEXT"];
+  "ALTER TABLE ordini ADD COLUMN telefono TEXT", "ALTER TABLE ordini ADD COLUMN ora TEXT", "ALTER TABLE ordini ADD COLUMN lang TEXT",
+  "ALTER TABLE ordini ADD COLUMN oraPrima TEXT", "ALTER TABLE ordini ADD COLUMN nascosto INTEGER",
+  "ALTER TABLE prenot ADD COLUMN oraPrima TEXT"];
 let schemaPronto = false;
 async function init(env) {
   if (schemaPronto) return;
@@ -636,12 +648,13 @@ async function gestDati(env, body) {
   await init(env);
   const oggi = new Date().toISOString().slice(0, 10);
   const limite = Date.now() - 24 * 3600 * 1000;
-  const [prenot, ordini, follower] = await Promise.all([
+  const [prenot, ordini, follower, eventi] = await Promise.all([
     env.DB.prepare("SELECT id, nome, telefono, data, ora, persone, email, stato, creato FROM prenot WHERE data >= ? AND stato IN ('confermata', 'annullata_ristorante') ORDER BY data, ora LIMIT 200").bind(oggi).all(),
     env.DB.prepare("SELECT id, nome, telefono, ora, totale, email, stato, creato FROM ordini WHERE creato > ? ORDER BY id DESC LIMIT 100").bind(new Date(limite).toISOString()).all(),
-    env.DB.prepare("SELECT f.id, f.codice, f.username, f.piattaforma, f.creato, p.nome AS daChi FROM follow f LEFT JOIN promoter p ON p.codice = f.codice WHERE f.stato = 'attesa' ORDER BY f.id DESC LIMIT 100").all()
+    env.DB.prepare("SELECT f.id, f.codice, f.username, f.piattaforma, f.creato, p.nome AS daChi FROM follow f LEFT JOIN promoter p ON p.codice = f.codice WHERE f.stato = 'attesa' ORDER BY f.id DESC LIMIT 100").all(),
+    env.DB.prepare("SELECT id, nome, descrizione, sconto, etichetta, dal, al FROM eventi WHERE eliminato = 0 AND (al IS NULL OR al = '' OR al >= ?) ORDER BY dal, id").bind(oggi).all()
   ]);
-  return { ok: true, prenot: prenot.results || [], ordini: ordini.results || [], follower: follower.results || [] };
+  return { ok: true, prenot: prenot.results || [], ordini: ordini.results || [], follower: follower.results || [], eventi: eventi.results || [] };
 }
 
 async function gestAzione(env, body) {
@@ -654,12 +667,16 @@ async function gestAzione(env, body) {
     if (!r) throw new Errore("Prenotazione non trovata.", 404);
     await env.DB.prepare("UPDATE prenot SET stato = 'annullata_ristorante' WHERE id = ?").bind(id).run();
     await avvisaCliente(env, r.email, "it", false, `${r.data.split("-").reverse().join("/")} ${r.ora}`);
+    await notifica(env, r.uid, "Prenotazione annullata", `Il ristorante ha annullato la tua prenotazione del ${r.data.split("-").reverse().join("/")} alle ${r.ora}. Per info: 0185 177 1400.`);
     return { ok: true };
   }
   if (az === "prenot-cambia") {
     const nuovaOra = String(body.ora || "").match(/^\d{2}:\d{2}$/) ? body.ora : null;
     if (!nuovaOra) throw new Errore("Orario non valido.", 400);
-    await env.DB.prepare("UPDATE prenot SET ora = ? WHERE id = ?").bind(nuovaOra, id).run();
+    const r = await env.DB.prepare("SELECT * FROM prenot WHERE id = ?").bind(id).first();
+    if (!r) throw new Errore("Prenotazione non trovata.", 404);
+    await env.DB.prepare("UPDATE prenot SET oraPrima = COALESCE(oraPrima, ora), ora = ? WHERE id = ?").bind(nuovaOra, id).run();
+    await notifica(env, r.uid, "Orario cambiato", `La tua prenotazione del ${r.data.split("-").reverse().join("/")} è stata spostata alle ${nuovaOra}.`);
     return { ok: true };
   }
   if (az === "ordine-annulla") {
@@ -667,12 +684,16 @@ async function gestAzione(env, body) {
     if (!r) throw new Errore("Ordine non trovato.", 404);
     await env.DB.prepare("UPDATE ordini SET stato = 'annullata_ristorante' WHERE id = ?").bind(id).run();
     await avvisaCliente(env, r.email, r.lang || "it", true, `n. ${id}${r.ora ? " (" + r.ora + ")" : ""}`);
+    await notifica(env, r.uid, "Ordine annullato", `Il ristorante ha annullato il tuo ordine n. ${id}. Per info: 0185 177 1400.`);
     return { ok: true };
   }
   if (az === "ordine-cambia") {
     const nuovaOra = String(body.ora || "").match(/^\d{2}:\d{2}$/) ? body.ora : null;
     if (!nuovaOra) throw new Errore("Orario non valido.", 400);
-    await env.DB.prepare("UPDATE ordini SET ora = ? WHERE id = ?").bind(nuovaOra, id).run();
+    const r = await env.DB.prepare("SELECT * FROM ordini WHERE id = ?").bind(id).first();
+    if (!r) throw new Errore("Ordine non trovato.", 404);
+    await env.DB.prepare("UPDATE ordini SET oraPrima = COALESCE(oraPrima, ora), ora = ? WHERE id = ?").bind(nuovaOra, id).run();
+    await notifica(env, r.uid, "Orario cambiato", `Il tuo ordine n. ${id} arriva alle ${nuovaOra}.`);
     return { ok: true };
   }
   if (az === "follow-ok" || az === "follow-no") {
@@ -691,6 +712,20 @@ async function gestAzione(env, body) {
     const premio = ((CONFIG && CONFIG.PREMI) || [])[c.livello - 1] || `livello ${c.livello}`;
     return { ok: true, coupon: { codice: c.codice, stato: c.stato, livello: c.livello, premio, nome: c.nome, telefono: c.telefono, invito: c.invito, usato: c.usato, creato: c.creato } };
   }
+  if (az === "evento-aggiungi") {
+    const t = (s, m) => String(s || "").replace(/[\u0000-\u001f]/g, " ").trim().slice(0, m);
+    const nome = t(body.nome, 120), dal = /^\d{4}-\d{2}-\d{2}$/.test(body.dal) ? body.dal : null, al = /^\d{4}-\d{2}-\d{2}$/.test(body.al) ? body.al : null;
+    if (!nome) throw new Errore("Scrivi il nome dell'evento.", 400);
+    if (!dal || !al) throw new Errore("Scegli le date: da quando a quando.", 400);
+    if (al < dal) throw new Errore("La data di fine è prima di quella di inizio.", 400);
+    await env.DB.prepare("INSERT INTO eventi (nome, descrizione, sconto, etichetta, dal, al, creato) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .bind(nome, t(body.descrizione, 600), t(body.sconto, 60), t(body.etichetta, 30) || null, dal, al, adessoISO()).run();
+    return { ok: true };
+  }
+  if (az === "evento-elimina") {
+    await env.DB.prepare("UPDATE eventi SET eliminato = 1 WHERE id = ?").bind(id).run();
+    return { ok: true };
+  }
   if (az === "coupon-usato") {
     const codice = String(body.codice || "").replace(/\D/g, "");
     const r = await env.DB.prepare("UPDATE coupon SET stato = 'usato', usato = ? WHERE codice = ? AND stato = 'valido'").bind(adessoISO(), codice).run();
@@ -698,6 +733,97 @@ async function gestAzione(env, body) {
     return { ok: true };
   }
   throw new Errore("Azione sconosciuta.", 400);
+}
+
+/* ---------------- eventi pubblici, stato per il cliente ---------------- */
+async function eventiPubblici(env) {
+  await init(env);
+  const oggi = new Date().toISOString().slice(0, 10);
+  const r = await env.DB.prepare("SELECT id, nome, descrizione, sconto, etichetta, dal, al FROM eventi WHERE eliminato = 0 AND (al IS NULL OR al = '' OR al >= ?) ORDER BY dal, id LIMIT 20").bind(oggi).all();
+  return { ok: true, eventi: r.results || [] };
+}
+async function miei(env, body) {
+  const u = await utente(env, body.idToken);
+  if (!u) throw new Errore("Utente non autorizzato", 401);
+  const da = new Date(Date.now() - 30 * 86400e3).toISOString();
+  const [p, o] = await Promise.all([
+    env.DB.prepare("SELECT doc, stato, ora, oraPrima FROM prenot WHERE uid = ? AND doc IS NOT NULL").bind(u.uid).all(),
+    env.DB.prepare("SELECT id, stato, ora, oraPrima, totale, creato FROM ordini WHERE uid = ? AND creato > ? AND (nascosto IS NULL OR nascosto = 0) ORDER BY id DESC LIMIT 20").bind(u.uid, da).all()
+  ]);
+  return { ok: true, prenot: p.results || [], ordini: o.results || [] };
+}
+async function nascondiOrdine(env, body) {
+  const u = await utente(env, body.idToken);
+  if (!u) throw new Errore("Utente non autorizzato", 401);
+  await env.DB.prepare("UPDATE ordini SET nascosto = 1 WHERE id = ? AND uid = ?").bind(parseInt(body.id, 10), u.uid).run();
+  return { ok: true };
+}
+
+/* ---------------- notifiche push sul telefono del cliente (Web Push, chiavi VAPID salvate nel D1) ---------------- */
+const b64u = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const deb64u = (s) => Uint8Array.from(atob(String(s).replace(/-/g, "+").replace(/_/g, "/") + "===".slice((String(s).length + 3) % 4)), (c) => c.charCodeAt(0));
+const unisci = (...a) => { const n = a.reduce((s, x) => s + x.length, 0), out = new Uint8Array(n); let i = 0; for (const x of a) { out.set(x, i); i += x.length; } return out; };
+const TE = new TextEncoder();
+async function vapid(env) {
+  await init(env);
+  const r = await env.DB.prepare("SELECT valore FROM chiavi WHERE nome = 'vapid'").first();
+  if (r) return JSON.parse(r.valore);
+  const k = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+  const v = { pub: b64u(await crypto.subtle.exportKey("raw", k.publicKey)), priv: await crypto.subtle.exportKey("jwk", k.privateKey) };
+  await env.DB.prepare("INSERT OR IGNORE INTO chiavi (nome, valore) VALUES ('vapid', ?)").bind(JSON.stringify(v)).run();
+  const r2 = await env.DB.prepare("SELECT valore FROM chiavi WHERE nome = 'vapid'").first();
+  return JSON.parse(r2.valore);
+}
+async function hkdf(salt, ikm, info, len) {
+  const k = await crypto.subtle.importKey("raw", ikm, "HKDF", false, ["deriveBits"]);
+  return new Uint8Array(await crypto.subtle.deriveBits({ name: "HKDF", hash: "SHA-256", salt, info }, k, len * 8));
+}
+async function inviaPush(env, sub, dati) {
+  const v = await vapid(env);
+  const uaPub = deb64u(sub.p256dh), auth = deb64u(sub.auth);
+  const eph = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]);
+  const asPub = new Uint8Array(await crypto.subtle.exportKey("raw", eph.publicKey));
+  const uaKey = await crypto.subtle.importKey("raw", uaPub, { name: "ECDH", namedCurve: "P-256" }, false, []);
+  const shared = new Uint8Array(await crypto.subtle.deriveBits({ name: "ECDH", public: uaKey }, eph.privateKey, 256));
+  const ikm = await hkdf(auth, shared, unisci(TE.encode("WebPush: info\0"), uaPub, asPub), 32);
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const cek = await hkdf(salt, ikm, TE.encode("Content-Encoding: aes128gcm\0"), 16);
+  const nonce = await hkdf(salt, ikm, TE.encode("Content-Encoding: nonce\0"), 12);
+  const aes = await crypto.subtle.importKey("raw", cek, "AES-GCM", false, ["encrypt"]);
+  const cifrato = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv: nonce }, aes, unisci(TE.encode(JSON.stringify(dati)), new Uint8Array([2]))));
+  const corpo = unisci(salt, new Uint8Array([0, 0, 16, 0]), new Uint8Array([asPub.length]), asPub, cifrato);
+  // firma VAPID (JWT ES256)
+  const aud = new URL(sub.endpoint).origin;
+  const testa = b64u(TE.encode(JSON.stringify({ typ: "JWT", alg: "ES256" })));
+  const claims = b64u(TE.encode(JSON.stringify({ aud, exp: Math.floor(Date.now() / 1000) + 12 * 3600, sub: "mailto:yugosestri@gmail.com" })));
+  const chiave = await crypto.subtle.importKey("jwk", v.priv, { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]);
+  const firma = b64u(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, chiave, TE.encode(`${testa}.${claims}`)));
+  return fetch(sub.endpoint, { method: "POST", body: corpo, headers: {
+    "Content-Encoding": "aes128gcm", "Content-Type": "application/octet-stream", TTL: "86400", Urgency: "high",
+    Authorization: `vapid t=${testa}.${claims}.${firma}, k=${v.pub}` } });
+}
+async function notifica(env, uid, titolo, testo) {
+  if (!uid) return 0;
+  try {
+    const subs = (await env.DB.prepare("SELECT * FROM push_sub WHERE uid = ?").bind(uid).all()).results || [];
+    let n = 0;
+    for (const s of subs) {
+      const r = await inviaPush(env, s, { titolo, testo, url: "./#account" }).catch(() => null);
+      if (r && (r.status === 404 || r.status === 410)) await env.DB.prepare("DELETE FROM push_sub WHERE endpoint = ?").bind(s.endpoint).run();
+      else if (r && r.ok) n++;
+    }
+    return n;
+  } catch { return 0; }
+}
+async function pushIscrivi(env, body) {
+  const u = await utente(env, body.idToken);
+  if (!u) throw new Errore("Utente non autorizzato", 401);
+  const s = body.sub || {}, k = s.keys || {};
+  if (!/^https:\/\//.test(s.endpoint || "") || !k.p256dh || !k.auth) throw new Errore("Iscrizione non valida.", 400);
+  await env.DB.prepare("INSERT INTO push_sub (endpoint, uid, p256dh, auth, creato) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(endpoint) DO UPDATE SET uid = ?2, p256dh = ?3, auth = ?4")
+    .bind(String(s.endpoint).slice(0, 800), u.uid, String(k.p256dh).slice(0, 200), String(k.auth).slice(0, 100), adessoISO()).run();
+  if (body.prova) await notifica(env, u.uid, "Notifiche attive ✓", "Ti avvisiamo qui se il ristorante cambia o annulla una prenotazione o un ordine.");
+  return { ok: true };
 }
 
 /* ---------------- router ---------------- */
@@ -723,6 +849,8 @@ export default {
       }
       if (url.pathname === "/setup") return json(await setup(env, url));
       if (url.pathname === "/otp/stato") return json({ attivo: otpAttivo(env) });
+      if (url.pathname === "/eventi") return json(await eventiPubblici(env));
+      if (url.pathname === "/push/chiave") return json({ ok: true, chiave: (await vapid(env)).pub });
       if (request.method === "GET") return json({ ok: true, servizio: "Yugo – bot e promo" });
       if (request.method !== "POST") return json({ errore: "Metodo non permesso" }, 405);
 
@@ -737,16 +865,26 @@ export default {
       if (url.pathname === "/promo/follow") return json(await promoFollow(env, body, ip));
       if (url.pathname === "/promo/premio") return json(await promoPremio(env, body));
       if (url.pathname === "/prenotazioni/annullate") return json(await prenotAnnullate(env, body));
+      if (url.pathname === "/miei") return json(await miei(env, body));
+      if (url.pathname === "/ordine/nascondi") return json(await nascondiOrdine(env, body));
+      if (url.pathname === "/push/iscrivi") return json(await pushIscrivi(env, body));
+      if (url.pathname === "/otp/invia") return json(await otpInvia(env, body));
+      if (url.pathname === "/otp/verifica") return json(await otpVerifica(env, body));
       if (url.pathname === "/gestore/login") return json(await gestLogin(env, body, ip));
       if (url.pathname === "/gestore/dati") return json(await gestDati(env, body));
       if (url.pathname === "/gestore/azione") return json(await gestAzione(env, body));
-      if (url.pathname === "/gestore/nuovo-codice") { if (!env.ADMIN_PASSWORD) throw new Errore("Password gestore non impostata su Cloudflare.", 503); if (String(body.password || "") !== env.ADMIN_PASSWORD) throw new Errore("Password sbagliata.", 401); const diag = await gestNuovoCodice(env); return json({ ok: !!(diag && diag.sendOk), diag }); }
-      if (url.pathname === "/otp/invia") return json(await otpInvia(env, body));
-      if (url.pathname === "/otp/verifica") return json(await otpVerifica(env, body));
+      if (url.pathname === "/gestore/nuovo-codice") { // chiamata manuale per generare subito il primo codice
+        if (!env.ADMIN_PASSWORD) throw new Errore("Password gestore non impostata su Cloudflare.", 503);
+        if (String(body.password || "") !== env.ADMIN_PASSWORD) throw new Errore("Password sbagliata.", 401);
+        const diag = await gestNuovoCodice(env);
+        return json({ ok: !!(diag && diag.sendOk), diag });
+      }
       return json({ errore: "Pagina non trovata" }, 404);
     } catch (e) {
       return json({ errore: e instanceof Errore ? e.message : "Errore del server. Riprova." }, e.status || 500);
     }
   },
-  async scheduled(event, env, ctx) { ctx.waitUntil(gestNuovoCodice(env)); }
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(gestNuovoCodice(env));
+  }
 };
