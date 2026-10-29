@@ -87,6 +87,28 @@ window.YUGO_CONFIG = {
       prezzo: 26.9,
       righe: ["Bambini sotto i 130 cm € 13,90", "Esclusi coperto (€ 2,00), bevande, dolci e caffè"]
     },
+    // Pranzo e cena al ristorante: dalle 00:00 alle 16:00 il sito mostra il menu del pranzo,
+    // dalle 16:01 alle 23:59 quello della cena (ora italiana).
+    cambioMenu: "16:00",
+    allYouCanEatPranzo: {
+      titolo: "All You Can Eat",
+      quando: "A pranzo · tranne il martedì",
+      prezzo: 15.9,          // lunedì–venerdì
+      prezzoWeekend: 16.9,   // sabato, domenica e festivi
+      righe: [
+        "Lunedì–venerdì € 15,90 · sabato, domenica e festivi € 16,90",
+        "Bambini sotto i 130 cm € 8,00 · nel weekend € 9,00",
+        "Esclusi coperto (€ 2,00), bevande, dolci e caffè",
+        "Tataki e sashimi: uno a scelta tra i cinque piatti",
+        "Per evitare sprechi: cibo avanzato con supplemento di € 5–10"
+      ]
+    },
+    // Menu pranzo (foto del 29 ottobre 2026) = menu cena senza questi piatti
+    nonAPranzo: [30, 37, 40, 41, 61, 62, 63, 81, 83, 84, 85, 104, 105, 106, 107, 108, 113, 114, 115, 118, 119, 120, 165, 166, 170, 177, 178, 179, 180, 301, 302, 303, 304, 305, 306, 307, 308, 309, 310, 311, 312, 313, 314, 315, 316, 317, 318, 319, 320],
+    // A pranzo questi piatti si ordinano una volta a persona
+    max1Pranzo: [17, 18, 19, 20, 96, 97, 98, 99, 112, 116, 117, 164],
+    notaMenuPranzo: "Menu del pranzo. Dalle 16:00 trovi il menu della cena. Coperto € 2,00.",
+    notaMenuCena: "Menu della cena, prezzi alla carta. Coperto € 2,00.",
     // Menu del ristorante (foto del 24 ottobre 2026): prezzi alla carta
     menuRistorante: [
       { categoria: "Antipasti", piatti: [
