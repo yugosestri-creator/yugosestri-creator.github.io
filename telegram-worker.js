@@ -62,7 +62,7 @@ const SCHEMA = [
 const NUOVE_COLONNE = ["ALTER TABLE ordini ADD COLUMN stato TEXT DEFAULT 'inviato'", "ALTER TABLE ordini ADD COLUMN nome TEXT",
   "ALTER TABLE ordini ADD COLUMN telefono TEXT", "ALTER TABLE ordini ADD COLUMN ora TEXT", "ALTER TABLE ordini ADD COLUMN lang TEXT",
   "ALTER TABLE ordini ADD COLUMN oraPrima TEXT", "ALTER TABLE ordini ADD COLUMN nascosto INTEGER",
-  "ALTER TABLE prenot ADD COLUMN oraPrima TEXT"];
+  "ALTER TABLE prenot ADD COLUMN oraPrima TEXT", "ALTER TABLE ordini ADD COLUMN data TEXT"];
 let schemaPronto = false;
 async function init(env) {
   if (schemaPronto) return;
@@ -168,6 +168,7 @@ function giornoRoma() {
 }
 const FASCE = [["12:00", "14:30"], ["19:00", "22:00"]]; // orari di consegna/ritiro; dopo le 14:30 e le 22:00 niente ordini
 const MINIMO = 20;
+const GIORNI_AVANTI = 5; // ordini da oggi fino a 5 giorni dopo
 const eur = (n) => "€ " + n.toFixed(2).replace(".", ",");
 const minuti = (hhmm) => { const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; };
 function minutiRoma() {
@@ -191,9 +192,17 @@ async function ordine(env, body) {
   };
   if (!o.nome || o.telefono.replace(/\D/g, "").length < 8) throw new Errore("Servono nome e telefono");
   if (!o.ora) throw new Errore("Scegli l'orario");
-  if (GIORNI_CHIUSI.includes(giornoRoma())) throw new Errore("Oggi siamo chiusi: gli ordini riaprono domani.");
+  // Giorno: oggi oppure fino a GIORNI_AVANTI giorni dopo (ora italiana)
+  const oggiR = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Rome" }).format(new Date());
+  const data = /^\d{4}-\d{2}-\d{2}$/.test(body.data || "") ? body.data : oggiR;
+  const diff = Math.round((Date.parse(data + "T00:00:00Z") - Date.parse(oggiR + "T00:00:00Z")) / 86400e3);
+  if (diff < 0 || diff > GIORNI_AVANTI) throw new Errore(`Si può ordinare da oggi fino a ${GIORNI_AVANTI} giorni dopo.`);
+  const dow = new Date(data + "T12:00:00Z").getUTCDay();
+  if (GIORNI_CHIUSI.includes(dow)) throw new Errore(diff ? "Quel giorno siamo chiusi: scegli un altro giorno." : "Oggi siamo chiusi: gli ordini riaprono domani.");
   const ora = minutiRoma();
-  const dentro = FASCE.some(([a, b]) => ora <= minuti(b) && minuti(o.ora) >= minuti(a) && minuti(o.ora) <= minuti(b) + 30 && minuti(o.ora) >= ora + 15);
+  const dentro = diff
+    ? FASCE.some(([a, b]) => minuti(o.ora) >= minuti(a) && minuti(o.ora) <= minuti(b) + 30)
+    : FASCE.some(([a, b]) => ora <= minuti(b) && minuti(o.ora) >= minuti(a) && minuti(o.ora) <= minuti(b) + 30 && minuti(o.ora) >= ora + 15);
   if (!dentro) throw new Errore("Orario non disponibile. Si ordina dalle 12:00 alle 14:30 e dalle 19:00 alle 22:00");
   const sub = Math.round(righe.reduce((a, r) => a + r.q * r.prezzo, 0) * 100) / 100;
   let costo = 0;
@@ -207,11 +216,13 @@ async function ordine(env, body) {
     .bind(u.uid, new Date(Date.now() - 12 * 3600e3).toISOString()).first();
   if (recenti && recenti.n >= 5) throw new Errore("Hai già inviato diversi ordini oggi: per altri chiama il ristorante", 429);
   const tot = Math.round((sub + costo) * 100) / 100;
-  const ins = await env.DB.prepare("INSERT INTO ordini (uid, email, totale, creato, nome, telefono, ora, lang) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-    .bind(u.uid, u.email, tot, adessoISO(), o.nome, o.telefono, o.ora, pulisci(body.lang, 5) || "it").run();
+  const ins = await env.DB.prepare("INSERT INTO ordini (uid, email, totale, creato, nome, telefono, ora, lang, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(u.uid, u.email, tot, adessoISO(), o.nome, o.telefono, o.ora, pulisci(body.lang, 5) || "it", data).run();
   const numero = ins.meta && ins.meta.last_row_id;
 
-  const quando = `Alle ${o.ora}`;
+  const [yy, mm, dd] = data.split("-").map(Number);
+  const quando = diff ? `📅 ${GIORNI[dow].toUpperCase()} ${dd} ${MESI[mm - 1]} alle ${o.ora}` : `Oggi alle ${o.ora}`;
+  const quandoZh = diff ? `${mm}月${dd}日 ${ZH_GIORNI[dow]} ${o.ora}` : `今天 ${o.ora}`;
   const lista = righe.map((r) => `${r.q}× ${r.n != null ? r.n + " " : ""}${r.nome} — ${eur(r.q * r.prezzo)}`);
   const t = oraRoma();
   const it = [
@@ -226,7 +237,7 @@ async function ordine(env, body) {
     consegna ? `🛵 新订单 ${numero}号 – 外送` : `🥡 新订单 ${numero}号 – 自取`, "",
     `👤 姓名：${o.nome}`, `📞 电话：${o.telefono}`,
     consegna ? `📍 地址：${o.indirizzo}（${o.zona}）` : "📍 到店自取",
-    `🕗 时间：${o.ora}`, "", ...lista, "",
+    `🕗 时间：${quandoZh}`, "", ...lista, "",
     consegna ? `菜品 ${eur(sub)} + 配送费 ${eur(costo)}` : null, `💶 合计 ${eur(tot)}（${consegna ? "送达时付款" : "取餐时付款"}）`,
     o.note ? `📝 备注：${o.note}` : null, `⏱ 提交时间：${t.zh}`
   ];
@@ -650,7 +661,7 @@ async function gestDati(env, body) {
   const limite = Date.now() - 24 * 3600 * 1000;
   const [prenot, ordini, follower, eventi] = await Promise.all([
     env.DB.prepare("SELECT id, nome, telefono, data, ora, persone, email, stato, creato FROM prenot WHERE data >= ? AND stato IN ('confermata', 'annullata_ristorante') ORDER BY data, ora LIMIT 200").bind(oggi).all(),
-    env.DB.prepare("SELECT id, nome, telefono, ora, totale, email, stato, creato FROM ordini WHERE creato > ? ORDER BY id DESC LIMIT 100").bind(new Date(limite).toISOString()).all(),
+    env.DB.prepare("SELECT id, nome, telefono, ora, data, totale, email, stato, creato FROM ordini WHERE creato > ? OR data >= ? ORDER BY COALESCE(data, substr(creato, 1, 10)), ora LIMIT 150").bind(new Date(limite).toISOString(), oggi).all(),
     env.DB.prepare("SELECT f.id, f.codice, f.username, f.piattaforma, f.creato, p.nome AS daChi FROM follow f LEFT JOIN promoter p ON p.codice = f.codice WHERE f.stato = 'attesa' ORDER BY f.id DESC LIMIT 100").all(),
     env.DB.prepare("SELECT id, nome, descrizione, sconto, etichetta, dal, al FROM eventi WHERE eliminato = 0 AND (al IS NULL OR al = '' OR al >= ?) ORDER BY dal, id").bind(oggi).all()
   ]);
@@ -748,7 +759,7 @@ async function miei(env, body) {
   const da = new Date(Date.now() - 30 * 86400e3).toISOString();
   const [p, o] = await Promise.all([
     env.DB.prepare("SELECT doc, stato, ora, oraPrima FROM prenot WHERE uid = ? AND doc IS NOT NULL").bind(u.uid).all(),
-    env.DB.prepare("SELECT id, stato, ora, oraPrima, totale, creato FROM ordini WHERE uid = ? AND creato > ? AND (nascosto IS NULL OR nascosto = 0) ORDER BY id DESC LIMIT 20").bind(u.uid, da).all()
+    env.DB.prepare("SELECT id, stato, ora, oraPrima, data, totale, creato FROM ordini WHERE uid = ? AND creato > ? AND (nascosto IS NULL OR nascosto = 0) ORDER BY id DESC LIMIT 20").bind(u.uid, da).all()
   ]);
   return { ok: true, prenot: p.results || [], ordini: o.results || [] };
 }
