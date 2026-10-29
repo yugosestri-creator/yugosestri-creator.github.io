@@ -44,6 +44,10 @@ window.YUGO_CONFIG = {
       { nome: "Family F3", quando: "8 piatti a scelta + 2 bibite in lattina", prezzo: 40 },
       { nome: "Family F4", quando: "12 piatti a scelta + 3 bibite in lattina", prezzo: 60 }
     ],
+    // Regole dei menu Family negli ordini da casa (i piatti scelti costano 0, si paga il prezzo del menu)
+    familyNonF1: [97, 98, 99, 118, 119, 120, 313, 314, 315, 316, 317, 318, 319, 320], // con F1 niente sashimi, carpaccio e special roll
+    familyLimite: { carpaccio: [118, 119, 120], sashimi: [97, 98, 99] },             // F2 al massimo 1, F3 2, F4 3
+    familyUnaVolta: [155, 156],                                                     // si ordinano una sola volta
     notaFormule: "Piatti special e dim sum non sono disponibili da asporto. Carpaccio e sashimi: non nel menu F1, una volta per tipo con F2, due con F3, tre con F4. I piatti 155 e 156 si ordinano una sola volta. Consegna a domicilio 12:00–14:30 e 19:00–22:00, ordine minimo € 20: Sestri Levante € 1, Riva Trigoso € 2,50, Casarza Ligure € 3,50, Moneglia € 5.",
 
     orari: [
