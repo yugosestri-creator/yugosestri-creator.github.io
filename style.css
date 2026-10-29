@@ -616,3 +616,10 @@ body.has-cart .menu-list { padding-bottom: 80px; }
 .ora-nuova { color: #e5484d; font-weight: 800; }
 .promo-sconto { margin: 6px 0 0; font-size: 15px; }
 .promo-sconto b { color: var(--gold); margin-right: 4px; }
+
+/* Menu da asporto in Home: righe cliccabili e regole in elenco */
+.f-link { cursor: pointer; position: relative; padding-right: 22px; }
+.f-link::after { content: "›"; position: absolute; right: 2px; top: 50%; transform: translateY(-50%); color: var(--gold); font-size: 22px; }
+.f-regole { margin: 4px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.f-regole li { position: relative; padding-left: 16px; font-size: 13.5px; line-height: 1.45; color: var(--muted); }
+.f-regole li::before { content: ""; position: absolute; left: 2px; top: .6em; width: 6px; height: 6px; border-radius: 50%; background: var(--gold); opacity: .8; }
