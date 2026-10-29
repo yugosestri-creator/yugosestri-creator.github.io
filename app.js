@@ -498,7 +498,7 @@ function renderHome() {
   $("#home-formule").previousElementSibling.textContent = R.titoloFormule || "All You Can Eat";
   $("#home-formule").innerHTML = (R.formule || []).map((f) => `<div class="formula"><span class="f-name">${esc(f.nome)}</span><span class="f-when">${esc(f.quando || "")}</span><span class="f-price">€ ${euro(f.prezzo)}</span></div>`).join("");
   $("#home-formule-nota").textContent = R.notaFormule || "";
-  const ay = $("#home-ayce"); if (ay) { ay.hidden = !R.allYouCanEat; ay.innerHTML = ayceHTML(true); }
+  const ay = $("#home-ayce"); if (ay) { ay.hidden = !ayceAttivo(); ay.innerHTML = ayceHTML(true); }
   $("#home-desc").innerHTML = (R.descrizione || []).map((p) => `<p>${esc(p)}</p>`).join("");
   const todayIdx = (new Date().getDay() + 6) % 7; // lunedì = 0
   $("#home-hours").innerHTML = (R.orari || []).map((o, i) => {
@@ -518,12 +518,34 @@ const pul = (s) => String(s ?? "").replace(/\*/g, "").replace(/\s{2,}/g, " ").re
 
 /* Dove mangi? "ristorante" o "casa". Si chiede una volta per visita. */
 let MODO = (() => { try { return sessionStorage.getItem("yugo-modo"); } catch { return null; } })();
-const menuAttivo = () => MODO === "ristorante" && R.menuRistorante && R.menuRistorante.length
-  ? R.menuRistorante
-  : (R.menu || []).filter((c) => !c.soloRistorante); // piatti special e dim sum non vanno da asporto
-const aycePrezzo = () => (R.allYouCanEat && R.allYouCanEat.prezzo) || null;
+/* Pranzo o cena? Dalle 00:00 alle 16:00 (ora italiana) menu del pranzo, poi quello della cena. */
+function oraRoma() {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Rome", hour: "2-digit", minute: "2-digit", weekday: "short", hour12: false })
+    .formatToParts(new Date()).map((x) => [x.type, x.value]));
+  return { min: (+p.hour % 24) * 60 + +p.minute, weekend: p.weekday === "Sat" || p.weekday === "Sun" };
+}
+const servizio = () => {
+  const [h, m] = String(R.cambioMenu || "16:00").split(":").map(Number);
+  return oraRoma().min <= h * 60 + m ? "pranzo" : "cena";
+};
+const aPranzo = () => !!R.allYouCanEatPranzo && servizio() === "pranzo";
+const menuAttivo = () => {
+  if (!(MODO === "ristorante" && R.menuRistorante && R.menuRistorante.length))
+    return (R.menu || []).filter((c) => !c.soloRistorante); // piatti special e dim sum non vanno da asporto
+  if (!aPranzo()) return R.menuRistorante;
+  const no = new Set(R.nonAPranzo || []), max1 = new Set(R.max1Pranzo || []);
+  return R.menuRistorante
+    .map((c) => ({ ...c, piatti: c.piatti.filter((p) => p.n == null || !no.has(p.n)).map((p) => max1.has(p.n) ? { ...p, max1: true } : p) }))
+    .filter((c) => c.piatti.length);
+};
+const ayceAttivo = () => {
+  if (!aPranzo()) return R.allYouCanEat || null;
+  const a = R.allYouCanEatPranzo;
+  return { ...a, prezzo: oraRoma().weekend && a.prezzoWeekend ? a.prezzoWeekend : a.prezzo };
+};
+const aycePrezzo = () => (ayceAttivo() && ayceAttivo().prezzo) || null;
 function ayceHTML(conBottone) {
-  const a = R.allYouCanEat; if (!a) return "";
+  const a = ayceAttivo(); if (!a) return "";
   return `<div class="ayce-head"><span><small>${esc(a.quando || "")}</small><b>${esc(a.titolo)}</b></span><span class="ayce-price">€ ${euro(a.prezzo)}</span></div>
     <ul class="ayce-list">${(a.righe || []).map((r) => `<li>${esc(r)}</li>`).join("")}</ul>
     ${conBottone ? `<a href="#prenota" data-go="prenota" class="btn btn-gold btn-block">Prenota un tavolo</a>` : ""}`;
@@ -536,9 +558,9 @@ function mostraModo() {
   if (!MODO) return;
   const casa = MODO === "casa";
   $("#mode-label").innerHTML = casa ? "Menu <b>a casa</b> · asporto e consegna" : "Menu <b>al ristorante</b>";
-  $("#menu-note").textContent = (casa ? R.notaMenuCasa : R.notaMenuRistorante) || "";
+  $("#menu-note").textContent = (casa ? R.notaMenuCasa : (aPranzo() ? R.notaMenuPranzo : R.notaMenuCena) || R.notaMenuRistorante) || "";
   const box = $("#menu-ayce");
-  if (box) { box.hidden = casa || !R.allYouCanEat; box.innerHTML = casa ? "" : ayceHTML(false); }
+  if (box) { box.hidden = casa || !ayceAttivo(); box.innerHTML = casa ? "" : ayceHTML(false); }
 }
 
 
@@ -698,7 +720,7 @@ function renderMenu() {
     $("#menu-list").classList.toggle("shop", shop);
     $("#menu-list").innerHTML = cats.map((c, i) => (sel === "all" || String(i) === sel) ? `
       <section class="menu-cat"><h2>${esc(c.categoria)}</h2>
-        ${c.piatti.map((p, j) => c.extra ? `<div class="dish">${p.n != null ? `<span class="dish-n">${esc(p.n)}</span>` : `<span></span>`}<span class="dish-name">${esc(pul(p.nome))}</span><span class="dish-price">${p.prezzo != null ? "€ " + euro(p.prezzo) : ""}</span>${p.desc ? `<span class="dish-sub">${esc(pul(p.desc))}</span>` : ""}</div>` : `<div class="dish${p.desc ? " has-desc" : ""}">${p.n != null ? `<span class="dish-n">${esc(p.n)}</span>` : `<span></span>`}<span class="dish-name">${esc(pul(p.nome))}</span><span class="dish-price">${p.prezzo != null ? "€ " + euro(p.prezzo) : ""}</span>${shop && p.prezzo != null ? qtyHTML(p) : ""}${p.desc ? `<button type="button" class="dish-more" aria-expanded="false" aria-controls="dd-${i}-${j}"><span>Ingredienti</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><div class="dish-desc" id="dd-${i}-${j}"><div>${esc(pul(p.desc))}</div></div>` : ""}</div>`).join("")}
+        ${c.piatti.map((p, j) => c.extra ? `<div class="dish">${p.n != null ? `<span class="dish-n">${esc(p.n)}</span>` : `<span></span>`}<span class="dish-name">${esc(pul(p.nome))}</span><span class="dish-price">${p.prezzo != null ? "€ " + euro(p.prezzo) : ""}</span>${p.desc ? `<span class="dish-sub">${esc(pul(p.desc))}</span>` : ""}</div>` : `<div class="dish${p.desc ? " has-desc" : ""}">${p.n != null ? `<span class="dish-n">${esc(p.n)}</span>` : `<span></span>`}<span class="dish-name">${esc(pul(p.nome))}${p.max1 ? `<small class="dish-max">max 1 a persona</small>` : ""}</span><span class="dish-price">${p.prezzo != null ? "€ " + euro(p.prezzo) : ""}</span>${shop && p.prezzo != null ? qtyHTML(p) : ""}${p.desc ? `<button type="button" class="dish-more" aria-expanded="false" aria-controls="dd-${i}-${j}"><span>Ingredienti</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><div class="dish-desc" id="dd-${i}-${j}"><div>${esc(pul(p.desc))}</div></div>` : ""}</div>`).join("")}
       </section>` : "").join("");
     // ricorda il piatto di ogni riga, serve al carrello
     const flat = []; cats.forEach((c, i) => { if (sel === "all" || String(i) === sel) c.piatti.forEach((p) => flat.push(p)); });
@@ -740,6 +762,14 @@ function renderMenu() {
   $("#cart-bar").addEventListener("click", apriCarrello);
   menuReset();
   mostraModo();
+  // Alle 16:00 (e a mezzanotte) il menu passa da solo da pranzo a cena e viceversa
+  let ultimoServizio = servizio();
+  const controllaServizio = () => {
+    const s = servizio(); if (s === ultimoServizio) return;
+    ultimoServizio = s; renderHome(); mostraModo(); menuReset();
+  };
+  setInterval(controllaServizio, 60000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) controllaServizio(); });
   // Freccetta "Ingredienti": tocca il piatto per aprire o chiudere la descrizione
   $("#menu-list").addEventListener("click", (e) => {
     const qb = e.target.closest(".qty [data-d]");
@@ -880,7 +910,7 @@ function proposta() {
     <ul class="cs-list">${scelti.map((p) => `<li><span class="dish-n">${p.n != null ? esc(p.n) : ""}</span><span><b>${esc(pul(p.nome))}</b><small>${esc(p.cat)}</small></span><span class="cs-price">€ ${euro(p.prezzo)}</span></li>`).join("")}</ul>
     <div class="cs-total"><span>Totale</span><b>€ ${euro(somma)}</b></div>
     <p class="hint">Circa € ${euro(somma / persone)} a testa${MODO === "ristorante"
-      ? (aycePrezzo() && somma / persone >= 18 ? ` · A cena con l'<b>All You Can Eat</b> paghi <b>€ ${euro(aycePrezzo())}</b> a testa e mangi quanto vuoi` : "")
+      ? (aycePrezzo() && somma / persone >= aycePrezzo() * 0.67 ? ` · ${aPranzo() ? "A pranzo" : "A cena"} con l'<b>All You Can Eat</b> paghi <b>€ ${euro(aycePrezzo())}</b> a testa e mangi quanto vuoi` : "")
       : (fam ? ` · Con il <b>menu Family ${fam.n}</b> (${fam.piatti} piatti) lo paghi <b>€ ${fam.prezzo}</b> e c'è anche la bibita` : "")}.</p>
     <p class="hint">${MODO === "ristorante" && !(R.menuRistorante && R.menuRistorante.length) ? "Prezzi del menu da asporto: al tavolo possono cambiare. " : ""}Per allergie e intolleranze chiedi sempre al personale.</p>
     <div class="cs-actions">
