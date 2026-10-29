@@ -507,8 +507,10 @@ function renderHome() {
   $("#menu-note").textContent = R.notaMenu || "";
   $("#hero-slogan").textContent = R.slogan || "";
   $("#home-formule").previousElementSibling.textContent = R.titoloFormule || "All You Can Eat";
-  $("#home-formule").innerHTML = (R.formule || []).map((f, i) => `<div class="formula" role="button" tabindex="0" data-fam-home="${i}"><span class="f-name">${esc(f.nome)}</span><span class="f-when">${esc(f.quando || "")}</span><span class="f-price">€ ${euro(f.prezzo)}</span></div>`).join("");
-  $("#home-formule-nota").textContent = R.notaFormule || "";
+  $("#home-formule").innerHTML = (R.formule || []).map((f, i) => `<div class="formula f-link" role="button" tabindex="0" data-fam-home="${i}"><span class="f-name">${esc(f.nome)}</span><span class="f-when">${esc(f.quando || "")}</span><span class="f-price">€ ${euro(f.prezzo)}</span></div>`).join("");
+  const regole = R.regoleFormule || (R.notaFormule ? [R.notaFormule] : []);
+  $("#home-formule-nota").innerHTML = regole.length ? `<ul class="f-regole">${regole.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>` : "";
+  if (ORD && !$("#home-ordina")) $("#home-formule-nota").insertAdjacentHTML("afterend", `<button class="btn btn-gold btn-block" id="home-ordina" type="button" style="margin-top:14px">🛵 Ordina da casa</button>`);
   const ay = $("#home-ayce"); if (ay) { ay.hidden = !ayceAttivo(); ay.innerHTML = ayceHTML(true); }
   $("#home-desc").innerHTML = (R.descrizione || []).map((p) => `<p>${esc(p)}</p>`).join("");
   const todayIdx = (new Date().getDay() + 6) % 7; // lunedì = 0
@@ -673,9 +675,10 @@ function aggiornaFam() {
 }
 document.addEventListener("click", (e) => {
   const b = e.target.closest("#menu-family [data-fam]"); if (b) return scegliFamily(b.dataset.fam);
-  const h = e.target.closest("[data-fam-home]"); if (!h || !ORD) return;
+  const h = e.target.closest("[data-fam-home], #home-ordina"); if (!h || !ORD) return;
   MODO = "casa"; try { sessionStorage.setItem("yugo-modo", MODO); } catch { /* ok */ }
-  scegliFamily(h.dataset.famHome); mostraModo(); menuReset(); aggiornaBarra(); go("menu");
+  if (h.dataset.famHome != null) scegliFamily(h.dataset.famHome);
+  mostraModo(); menuReset(); aggiornaBarra(); go("menu");
 });
 
 function qtyHTML(p) {
@@ -701,15 +704,29 @@ function aggiornaBarra() {
   aggiornaFam();
 }
 
-/* Orari in cui si può ordinare oggi */
-function fasceOggi() {
-  const now = new Date(), m = now.getHours() * 60 + now.getMinutes(), anticipo = ORD.anticipo || 40;
+/* Giorni in cui si può ordinare: oggi e i prossimi giorni (ORD.giorniAvanti), senza i giorni di chiusura */
+function giorniOrdine() {
+  const out = [], b = new Date();
+  for (let i = 0; i <= (ORD.giorniAvanti ?? 5); i++) {
+    const d = new Date(b.getFullYear(), b.getMonth(), b.getDate() + i);
+    if (!(R.giorniChiusi || []).includes(d.getDay())) out.push(isoDate(d));
+  }
+  return out;
+}
+const nomeGiorno = (iso) => {
+  const oggi = new Date(), dom = new Date(oggi.getFullYear(), oggi.getMonth(), oggi.getDate() + 1);
+  if (iso === isoDate(oggi)) return "Oggi";
+  if (iso === isoDate(dom)) return "Domani";
+  return cap(parseISO(iso).toLocaleDateString(LOC(), { weekday: "long", day: "numeric", month: "long" }));
+};
+/* Orari in cui si può ordinare in quel giorno (oggi: solo da adesso + anticipo) */
+function fasceGiorno(data) {
+  const now = new Date(), oggi = data === isoDate(now), m = now.getHours() * 60 + now.getMinutes(), anticipo = ORD.anticipo || 40;
   const slots = [];
-  if ((R.giorniChiusi || []).includes(now.getDay())) return { slots, chiusoOggi: true };
   for (const [da, a] of ORD.fasce || []) {
     const s = toMin(da), e = toMin(a);
-    if (m > e) continue; // dopo le 14:30 e dopo le 22:00 niente ordini
-    for (let t = s; t <= e + 30; t += 15) if (t >= m + anticipo) slots.push(fromMin(t));
+    if (oggi && m > e) continue; // dopo le 14:30 e dopo le 22:00 niente ordini per oggi
+    for (let t = s; t <= e + 30; t += 15) if (!oggi || t >= m + anticipo) slots.push(fromMin(t));
   }
   return { slots };
 }
@@ -734,7 +751,9 @@ function disegnaCarrello() {
   const zona = zone[d.zona] || zone[0], costo = consegna && zona ? zona.costo : 0;
   const F = famAtt(), mancano = F ? Math.max(0, F.piatti - pezzi()) : 0;
   const sub = F ? F.prezzo : subtotale(), tot = Math.round((sub + costo) * 100) / 100;
-  const { slots, chiusoOggi } = fasceOggi();
+  const giorni = giorniOrdine();
+  if (!giorni.includes(d.data) || !fasceGiorno(d.data).slots.length) d.data = giorni.find((g) => fasceGiorno(g).slots.length) || "";
+  const { slots } = d.data ? fasceGiorno(d.data) : { slots: [] }, chiusoOggi = false;
   if (!slots.includes(d.ora)) d.ora = slots[0] || "";
   const chiuso = !slots.length;
   const sottoMinimo = consegna && sub < (ORD.minimo || 0);
@@ -753,6 +772,7 @@ function disegnaCarrello() {
     ${consegna ? `<div class="field"><label for="o-zona">Zona</label><select class="input" id="o-zona">${zone.map((z, i) => `<option value="${i}" ${i === d.zona ? "selected" : ""}>${esc(z.nome)} · consegna € ${euro(z.costo)}</option>`).join("")}</select></div>
       <div class="field"><label for="o-ind">Indirizzo</label><input class="input" id="o-ind" autocomplete="street-address" placeholder="Via, numero civico, citofono" value="${esc(d.indirizzo || "")}"></div>`
       : `<p class="hint">Ritiri da noi in ${esc(R.indirizzo || "")}.</p>`}
+    ${giorni.length > 1 ? `<div class="field"><label for="o-giorno">Giorno</label><select class="input" id="o-giorno">${giorni.filter((g) => fasceGiorno(g).slots.length).map((g) => `<option value="${g}" ${g === d.data ? "selected" : ""}>${esc(nomeGiorno(g))}</option>`).join("")}</select></div>` : ""}
     <div class="field"><label for="o-ora">${consegna ? "Quando lo vuoi" : "Quando passi"}</label>
       ${chiusoOggi ? `<p class="notice">Oggi siamo chiusi: gli ordini riaprono domani.</p>`
         : chiuso ? `<p class="notice">Per oggi gli ordini sono chiusi. Si ordina dalle ${esc((ORD.fasce || []).map(([a, b]) => a + " alle " + b).join(" e dalle "))}.</p>`
@@ -779,6 +799,7 @@ function disegnaCarrello() {
   const leggi = () => {
     if ($("#o-zona")) d.zona = Number($("#o-zona").value);
     if ($("#o-ind")) d.indirizzo = $("#o-ind").value;
+    if ($("#o-giorno")) d.data = $("#o-giorno").value;
     if ($("#o-ora")) d.ora = $("#o-ora").value;
     d.nome = $("#o-nome").value; d.telefono = $("#o-tel").value; d.note = $("#o-note").value;
     if ($("#o-bib")) d.bibita = $("#o-bib").value;
@@ -786,6 +807,7 @@ function disegnaCarrello() {
   };
   body.querySelectorAll("[data-modo-ord]").forEach((b) => b.onclick = () => { leggi(); d.modo = b.dataset.modoOrd; disegnaCarrello(); });
   if ($("#o-zona")) $("#o-zona").onchange = () => { leggi(); disegnaCarrello(); };
+  if ($("#o-giorno")) $("#o-giorno").onchange = () => { leggi(); d.ora = ""; disegnaCarrello(); };
   body.querySelector(".ord-list").onclick = (e) => {
     const btn = e.target.closest("[data-d]"); if (!btn) return;
     const li = btn.closest("li"), r = carrello[li.dataset.k]; if (!r) return;
@@ -807,7 +829,7 @@ function disegnaCarrello() {
     if (F && F.bibite && !(d.bibita || "").trim()) return fail("Scrivi quale bibita vuoi.");
     btn.disabled = true; btn.textContent = "Invio…";
     try {
-      const ordine = { modo: d.modo, zona: consegna ? zona.nome : "", indirizzo: consegna ? d.indirizzo : "", ora: d.ora,
+      const ordine = { modo: d.modo, zona: consegna ? zona.nome : "", indirizzo: consegna ? d.indirizzo : "", ora: d.ora, data: d.data,
         nome: d.nome, telefono: d.telefono,
         note: (F && F.bibite ? `Bibite: ${(d.bibita || "").trim()}. ` : "") + d.note,
         righe: (F ? [{ n: null, nome: F.nome, prezzo: F.prezzo, q: 1 }] : []).concat(righeCarrello().map(({ n, nome, prezzo, q }) => ({ n, nome, prezzo: F ? 0 : prezzo, q }))) };
@@ -816,7 +838,7 @@ function disegnaCarrello() {
       if (F) { FAM = null; store.set("yugo-family", null); disegnaFamily(); menuReset(); }
       body.innerHTML = `<div class="ord-ok"><div class="ord-check" aria-hidden="true">✓</div>
         <p class="cs-kicker">Ordine n. ${esc(res.numero)} inviato</p><h2 id="ord-title">Grazie ${esc(d.nome.split(" ")[0])}!</h2>
-        <p class="muted">Il ristorante l'ha ricevuto ora. ${consegna ? "Ti portiamo tutto" : "Ti aspettiamo"} per le ${esc(d.ora)}. Se c'è un problema ti chiamiamo al ${esc(d.telefono)}.</p>
+        <p class="muted">Il ristorante l'ha ricevuto ora. ${consegna ? "Ti portiamo tutto" : "Ti aspettiamo"}${d.data && d.data !== isoDate(new Date()) ? ` ${esc(nomeGiorno(d.data).toLowerCase())}` : ""} per le ${esc(d.ora)}. Se c'è un problema ti chiamiamo al ${esc(d.telefono)}.</p>
         <p class="hint">Per modifiche chiama il ${esc(R.telefono || "")}.</p>
         ${bottoneNotifiche()}
         <button class="btn btn-block" type="button" data-close>Chiudi</button></div>`;
@@ -1285,7 +1307,7 @@ function disegnaOrdini(ordini) {
   const oggi = isoDate(new Date());
   el.innerHTML = ordini.map((o) => {
     const ann = o.stato === "annullata_ristorante", cambiato = !ann && o.oraPrima && o.oraPrima !== o.ora;
-    const d = new Date(o.creato), vecchio = isoDate(d) < oggi;
+    const d = o.data ? parseISO(o.data) : new Date(o.creato), vecchio = (o.data || isoDate(d)) < oggi;
     return `<div class="bitem ${ann || vecchio ? "past" : ""}">
       <div class="bdate"><b>${d.getDate()}</b><span>${d.toLocaleDateString(LOC(), { month: "short" })}</span></div>
       <div class="binfo"><strong>Ordine n. ${esc(o.id)}${o.ora ? ` · ore ${cambiato ? `<s class="ora-vecchia">${esc(o.oraPrima)}</s> <span class="ora-nuova">${esc(o.ora)}</span>` : esc(o.ora)}` : ""}</strong>
