@@ -187,7 +187,7 @@ function bindOggi() {
   document.querySelectorAll("[data-p]").forEach((c) => {
     const id = +c.dataset.p;
     c.querySelector('[data-a="annulla"]')?.addEventListener("click", async () => {
-      if (!confirm("Annullare questa prenotazione? Il cliente riceve un'email.")) return;
+      if (!confirm("Annullare questa prenotazione? Il cliente riceve una notifica.")) return;
       azione("prenot-annulla", { id });
     });
     c.querySelector('[data-a="cambia"]')?.addEventListener("click", () => {
@@ -210,7 +210,7 @@ function viewOrdini() {
 function cardOrdine(o) {
   return `
     <div class="card" data-o="${o.id}">
-      <h3>Ordine #${o.id} · ${esc(o.ora || "")} · € ${(+o.totale||0).toFixed(2).replace(".", ",")}</h3>
+      <h3>Ordine #${o.id} · ${o.data && o.data !== iso(new Date()) ? `<span class="tag att">${esc(fmtDay(o.data))}</span> ` : ""}${esc(o.ora || "")} · € ${(+o.totale||0).toFixed(2).replace(".", ",")}</h3>
       <p class="meta">${esc(o.nome || "")} · ${esc(o.telefono || "")} · ${esc(o.email || "")}</p>
       <div class="row">
         <button class="b" data-a="cambia">Cambia orario</button>
@@ -223,7 +223,7 @@ function bindOrdini() {
   document.querySelectorAll("[data-o]").forEach((c) => {
     const id = +c.dataset.o;
     c.querySelector('[data-a="annulla"]')?.addEventListener("click", async () => {
-      if (!confirm(`Annullare l'ordine #${id}? Il cliente riceve un'email.`)) return;
+      if (!confirm(`Annullare l'ordine #${id}? Il cliente riceve una notifica.`)) return;
       azione("ordine-annulla", { id });
     });
     c.querySelector('[data-a="cambia"]')?.addEventListener("click", () => {
