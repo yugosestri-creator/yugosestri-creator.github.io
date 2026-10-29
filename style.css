@@ -599,3 +599,5 @@ body.has-cart .menu-list { padding-bottom: 80px; }
 
 .legal { text-align: center; font-size: 13px; color: var(--muted); margin: 8px 0 0; }
 .legal a, .hint a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+/* Pranzo All You Can Eat: piatti da una porzione a persona */
+.dish-max { display: block; margin-top: 2px; font-size: 11px; font-weight: 600; color: #e08a78; letter-spacing: .02em; }
