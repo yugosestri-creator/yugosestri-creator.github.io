@@ -37,18 +37,26 @@ window.YUGO_CONFIG = {
     ],
 
     // Riquadro sotto la foto in Home
-    titoloFormule: "Asporto e consegna · Menu Family",
+    titoloFormule: "Asporto e consegna · Menu",
     formule: [
-      { nome: "Family F1", quando: "4 piatti a scelta + 1 bibita in lattina · niente piatti special", prezzo: 20 },
-      { nome: "Family F2", quando: "6 piatti a scelta + 1 bibita in lattina", prezzo: 30 },
-      { nome: "Family F3", quando: "8 piatti a scelta + 2 bibite in lattina", prezzo: 40 },
-      { nome: "Family F4", quando: "12 piatti a scelta + 3 bibite in lattina", prezzo: 60 }
+      { nome: "F1", quando: "4 piatti a scelta + 1 bibita in lattina · niente piatti special", prezzo: 20 },
+      { nome: "F2", quando: "6 piatti a scelta + 1 bibita in lattina", prezzo: 30 },
+      { nome: "F3", quando: "8 piatti a scelta + 2 bibite in lattina", prezzo: 40 },
+      { nome: "F4", quando: "12 piatti a scelta + 3 bibite in lattina", prezzo: 60 }
     ],
     // Regole dei menu Family negli ordini da casa (i piatti scelti costano 0, si paga il prezzo del menu)
     familyNonF1: [97, 98, 99, 118, 119, 120, 313, 314, 315, 316, 317, 318, 319, 320], // con F1 niente sashimi, carpaccio e special roll
     familyLimite: { carpaccio: [118, 119, 120], sashimi: [97, 98, 99] },             // F2 al massimo 1, F3 2, F4 3
     familyUnaVolta: [155, 156],                                                     // si ordinano una sola volta
-    notaFormule: "Piatti special e dim sum non sono disponibili da asporto. Carpaccio e sashimi: non nel menu F1, una volta per tipo con F2, due con F3, tre con F4. I piatti 155 e 156 si ordinano una sola volta. Consegna a domicilio 12:00–14:30 e 19:00–22:00, ordine minimo € 20: Sestri Levante € 1, Riva Trigoso € 2,50, Casarza Ligure € 3,50, Moneglia € 5.",
+    // Regole mostrate sotto i menu in Home (una riga ciascuna)
+    regoleFormule: [
+      "Special e dim sum non sono da asporto",
+      "Carpaccio e sashimi: niente con F1 · 1 con F2 · 2 con F3 · 3 con F4",
+      "Piatti 155 e 156: una sola volta",
+      "Consegna 12:00–14:30 e 19:00–22:00 · ordine minimo € 20",
+      "Costo consegna: Sestri Levante € 1 · Riva Trigoso € 2,50 · Casarza Ligure € 3,50 · Moneglia € 5",
+      "Ordini e prenotazioni: da oggi fino a 5 giorni in anticipo"
+    ],
 
     orari: [
       { giorno: "Lunedì",    ore: "12:00 – 15:00 · 19:00 – 23:00" },
@@ -67,7 +75,7 @@ window.YUGO_CONFIG = {
     ],
     giorniChiusi: [2], // 0 = domenica … 2 = martedì
     maxPersone: 12,
-    giorniPrenotabili: 60,
+    giorniPrenotabili: 5,    // si prenota da oggi fino a 5 giorni dopo
 
     notaMenuCasa: "Prezzi del menu da asporto e consegna.",
     notaMenuRistorante: "Prezzi alla carta. Coperto € 2,00.",
@@ -77,6 +85,7 @@ window.YUGO_CONFIG = {
       justEat: "https://www.justeat.it/restaurants-yugo-sushi-experience-sestri-levante/menu",
       minimo: 20,              // ordine minimo per la consegna (€)
       anticipo: 30,            // minuti minimi tra ordine e consegna/ritiro
+      giorniAvanti: 5,         // si può ordinare per oggi o per i prossimi 5 giorni
       fasce: [["12:00", "14:30"], ["19:00", "22:00"]], // dopo le 14:30 e dopo le 22:00 niente ordini
       zone: [
         { nome: "Sestri Levante", costo: 1 },
