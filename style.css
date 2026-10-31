@@ -623,3 +623,10 @@ body.has-cart .menu-list { padding-bottom: 80px; }
 .f-regole { margin: 4px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; }
 .f-regole li { position: relative; padding-left: 16px; font-size: 13.5px; line-height: 1.45; color: var(--muted); }
 .f-regole li::before { content: ""; position: absolute; left: 2px; top: .6em; width: 6px; height: 6px; border-radius: 50%; background: var(--gold); opacity: .8; }
+
+/* Tipi di coupon: omaggio, buono sconto, buono cena gratis */
+.c-tipo { font-size: 11px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: var(--gold); }
+.c-uno { font-size: 12px; font-weight: 700; color: var(--fg); opacity: .85; }
+.coupon.c-sconto { border-color: #5aa9e6; }
+.coupon.c-sconto .c-tipo { color: #7cc0f0; }
+.coupon.c-cena { border-style: solid; border-width: 2px; background: linear-gradient(135deg, rgba(212,175,95,.16), var(--surface-2)); }
