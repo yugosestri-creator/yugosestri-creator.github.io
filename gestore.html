@@ -100,9 +100,14 @@ async function carica() {
   catch (e) { if (e.status === 401) { logout(); toast("Accesso scaduto. Rientra."); } else toast(e.message); }
 }
 
+let inCorso = false; // evita doppi invii se si tocca più volte lo stesso pulsante
 async function azione(az, p = {}) {
-  try { await api("/gestore/azione", { token: sessione.token, azione: az, ...p }); toast("Fatto"); carica(); }
+  if (inCorso) return;
+  inCorso = true;
+  document.querySelectorAll("main button").forEach((b) => { b.disabled = true; });
+  try { await api("/gestore/azione", { token: sessione.token, azione: az, ...p }); toast("Fatto"); }
   catch (e) { if (e.status === 401) { logout(); toast("Accesso scaduto."); } else toast(e.message); }
+  finally { inCorso = false; await carica(); }
 }
 
 function viewLogin() {
@@ -204,6 +209,7 @@ function bindOggi() {
       azione("prenot-annulla", { id });
     });
     c.querySelector('[data-a="cambia"]')?.addEventListener("click", () => {
+      if (c.querySelector("select")) return; // già aperto
       const sel = document.createElement("select");
       sel.innerHTML = ORARI_PRENOT.map((o) => `<option>${o}</option>`).join("");
       sel.style.margin = "8px 0";
@@ -240,6 +246,7 @@ function bindOrdini() {
       azione("ordine-annulla", { id });
     });
     c.querySelector('[data-a="cambia"]')?.addEventListener("click", () => {
+      if (c.querySelector("select")) return; // già aperto
       const sel = document.createElement("select");
       sel.innerHTML = ORARI_ORDINE.map((o) => `<option>${o}</option>`).join("");
       sel.style.margin = "8px 0";
