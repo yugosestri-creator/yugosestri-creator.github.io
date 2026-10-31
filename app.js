@@ -256,6 +256,9 @@ function renderPromo() {
 const WORKER = ((CFG.telegram && CFG.telegram.worker) || "").replace(/\/$/, "");
 const SITO = location.origin + location.pathname.replace(/[^/]*$/, "");
 const linkInvito = (c) => `${SITO}invito/${c}`;
+/* Testo del premio di un coupon (il livello 9 dà due buoni: cena gratis + sconto) */
+const premioCoupon = (c) => c.livello >= 9 && c.tipo === "cena" ? "una cena gratis per una persona"
+  : c.livello >= 9 && c.tipo === "sconto" ? "−15% per una persona" : premioDi(c.livello);
 const premioDi = (liv) => { const P = (CFG.promoInviti && CFG.promoInviti.premi) || []; return P.length ? P[Math.min(liv - 1, P.length - 1)] : "un premio da Yugo"; };
 async function api(path, body) {
   if (!WORKER) throw new Error("Servizio non ancora attivo.");
@@ -326,7 +329,8 @@ async function renderInvite() {
   area.hidden = !WORKER; if (!WORKER) return;
   if (!backend || user === undefined) { area.innerHTML = `<p class="muted">Caricamento…</p>`; return; }
   const intro = `<span class="promo-tag">Invita amici</span><h2>Porta i tuoi amici, vinci premi</h2>
-    <p>Ogni amico che ci segue su TikTok o Instagram riempie la tua barra. Barra piena = un coupon da usare da Yugo.</p>`;
+    <p>Ogni amico che ci segue su TikTok o Instagram riempie la tua barra. Barra piena = un coupon da usare da Yugo.</p>
+    <p class="hint">Ogni premio vale per una sola persona.</p>`;
   if (!user) { area.innerHTML = `<article class="block invite">${intro}<a href="#account" data-go="account" class="btn">Accedi o registrati per partecipare</a></article>`; return; }
   if (!user.verified) { area.innerHTML = `<article class="block invite">${intro}<div class="vbox"></div></article>`; verifyBox(area.querySelector(".vbox")); return; }
   if (!area.innerHTML.trim()) area.innerHTML = `<p class="muted">Caricamento…</p>`;
@@ -340,6 +344,7 @@ function drawInvite(area, me, nuovo) {
       <span class="promo-tag">Invita amici</span>
       <h2>Porta i tuoi amici, vinci premi</h2>
       <p>Iscriviti e ricevi il tuo link personale. Ogni amico che ci segue riempie la tua barra: barra piena = coupon.</p>
+      <p class="hint">Ogni premio vale per una sola persona.</p>
       <ol class="steps-path">${me.livelli.map((t) => `<li>${t}</li>`).join("")}</ol>
       <form class="form" id="inv-join" novalidate>
         <div class="field"><label for="ij-nome">Nome</label><input class="input" id="ij-nome" autocomplete="given-name" value="${esc((user.nome || "").split(" ")[0])}"></div>
@@ -373,9 +378,11 @@ function drawInvite(area, me, nuovo) {
     </article>
     <article class="block">
       <h2>I tuoi coupon</h2>
-      ${me.coupon.length ? `<div class="coupons">${me.coupon.map((c) => `<div class="coupon ${c.stato === "usato" ? "used" : ""} ${c.codice === nuovo ? "fx-stamp" : ""}">
+      ${me.coupon.length ? `<div class="coupons">${me.coupon.map((c) => `<div class="coupon c-${esc(c.tipo || "omaggio")} ${c.stato === "usato" ? "used" : ""} ${[].concat(nuovo || []).includes(c.codice) ? "fx-stamp" : ""}">
+          <span class="c-tipo">${c.tipo === "cena" ? "🍣 Buono cena gratis" : c.tipo === "sconto" ? "％ Buono sconto" : "🎁 Omaggio"}</span>
           <span class="c-code">${esc(c.codice)}</span>
-          <span class="c-info">Livello ${c.livello} · ${esc(premioDi(c.livello))}</span>
+          <span class="c-info">Livello ${c.livello} · ${esc(premioCoupon(c))}</span>
+          <span class="c-uno">Vale per 1 persona</span>
           <span class="c-state">${c.stato === "usato" ? "Usato ✅" : "Valido · mostralo alla cassa"}</span>
         </div>`).join("")}</div>` : `<p class="muted">Ancora nessuno. Riempi la barra per il primo coupon.</p>`}
     </article>
@@ -385,6 +392,8 @@ function drawInvite(area, me, nuovo) {
         <li>Manda il tuo link agli amici.</li>
         <li>Loro ci seguono su TikTok e Instagram e scrivono il loro username.</li>
         <li>Il ristorante controlla e conferma: ogni amico conta una volta sola.</li>
+        <li>Quando completi un livello, gli amici di quel livello non contano più: la barra riparte da zero.</li>
+        <li>Ogni premio vale per una sola persona: una bibita, un dolce, uno sconto sul conto di una persona, una cena per una persona.</li>
         <li>Barra piena: tocca «Richiedi premio» e mostra il codice alla cassa.</li>
       </ol>
     </article>`;
@@ -397,8 +406,9 @@ function drawInvite(area, me, nuovo) {
     e.target.disabled = true; e.target.textContent = "Genero il coupon…";
     try {
       const r = await api("/promo/premio", { idToken: await backend.token() });
-      drawInvite(area, r, r.nuovoCoupon);
-      toast(`Coupon ${r.nuovoCoupon} sbloccato! Mostralo alla cassa.`);
+      const nuovi = r.nuoviCoupon || [r.nuovoCoupon];
+      drawInvite(area, r, nuovi);
+      toast(nuovi.length > 1 ? `Hai sbloccato ${nuovi.length} coupon! Mostrali alla cassa.` : `Coupon ${nuovi[0]} sbloccato! Mostralo alla cassa.`);
       area.querySelector(".coupons")?.scrollIntoView({ behavior: "smooth", block: "center" });
     } catch (ex) { toast(ex.message); renderInvite(); }
   };
