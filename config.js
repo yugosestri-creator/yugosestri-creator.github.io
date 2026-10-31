@@ -741,18 +741,19 @@ window.YUGO_CONFIG = {
 
   /* ---------- 4. INVITA AMICI ----------
      Premio per ogni livello (il livello 1 si sblocca con 2 amici, poi 10, 25, 30, 40, 55, 70, 90, 110).
-     ESEMPI: scrivi i premi veri. */
+     Ogni premio vale per UNA sola persona. Quando un livello è completo, quegli amici non contano più.
+     I premi veri del ristorante sono anche in telegram-worker.js (BUONI): se li cambi, cambiali in tutti e due. */
   promoInviti: {
     premi: [
-      "una bibita in omaggio",
+      "una bibita piccola in omaggio",
       "un dolce in omaggio",
-      "−10% sul conto",
+      "−10% per una persona",
       "un antipasto in omaggio",
-      "−15% sul conto",
-      "una bottiglia di vino oppure 5 bibite",
-      "−20% sul conto",
-      "una cena gratis",
-      "una cena gratis + 15% di sconto quando torni"
+      "−15% per una persona",
+      "una bibita grande da 1,5 L (Coca-Cola o Fanta) oppure 3 bibite piccole",
+      "−20% per una persona",
+      "una cena gratis per una persona",
+      "una cena gratis per una persona + un buono −15% per una persona"
     ]
   }
 };
