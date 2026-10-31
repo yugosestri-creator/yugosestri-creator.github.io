@@ -220,6 +220,15 @@ function socialLinks() {
 }
 /* Eventi e promozioni: li gestisce lo staff dalla pagina Gestore. Se il servizio non risponde si usano quelli di config.js */
 let EVENTI = null;
+/* Conta quante persone entrano nel sito: una volta al giorno per telefono, senza nome e senza cookie */
+function contaVisita() {
+  if (!WORKER || DEMO || /gestore/.test(location.pathname)) return;
+  const oggi = isoDate(new Date());
+  try { if (localStorage.getItem("yugo-visita") === oggi) return; localStorage.setItem("yugo-visita", oggi); } catch { /* conta lo stesso */ }
+  let lingua = ""; try { lingua = localStorage.getItem("yugo-lingua") || ""; } catch { /* ok */ }
+  lingua = lingua || (navigator.language || "it").slice(0, 2);
+  fetch(WORKER + "/visita", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lingua }), keepalive: true }).catch(() => {});
+}
 function caricaEventi() {
   if (!WORKER || DEMO) return;
   fetch(WORKER + "/eventi").then((r) => r.json()).then((d) => {
@@ -1441,6 +1450,7 @@ async function start() {
   renderMenu();
   renderPromo();
   caricaEventi();
+  contaVisita();
   requestAnimationFrame(drawWaves);
   const initial = (location.hash || "").replace("#", "");
   if (INVITO) { go("invito", false); renderLanding(INVITO); }
