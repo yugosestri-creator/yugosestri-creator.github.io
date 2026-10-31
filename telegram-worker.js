@@ -832,6 +832,7 @@ async function gestAzione(env, body) {
   if (az === "prenot-annulla") {
     const r = await env.DB.prepare("SELECT * FROM prenot WHERE id = ?").bind(id).first();
     if (!r) throw new Errore("Prenotazione non trovata.", 404);
+    if (/annullat/.test(r.stato || "")) return { ok: true, gia: true }; // già annullata: niente doppi avvisi
     await env.DB.prepare("UPDATE prenot SET stato = 'annullata_ristorante' WHERE id = ?").bind(id).run();
     await avvisaCliente(env, r.email, "it", false, `${r.data.split("-").reverse().join("/")} ${r.ora}`);
     await notifica(env, r.uid, "Prenotazione annullata", `Il ristorante ha annullato la tua prenotazione del ${r.data.split("-").reverse().join("/")} alle ${r.ora}. Per info: 0185 177 1400.`);
@@ -843,6 +844,7 @@ async function gestAzione(env, body) {
     if (!nuovaOra) throw new Errore("Orario non valido.", 400);
     const r = await env.DB.prepare("SELECT * FROM prenot WHERE id = ?").bind(id).first();
     if (!r) throw new Errore("Prenotazione non trovata.", 404);
+    if (r.ora === nuovaOra) return { ok: true, gia: true }; // stesso orario: niente doppi avvisi
     await env.DB.prepare("UPDATE prenot SET oraPrima = COALESCE(oraPrima, ora), ora = ? WHERE id = ?").bind(nuovaOra, id).run();
     await notifica(env, r.uid, "Orario cambiato", `La tua prenotazione del ${r.data.split("-").reverse().join("/")} è stata spostata alle ${nuovaOra}.`);
     await tg(env, testoModifica(r, false, nuovaOra));
@@ -851,6 +853,7 @@ async function gestAzione(env, body) {
   if (az === "ordine-annulla") {
     const r = await env.DB.prepare("SELECT * FROM ordini WHERE id = ?").bind(id).first();
     if (!r) throw new Errore("Ordine non trovato.", 404);
+    if (/annullat/.test(r.stato || "")) return { ok: true, gia: true };
     await env.DB.prepare("UPDATE ordini SET stato = 'annullata_ristorante' WHERE id = ?").bind(id).run();
     await avvisaCliente(env, r.email, r.lang || "it", true, `n. ${id}${r.ora ? " (" + r.ora + ")" : ""}`);
     await notifica(env, r.uid, "Ordine annullato", `Il ristorante ha annullato il tuo ordine n. ${id}. Per info: 0185 177 1400.`);
@@ -862,6 +865,7 @@ async function gestAzione(env, body) {
     if (!nuovaOra) throw new Errore("Orario non valido.", 400);
     const r = await env.DB.prepare("SELECT * FROM ordini WHERE id = ?").bind(id).first();
     if (!r) throw new Errore("Ordine non trovato.", 404);
+    if (r.ora === nuovaOra) return { ok: true, gia: true };
     await env.DB.prepare("UPDATE ordini SET oraPrima = COALESCE(oraPrima, ora), ora = ? WHERE id = ?").bind(nuovaOra, id).run();
     await notifica(env, r.uid, "Orario cambiato", `Il tuo ordine n. ${id} arriva alle ${nuovaOra}.`);
     await tg(env, testoModifica(r, true, nuovaOra), CONFIG.CHAT_ORDINI || CONFIG.CHAT_ID);
