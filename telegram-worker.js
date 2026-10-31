@@ -34,6 +34,11 @@ const BUONI = [
   [{ tipo: "cena", premio: "Una cena gratis per una persona" }, { tipo: "sconto", premio: "−15% sul conto di una persona (alla prossima visita)" }]
 ];
 const buoniDi = (livello) => BUONI[Math.min(livello, BUONI.length) - 1] || [{ tipo: "omaggio", premio: `Premio livello ${livello}` }];
+/* Cosa arriva nel gruppo Telegram.
+   Sempre: prenotazioni e ordini (nuovi, annullati, orario cambiato) e il codice del Gestore.
+   Metti true per riattivare anche questi avvisi: */
+const AVVISI_SOCIAL = false;   // nuovi iscritti a "Invita amici", follower segnalati, coupon sbloccati
+const AVVISO_VISITE = false;   // ogni notte: quante persone sono entrate nel sito (si vedono comunque nel Gestore → 📊 Visite)
 const LIVELLI = [2, 10, 25, 30, 40, 55, 70, 90, 110];
 const target = (livello) => LIVELLI[Math.min(livello, LIVELLI.length - 1)];
 
@@ -145,6 +150,30 @@ function testoPrenotazione(b, email, tipo) {
     no ? `⏱ 取消时间：${ora.zh}` : `⏱ 提交时间：${ora.zh}`
   ];
   return [...it, "", "— — — — — — —", "", ...zh].filter((r) => r !== null).join("\n");
+}
+
+/* Avviso nel gruppo quando dal Gestore si annulla o si cambia l'orario */
+function testoModifica(r, ordine, nuovaOra) {
+  const n = ordine ? `ORDINE n. ${r.id}` : "PRENOTAZIONE";
+  const giorno = r.data ? (() => { const [y, m, d] = r.data.split("-").map(Number); const g = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); return { it: `${GIORNI[g]} ${d} ${MESI[m - 1]}`, zh: `${m}月${d}日 ${ZH_GIORNI[g]}` }; })() : null;
+  const ora = oraRoma();
+  const it = [
+    nuovaOra ? `🔁 ${n}: ORARIO CAMBIATO – Yugo` : `❌ ${n} ${ordine ? "ANNULLATO" : "ANNULLATA"} DAL RISTORANTE – Yugo`, "",
+    r.nome ? `👤 ${r.nome}${r.persone ? ` · 👥 ${r.persone} ${r.persone === 1 ? "persona" : "persone"}` : ""}` : null,
+    giorno ? `📅 ${giorno.it}` : null,
+    nuovaOra ? `🕗 ${r.ora} → ${nuovaOra}` : r.ora ? `🕗 ${r.ora}` : null,
+    r.telefono ? `📞 ${r.telefono}` : null, "",
+    `⏱ Dal Gestore il ${ora.it} · il cliente riceve la notifica`
+  ];
+  const zh = [
+    nuovaOra ? `🔁 ${ordine ? `外卖订单 ${r.id}` : "预订"}：时间已更改` : `❌ ${ordine ? `外卖订单 ${r.id} ` : "预订"}已被餐厅取消`, "",
+    r.nome ? `👤 ${r.nome}${r.persone ? ` · 👥 ${r.persone}人` : ""}` : null,
+    giorno ? `📅 ${giorno.zh}` : null,
+    nuovaOra ? `🕗 ${r.ora} → ${nuovaOra}` : r.ora ? `🕗 ${r.ora}` : null,
+    r.telefono ? `📞 ${r.telefono}` : null, "",
+    `⏱ ${ora.zh}（管理页面操作，已通知客人）`
+  ];
+  return [...it, "", "— — — — — — —", "", ...zh].filter((x) => x !== null).join("\n");
 }
 
 async function prenotazione(env, body) {
@@ -383,7 +412,7 @@ async function promoIscrivi(env, body) {
   const codice = await nuovoCodice(env, nome);
   await env.DB.prepare(`INSERT INTO promoter (uid, email, nome, telefono, codice, creato) VALUES (?, ?, ?, ?, ?, ?)`)
     .bind(u.uid, u.email, nome, telefono, codice, adessoISO()).run();
-  await tg(env, `🙋 Nuovo iscritto alle promo: ${nome} (${telefono}) · codice ${codice}\n🙋 新会员加入推广活动：${nome}（${telefono}）· 邀请码 ${codice}`);
+  if (AVVISI_SOCIAL) await tg(env, `🙋 Nuovo iscritto alle promo: ${nome} (${telefono}) · codice ${codice}\n🙋 新会员加入推广活动：${nome}（${telefono}）· 邀请码 ${codice}`);
   return promoMe(env, body, u);
 }
 
@@ -419,7 +448,7 @@ async function promoFollow(env, body, ip) {
   if (esiste) await env.DB.prepare(`DELETE FROM follow WHERE id = ?`).bind(esiste.id).run();
   const r = await env.DB.prepare(`INSERT INTO follow (codice, username, piattaforma, ip, creato) VALUES (?, ?, ?, ?, ?) RETURNING id`)
     .bind(codice, username, piattaforma, ip, adessoISO()).first();
-  await tg(env, [
+  if (AVVISI_SOCIAL) await tg(env, [
     `🆕 @${username} dice di seguirvi su ${piattaforma}, invitata da ${codice}`,
     `🆕 @${username} 说已在 ${piattaforma} 关注你们，邀请人 ${codice}`,
     `/ok ${r.id} · /no ${r.id}`
@@ -450,7 +479,7 @@ async function promoPremio(env, body) {
     codici.push(codice);
   }
   const elenco = buoniDi(s.livello).map((b, i) => `${codici[i]} · ${b.premio}`).join("\n");
-  await tg(env, `🎟️ ${p.codice} ha completato il livello ${s.livello} (vale per 1 persona):\n${elenco}\n🎟️ ${p.codice} 完成第 ${s.livello} 级（仅限一人使用）：${codici.join("、")}`);
+  if (AVVISI_SOCIAL) await tg(env, `🎟️ ${p.codice} ha completato il livello ${s.livello} (vale per 1 persona):\n${elenco}\n🎟️ ${p.codice} 完成第 ${s.livello} 级（仅限一人使用）：${codici.join("、")}`);
   return { ...(await promoMe(env, body, u)), ok: true, nuovoCoupon: codici[0], nuoviCoupon: codici, livelloSbloccato: s.livello };
 }
 
@@ -762,6 +791,7 @@ async function gestAzione(env, body) {
     await env.DB.prepare("UPDATE prenot SET stato = 'annullata_ristorante' WHERE id = ?").bind(id).run();
     await avvisaCliente(env, r.email, "it", false, `${r.data.split("-").reverse().join("/")} ${r.ora}`);
     await notifica(env, r.uid, "Prenotazione annullata", `Il ristorante ha annullato la tua prenotazione del ${r.data.split("-").reverse().join("/")} alle ${r.ora}. Per info: 0185 177 1400.`);
+    await tg(env, testoModifica(r, false, null));
     return { ok: true };
   }
   if (az === "prenot-cambia") {
@@ -771,6 +801,7 @@ async function gestAzione(env, body) {
     if (!r) throw new Errore("Prenotazione non trovata.", 404);
     await env.DB.prepare("UPDATE prenot SET oraPrima = COALESCE(oraPrima, ora), ora = ? WHERE id = ?").bind(nuovaOra, id).run();
     await notifica(env, r.uid, "Orario cambiato", `La tua prenotazione del ${r.data.split("-").reverse().join("/")} è stata spostata alle ${nuovaOra}.`);
+    await tg(env, testoModifica(r, false, nuovaOra));
     return { ok: true };
   }
   if (az === "ordine-annulla") {
@@ -779,6 +810,7 @@ async function gestAzione(env, body) {
     await env.DB.prepare("UPDATE ordini SET stato = 'annullata_ristorante' WHERE id = ?").bind(id).run();
     await avvisaCliente(env, r.email, r.lang || "it", true, `n. ${id}${r.ora ? " (" + r.ora + ")" : ""}`);
     await notifica(env, r.uid, "Ordine annullato", `Il ristorante ha annullato il tuo ordine n. ${id}. Per info: 0185 177 1400.`);
+    await tg(env, testoModifica(r, true, null), CONFIG.CHAT_ORDINI || CONFIG.CHAT_ID);
     return { ok: true };
   }
   if (az === "ordine-cambia") {
@@ -788,6 +820,7 @@ async function gestAzione(env, body) {
     if (!r) throw new Errore("Ordine non trovato.", 404);
     await env.DB.prepare("UPDATE ordini SET oraPrima = COALESCE(oraPrima, ora), ora = ? WHERE id = ?").bind(nuovaOra, id).run();
     await notifica(env, r.uid, "Orario cambiato", `Il tuo ordine n. ${id} arriva alle ${nuovaOra}.`);
+    await tg(env, testoModifica(r, true, nuovaOra), CONFIG.CHAT_ORDINI || CONFIG.CHAT_ID);
     return { ok: true };
   }
   if (az === "follow-ok" || az === "follow-no") {
@@ -983,6 +1016,6 @@ export default {
     ctx.waitUntil(gestNuovoCodice(env));
     ctx.waitUntil(pulizia(env).catch(() => {}));
     // alle 23 UTC (mezzanotte in Italia d'inverno, l'una d'estate): riassunto delle visite del giorno appena finito
-    if (new Date(event.scheduledTime).getUTCHours() === 23) ctx.waitUntil(riassuntoVisite(env, event.scheduledTime).catch(() => {}));
+    if (AVVISO_VISITE && new Date(event.scheduledTime).getUTCHours() === 23) ctx.waitUntil(riassuntoVisite(env, event.scheduledTime).catch(() => {}));
   }
 };
