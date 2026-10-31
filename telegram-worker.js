@@ -18,8 +18,22 @@ const CONFIG = {
   CHAT_ORDINI: "",                                          // gruppo per gli ordini da casa (vuoto = stesso gruppo)
   FIREBASE_API_KEY: "AIzaSyAEnC8afPxW6XJhdZnfiTTHxZ1qun_MFwc", // pubblica, è la stessa del sito
   ORIGINE: "https://yugosestri-creator.github.io",
-  PREMI: ["una bibita in omaggio", "un dolce in omaggio", "−10% sul conto", "un antipasto in omaggio", "−15% sul conto", "una bottiglia di vino oppure 5 bibite", "−20% sul conto", "una cena gratis", "una cena gratis + 15% di sconto quando torni"]
+  PREMI: ["una bibita piccola in omaggio", "un dolce in omaggio", "−10% per una persona", "un antipasto in omaggio", "−15% per una persona", "una bibita grande da 1,5 L (Coca-Cola o Fanta) oppure 3 bibite piccole", "−20% per una persona", "una cena gratis per una persona", "una cena gratis per una persona + un buono −15% per una persona"]
 };
+/* Buoni che si ricevono a ogni livello. Ogni buono vale per UNA sola persona.
+   tipo: "omaggio" (bibita, dolce, antipasto), "sconto" (percentuale sul conto di una persona), "cena" (cena gratis) */
+const BUONI = [
+  [{ tipo: "omaggio", premio: "Una bibita piccola in omaggio" }],
+  [{ tipo: "omaggio", premio: "Un dolce in omaggio" }],
+  [{ tipo: "sconto", premio: "−10% sul conto di una persona" }],
+  [{ tipo: "omaggio", premio: "Un antipasto in omaggio" }],
+  [{ tipo: "sconto", premio: "−15% sul conto di una persona" }],
+  [{ tipo: "omaggio", premio: "Una bibita grande da 1,5 L (Coca-Cola o Fanta) oppure 3 bibite piccole" }],
+  [{ tipo: "sconto", premio: "−20% sul conto di una persona" }],
+  [{ tipo: "cena", premio: "Una cena gratis per una persona" }],
+  [{ tipo: "cena", premio: "Una cena gratis per una persona" }, { tipo: "sconto", premio: "−15% sul conto di una persona (alla prossima visita)" }]
+];
+const buoniDi = (livello) => BUONI[Math.min(livello, BUONI.length) - 1] || [{ tipo: "omaggio", premio: `Premio livello ${livello}` }];
 const LIVELLI = [2, 10, 25, 30, 40, 55, 70, 90, 110];
 const target = (livello) => LIVELLI[Math.min(livello, LIVELLI.length - 1)];
 
@@ -59,7 +73,7 @@ const SCHEMA = [
             '10% · 20% se ci segui', 'Halloween', '2026-10-21', '2026-11-02', datetime('now')
      WHERE NOT EXISTS (SELECT 1 FROM eventi)`
 ];
-const NUOVE_COLONNE = ["ALTER TABLE ordini ADD COLUMN stato TEXT DEFAULT 'inviato'", "ALTER TABLE ordini ADD COLUMN nome TEXT",
+const NUOVE_COLONNE = ["ALTER TABLE coupon ADD COLUMN tipo TEXT", "ALTER TABLE coupon ADD COLUMN premio TEXT", "ALTER TABLE ordini ADD COLUMN stato TEXT DEFAULT 'inviato'", "ALTER TABLE ordini ADD COLUMN nome TEXT",
   "ALTER TABLE ordini ADD COLUMN telefono TEXT", "ALTER TABLE ordini ADD COLUMN ora TEXT", "ALTER TABLE ordini ADD COLUMN lang TEXT",
   "ALTER TABLE ordini ADD COLUMN oraPrima TEXT", "ALTER TABLE ordini ADD COLUMN nascosto INTEGER",
   "ALTER TABLE prenot ADD COLUMN oraPrima TEXT", "ALTER TABLE ordini ADD COLUMN data TEXT"];
@@ -317,7 +331,7 @@ async function promoMe(env, body, uGia) {
   const p = await env.DB.prepare(`SELECT * FROM promoter WHERE uid = ?`).bind(u.uid).first();
   if (!p) return { iscritto: false, livelli: LIVELLI };
   const s = await statoPromoter(env, p);
-  const c = await env.DB.prepare(`SELECT codice, livello, stato, creato, usato FROM coupon WHERE promoter_id = ? ORDER BY creato DESC`).bind(p.id).all();
+  const c = await env.DB.prepare(`SELECT codice, livello, stato, creato, usato, tipo, premio FROM coupon WHERE promoter_id = ? ORDER BY creato DESC, tipo`).bind(p.id).all();
   return { iscritto: true, nome: p.nome, codice: p.codice, livelli: LIVELLI, ...s, coupon: c.results || [] };
 }
 
@@ -361,14 +375,21 @@ async function promoPremio(env, body) {
   const upd = await env.DB.prepare(`UPDATE promoter SET livello = livello + 1, consumati = consumati + ? WHERE id = ? AND livello = ?`)
     .bind(s.target, p.id, p.livello).run();
   if (!upd.meta || upd.meta.changes !== 1) throw new Errore("Premio già richiesto. Ricarica la pagina.", 409);
-  let codice;
-  for (let i = 0; i < 20; i++) {
-    codice = String(100000 + Math.floor(Math.random() * 900000));
-    if (!(await env.DB.prepare(`SELECT 1 FROM coupon WHERE codice = ?`).bind(codice).first())) break;
+  // Gli amici di questo livello sono "consumati": non contano più per i livelli dopo.
+  // Un livello può dare più buoni (es. livello 9: cena gratis + buono sconto), ognuno con il suo codice.
+  const codici = [];
+  for (const b of buoniDi(s.livello)) {
+    let codice;
+    for (let i = 0; i < 20; i++) {
+      codice = String(100000 + Math.floor(Math.random() * 900000));
+      if (!codici.includes(codice) && !(await env.DB.prepare(`SELECT 1 FROM coupon WHERE codice = ?`).bind(codice).first())) break;
+    }
+    await env.DB.prepare(`INSERT INTO coupon (codice, promoter_id, livello, creato, tipo, premio) VALUES (?, ?, ?, ?, ?, ?)`).bind(codice, p.id, s.livello, adessoISO(), b.tipo, b.premio).run();
+    codici.push(codice);
   }
-  await env.DB.prepare(`INSERT INTO coupon (codice, promoter_id, livello, creato) VALUES (?, ?, ?, ?)`).bind(codice, p.id, s.livello, adessoISO()).run();
-  await tg(env, `🎟️ ${p.codice} ha sbloccato il coupon ${codice} (livello ${s.livello})\n🎟️ ${p.codice} 获得优惠券 ${codice}（第 ${s.livello} 级）`);
-  return { ...(await promoMe(env, body, u)), ok: true, nuovoCoupon: codice, livelloSbloccato: s.livello };
+  const elenco = buoniDi(s.livello).map((b, i) => `${codici[i]} · ${b.premio}`).join("\n");
+  await tg(env, `🎟️ ${p.codice} ha completato il livello ${s.livello} (vale per 1 persona):\n${elenco}\n🎟️ ${p.codice} 完成第 ${s.livello} 级（仅限一人使用）：${codici.join("、")}`);
+  return { ...(await promoMe(env, body, u)), ok: true, nuovoCoupon: codici[0], nuoviCoupon: codici, livelloSbloccato: s.livello };
 }
 
 /* ---------------- comandi del bot ---------------- */
@@ -720,8 +741,8 @@ async function gestAzione(env, body) {
     if (!codice) throw new Errore("Scrivi il codice del coupon.", 400);
     const c = await env.DB.prepare("SELECT c.*, p.nome, p.telefono, p.codice AS invito FROM coupon c JOIN promoter p ON p.id = c.promoter_id WHERE c.codice = ?").bind(codice).first();
     if (!c) return { ok: true, coupon: null };
-    const premio = ((CONFIG && CONFIG.PREMI) || [])[c.livello - 1] || `livello ${c.livello}`;
-    return { ok: true, coupon: { codice: c.codice, stato: c.stato, livello: c.livello, premio, nome: c.nome, telefono: c.telefono, invito: c.invito, usato: c.usato, creato: c.creato } };
+    const premio = c.premio || ((CONFIG && CONFIG.PREMI) || [])[c.livello - 1] || `livello ${c.livello}`;
+    return { ok: true, coupon: { codice: c.codice, stato: c.stato, livello: c.livello, premio, tipo: c.tipo || "", nome: c.nome, telefono: c.telefono, invito: c.invito, usato: c.usato, creato: c.creato } };
   }
   if (az === "evento-aggiungi") {
     const t = (s, m) => String(s || "").replace(/[\u0000-\u001f]/g, " ").trim().slice(0, m);
