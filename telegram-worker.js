@@ -33,11 +33,15 @@ const BUONI = [
   [{ tipo: "cena", premio: "Una cena gratis per una persona" }],
   [{ tipo: "cena", premio: "Una cena gratis per una persona" }, { tipo: "sconto", premio: "−15% sul conto di una persona (alla prossima visita)" }]
 ];
+// Gli stessi premi in cinese, per il messaggio nel gruppo
+const BUONI_ZH = [["小饮料一杯（赠送）"], ["甜点一份（赠送）"], ["一人九折"], ["前菜一份（赠送）"], ["一人八五折"],
+  ["1.5升大瓶饮料（可乐或芬达）或小饮料三瓶"], ["一人八折"], ["一人免费晚餐"], ["一人免费晚餐", "一人八五折（下次来店使用）"]];
 const buoniDi = (livello) => BUONI[Math.min(livello, BUONI.length) - 1] || [{ tipo: "omaggio", premio: `Premio livello ${livello}` }];
 /* Cosa arriva nel gruppo Telegram.
    Sempre: prenotazioni e ordini (nuovi, annullati, orario cambiato) e il codice del Gestore.
    Metti true per riattivare anche questi avvisi: */
-const AVVISI_SOCIAL = false;   // nuovi iscritti a "Invita amici", follower segnalati, coupon sbloccati
+const AVVISI_SOCIAL = false;   // nuovi iscritti a "Invita amici" e follower segnalati
+const AVVISO_COUPON = true;    // coupon sbloccati: chi l'ha preso e cosa ha vinto
 const AVVISO_VISITE = false;   // ogni notte: quante persone sono entrate nel sito (si vedono comunque nel Gestore → 📊 Visite)
 const LIVELLI = [2, 10, 25, 30, 40, 55, 70, 90, 110];
 const target = (livello) => LIVELLI[Math.min(livello, LIVELLI.length - 1)];
@@ -479,7 +483,20 @@ async function promoPremio(env, body) {
     codici.push(codice);
   }
   const elenco = buoniDi(s.livello).map((b, i) => `${codici[i]} · ${b.premio}`).join("\n");
-  if (AVVISI_SOCIAL) await tg(env, `🎟️ ${p.codice} ha completato il livello ${s.livello} (vale per 1 persona):\n${elenco}\n🎟️ ${p.codice} 完成第 ${s.livello} 级（仅限一人使用）：${codici.join("、")}`);
+  const zh = BUONI_ZH[Math.min(s.livello, BUONI_ZH.length) - 1] || [];
+  if (AVVISO_COUPON) await tg(env, [
+    `🎁 COUPON SBLOCCATO – Yugo`, "",
+    `👤 ${p.nome}${p.telefono ? ` · 📞 ${p.telefono}` : ""}`,
+    `🔗 Codice invito ${p.codice} · livello ${s.livello} completato`, "",
+    `🏆 Ha vinto (vale per 1 persona):`, elenco, "",
+    "Alla cassa: controlla il codice con /coupon, poi segnalo come usato con /usato",
+    "", "— — — — — — —", "",
+    `🎁 优惠券已解锁`, "",
+    `👤 ${p.nome}${p.telefono ? ` · 📞 ${p.telefono}` : ""}`,
+    `🔗 邀请码 ${p.codice} · 完成第 ${s.livello} 级`, "",
+    `🏆 奖品（仅限一人使用）：`, codici.map((c, i) => `${c} · ${zh[i] || ""}`).join("\n"), "",
+    "收银时：先用 /coupon 查询，再用 /usato 标记为已使用"
+  ].join("\n"));
   return { ...(await promoMe(env, body, u)), ok: true, nuovoCoupon: codici[0], nuoviCoupon: codici, livelloSbloccato: s.livello };
 }
 
