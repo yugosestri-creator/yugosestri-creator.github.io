@@ -76,6 +76,8 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS push_sub (endpoint TEXT PRIMARY KEY, uid TEXT NOT NULL, p256dh TEXT NOT NULL, auth TEXT NOT NULL, creato TEXT NOT NULL)`,
   `CREATE INDEX IF NOT EXISTS push_uid ON push_sub (uid)`,
   `CREATE TABLE IF NOT EXISTS chiavi (nome TEXT PRIMARY KEY, valore TEXT NOT NULL)`,
+  // Registro tecnico degli avvisi (senza dati dei clienti): serve a capire se Telegram riceve i messaggi
+  `CREATE TABLE IF NOT EXISTS log_avvisi (id INTEGER PRIMARY KEY AUTOINCREMENT, quando TEXT NOT NULL, tipo TEXT, ok INTEGER, errore TEXT)`,
   // Visite: solo conteggi per giorno, ora e lingua. Nessun nome, nessun IP. Si cancellano dopo 30 giorni.
   `CREATE TABLE IF NOT EXISTS visite (giorno TEXT NOT NULL, ora INTEGER NOT NULL, lingua TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (giorno, ora, lingua))`,
   // primo evento: la promo di Halloween che prima stava nel sito (solo se la tabella è vuota)
@@ -108,12 +110,37 @@ function oraRoma(iso) {
 const pulisci = (s, max) => String(s ?? "").replace(/[\u0000-\u001f]/g, " ").trim().slice(0, max);
 
 async function tg(env, text, chatId) {
-  const r = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_TOKEN}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId || CONFIG.CHAT_ID, text, disable_web_page_preview: true })
-  });
-  return (await r.json().catch(() => ({}))).ok === true;
+  let d = {};
+  try {
+    const r = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId || CONFIG.CHAT_ID, text, disable_web_page_preview: true })
+    });
+    d = await r.json().catch(() => ({}));
+  } catch (e) { d = { ok: false, description: "rete: " + e.message }; }
+  // nel registro solo la prima riga (es. "🍣 NUOVA PRENOTAZIONE – Yugo"), mai i dati del cliente
+  await registra(env, String(text).split("\n")[0].slice(0, 60), d.ok === true, d.ok ? "" : (d.description || "risposta vuota"));
+  return d.ok === true;
+}
+async function registra(env, tipo, ok, errore) {
+  try {
+    await init(env);
+    await env.DB.prepare("INSERT INTO log_avvisi (quando, tipo, ok, errore) VALUES (?, ?, ?, ?)").bind(adessoISO(), tipo, ok ? 1 : 0, String(errore || "").slice(0, 200)).run();
+    await env.DB.prepare("DELETE FROM log_avvisi WHERE id <= (SELECT MAX(id) - 200 FROM log_avvisi)").run();
+  } catch { /* il registro non deve mai bloccare un avviso */ }
+}
+/* Controllo tecnico: il bot vede il gruppo? Ultimi avvisi riusciti o falliti (nessun dato personale) */
+async function diagnosi(env) {
+  await init(env);
+  const chiama = (m, p) => fetch(`https://api.telegram.org/bot${env.TELEGRAM_TOKEN}/${m}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(p || {}) }).then((r) => r.json()).catch((e) => ({ ok: false, description: e.message }));
+  const [me, chat] = await Promise.all([chiama("getMe"), chiama("getChat", { chat_id: CONFIG.CHAT_ID })]);
+  const log = await env.DB.prepare("SELECT quando, tipo, ok, errore FROM log_avvisi ORDER BY id DESC LIMIT 20").all();
+  return {
+    ok: true, tokenPresente: !!env.TELEGRAM_TOKEN,
+    bot: me.ok ? "ok" : me.description, gruppo: chat.ok ? `ok (${chat.result.type})` : chat.description,
+    ultimi: (log.results || []).map((r) => ({ quando: oraRoma(r.quando).it, tipo: r.tipo, ok: !!r.ok, errore: r.errore || undefined }))
+  };
 }
 
 async function utente(env, idToken) {
@@ -182,7 +209,7 @@ function testoModifica(r, ordine, nuovaOra) {
 
 async function prenotazione(env, body) {
   const u = await utente(env, body.idToken);
-  if (!u || !u.verificato) throw new Errore("Utente non autorizzato", 401);
+  if (!u || !u.verificato) { await registra(env, "prenotazione rifiutata", false, !u ? "accesso non valido (token)" : "email non confermata"); throw new Errore("Utente non autorizzato", 401); }
   const b = {
     nome: pulisci(body.nome, 80), persone: Math.max(1, Math.min(60, parseInt(body.persone, 10) || 0)),
     data: /^\d{4}-\d{2}-\d{2}$/.test(body.data) ? body.data : null, ora: /^\d{2}:\d{2}$/.test(body.ora) ? body.ora : null,
@@ -288,7 +315,7 @@ async function riassuntoVisite(env, quando) {
 
 async function ordine(env, body) {
   const u = await utente(env, body.idToken);
-  if (!u || !u.verificato) throw new Errore("Accedi con un account confermato per ordinare", 401);
+  if (!u || !u.verificato) { await registra(env, "ordine rifiutato", false, !u ? "accesso non valido (token)" : "email non confermata"); throw new Errore("Accedi con un account confermato per ordinare", 401); }
   const consegna = body.modo === "consegna";
   const righe = (Array.isArray(body.righe) ? body.righe : []).slice(0, 60).map((r) => ({
     n: Number.isInteger(r.n) ? r.n : null, nome: pulisci(r.nome, 80),
@@ -992,6 +1019,7 @@ export default {
         return new Response("ok");
       }
       if (url.pathname === "/setup") return json(await setup(env, url));
+      if (url.pathname === "/diagnosi") return json(await diagnosi(env));
       if (url.pathname === "/otp/stato") return json({ attivo: otpAttivo(env) });
       if (url.pathname === "/eventi") return json(await eventiPubblici(env));
       if (url.pathname === "/visita" && request.method === "POST") return json(await visita(env, await request.json().catch(() => ({})), request));
