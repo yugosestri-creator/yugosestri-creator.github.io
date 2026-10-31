@@ -67,6 +67,8 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS push_sub (endpoint TEXT PRIMARY KEY, uid TEXT NOT NULL, p256dh TEXT NOT NULL, auth TEXT NOT NULL, creato TEXT NOT NULL)`,
   `CREATE INDEX IF NOT EXISTS push_uid ON push_sub (uid)`,
   `CREATE TABLE IF NOT EXISTS chiavi (nome TEXT PRIMARY KEY, valore TEXT NOT NULL)`,
+  // Visite: solo conteggi per giorno, ora e lingua. Nessun nome, nessun IP. Si cancellano dopo 30 giorni.
+  `CREATE TABLE IF NOT EXISTS visite (giorno TEXT NOT NULL, ora INTEGER NOT NULL, lingua TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (giorno, ora, lingua))`,
   // primo evento: la promo di Halloween che prima stava nel sito (solo se la tabella è vuota)
   `INSERT INTO eventi (nome, descrizione, sconto, etichetta, dal, al, creato)
      SELECT 'Halloween da Yugo: fino al 20% di sconto', 'Per tutti il 10% di sconto. Se ci segui su Instagram o TikTok lo sconto sale al 20%. Mostra alla cassa che ci segui per avere il 20%.',
@@ -189,6 +191,66 @@ function minutiRoma() {
   const p = Object.fromEntries(new Intl.DateTimeFormat("it-IT", { timeZone: "Europe/Rome", hour: "2-digit", minute: "2-digit", hour12: false })
     .formatToParts(new Date()).map((x) => [x.type, x.value]));
   return (+p.hour % 24) * 60 + +p.minute;
+}
+
+/* ---------------- visite al sito e pulizia dei dati ---------------- */
+const GIORNI_VISITE = 30; // i conteggi delle visite si tengono 30 giorni
+const GIORNI_ORDINI = 14; // gli ordini da casa si tengono 14 giorni
+function giornoOraRoma(d = new Date()) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Rome", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hour12: false })
+    .formatToParts(d).map((x) => [x.type, x.value]));
+  return { giorno: `${p.year}-${p.month}-${p.day}`, ora: (+p.hour) % 24 };
+}
+const LINGUE_VISITE = ["it", "en", "fr", "de", "es", "zh", "ja"];
+async function visita(env, body, request) {
+  const ua = request.headers.get("User-Agent") || "";
+  if (!ua || /bot|crawl|spider|preview|headless|lighthouse|facebookexternalhit|whatsapp|telegram/i.test(ua)) return { ok: true };
+  await init(env);
+  const { giorno, ora } = giornoOraRoma();
+  const l = String(body.lingua || "").toLowerCase().slice(0, 2);
+  const lingua = LINGUE_VISITE.includes(l) ? l : "altro";
+  await env.DB.prepare("INSERT INTO visite (giorno, ora, lingua, n) VALUES (?, ?, ?, 1) ON CONFLICT (giorno, ora, lingua) DO UPDATE SET n = n + 1").bind(giorno, ora, lingua).run();
+  return { ok: true };
+}
+async function statVisite(env) {
+  const da = giornoOraRoma(new Date(Date.now() - (GIORNI_VISITE - 1) * 864e5)).giorno;
+  const daISO = new Date(Date.now() - (GIORNI_VISITE + 1) * 864e5).toISOString();
+  const [v, p, o] = await Promise.all([
+    env.DB.prepare("SELECT giorno, ora, lingua, n FROM visite WHERE giorno >= ?").bind(da).all(),
+    env.DB.prepare("SELECT creato FROM prenot WHERE creato > ?").bind(daISO).all(),
+    env.DB.prepare("SELECT creato FROM ordini WHERE creato > ?").bind(daISO).all()
+  ]);
+  const giorni = {}, lingue = {};
+  const g = (k) => (giorni[k] = giorni[k] || { giorno: k, n: 0, ore: Array(24).fill(0), prenot: 0, ordini: 0 });
+  for (const r of v.results || []) { const x = g(r.giorno); x.n += r.n; x.ore[r.ora] += r.n; lingue[r.lingua] = (lingue[r.lingua] || 0) + r.n; }
+  for (const r of p.results || []) { const k = giornoOraRoma(new Date(r.creato)).giorno; if (k >= da) g(k).prenot++; }
+  for (const r of o.results || []) { const k = giornoOraRoma(new Date(r.creato)).giorno; if (k >= da) g(k).ordini++; }
+  return { oggi: giornoOraRoma().giorno, giorni: Object.values(giorni).sort((a, b) => b.giorno.localeCompare(a.giorno)), lingue };
+}
+async function pulizia(env) {
+  await init(env);
+  const limV = giornoOraRoma(new Date(Date.now() - (GIORNI_VISITE - 1) * 864e5)).giorno;
+  await env.DB.prepare("DELETE FROM visite WHERE giorno < ?").bind(limV).run();
+  const limO = new Date(Date.now() - GIORNI_ORDINI * 864e5);
+  await env.DB.prepare("DELETE FROM ordini WHERE creato < ? AND (data IS NULL OR data < ?)").bind(limO.toISOString(), giornoOraRoma(limO).giorno).run();
+}
+/* Ogni notte: quante persone sono entrate nel sito il giorno prima */
+async function riassuntoVisite(env, quando) {
+  await init(env);
+  const ieri = giornoOraRoma(new Date(quando - 2 * 3600e3)).giorno;
+  const s = await statVisite(env);
+  const x = s.giorni.find((d) => d.giorno === ieri) || { n: 0, ore: Array(24).fill(0), prenot: 0, ordini: 0 };
+  const top = x.ore.reduce((b, n, h) => (n > x.ore[b] ? h : b), 0);
+  const [yy, mm, dd] = ieri.split("-").map(Number), dow = new Date(Date.UTC(yy, mm - 1, dd, 12)).getUTCDay();
+  await tg(env, [
+    `📊 ${GIORNI[dow]} ${dd} ${MESI[mm - 1]}: ${x.n} ${x.n === 1 ? "persona è entrata" : "persone sono entrate"} nel sito`,
+    x.n ? `🕗 Ora con più visite: ${top}–${top + 1} (${x.ore[top]})` : null,
+    `📅 Prenotazioni: ${x.prenot} · 🛵 Ordini: ${x.ordini}`,
+    "",
+    `📊 ${mm}月${dd}日 ${ZH_GIORNI[dow]}：网站访客 ${x.n} 人`,
+    x.n ? `🕗 访问最多的时段：${top}–${top + 1}点（${x.ore[top]}人）` : null,
+    `📅 预订：${x.prenot} · 🛵 外卖：${x.ordini}`
+  ].filter((r) => r !== null).join("\n"));
 }
 
 async function ordine(env, body) {
@@ -686,7 +748,7 @@ async function gestDati(env, body) {
     env.DB.prepare("SELECT f.id, f.codice, f.username, f.piattaforma, f.creato, p.nome AS daChi FROM follow f LEFT JOIN promoter p ON p.codice = f.codice WHERE f.stato = 'attesa' ORDER BY f.id DESC LIMIT 100").all(),
     env.DB.prepare("SELECT id, nome, descrizione, sconto, etichetta, dal, al FROM eventi WHERE eliminato = 0 AND (al IS NULL OR al = '' OR al >= ?) ORDER BY dal, id").bind(oggi).all()
   ]);
-  return { ok: true, prenot: prenot.results || [], ordini: ordini.results || [], follower: follower.results || [], eventi: eventi.results || [] };
+  return { ok: true, prenot: prenot.results || [], ordini: ordini.results || [], follower: follower.results || [], eventi: eventi.results || [], visite: await statVisite(env).catch(() => null) };
 }
 
 async function gestAzione(env, body) {
@@ -882,6 +944,7 @@ export default {
       if (url.pathname === "/setup") return json(await setup(env, url));
       if (url.pathname === "/otp/stato") return json({ attivo: otpAttivo(env) });
       if (url.pathname === "/eventi") return json(await eventiPubblici(env));
+      if (url.pathname === "/visita" && request.method === "POST") return json(await visita(env, await request.json().catch(() => ({})), request));
       if (url.pathname === "/push/chiave") return json({ ok: true, chiave: (await vapid(env)).pub });
       if (request.method === "GET") return json({ ok: true, servizio: "Yugo – bot e promo" });
       if (request.method !== "POST") return json({ errore: "Metodo non permesso" }, 405);
@@ -918,5 +981,8 @@ export default {
   },
   async scheduled(event, env, ctx) {
     ctx.waitUntil(gestNuovoCodice(env));
+    ctx.waitUntil(pulizia(env).catch(() => {}));
+    // alle 23 UTC (mezzanotte in Italia d'inverno, l'una d'estate): riassunto delle visite del giorno appena finito
+    if (new Date(event.scheduledTime).getUTCHours() === 23) ctx.waitUntil(riassuntoVisite(env, event.scheduledTime).catch(() => {}));
   }
 };
