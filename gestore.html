@@ -52,6 +52,18 @@
   .cal .d.empty { background: transparent; border: 0; cursor: default; }
   .cal .d.has::after { content: attr(data-n); position: absolute; top: 2px; right: 4px; background: var(--gold); color: #fff; font-size: 10px; border-radius: 999px; padding: 1px 5px; }
   .cal .h { font-weight: 700; color: var(--muted); text-align: center; padding: 4px 0; font-size: 12px; }
+  .stat4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 10px; }
+  .stat4 div { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px; text-align: center; }
+  .stat4 b { display: block; font-size: 24px; } .stat4 span { font-size: 12px; color: var(--muted); }
+  .vg { display: grid; grid-template-columns: 84px 1fr 132px; gap: 8px; align-items: center; padding: 6px 4px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+  .vg.on { background: rgba(168,132,60,.14); }
+  .vg .bar { height: 14px; background: var(--line); border-radius: 7px; overflow: hidden; } .vg .bar i { display: block; height: 100%; background: var(--gold); border-radius: 7px; }
+  .vg small { color: var(--muted); }
+  .vg > span:last-child { text-align: right; white-space: nowrap; }
+  .ore { display: grid; grid-template-columns: repeat(24, 1fr); gap: 2px; align-items: end; height: 120px; margin-top: 10px; }
+  .ore i { display: block; background: var(--gold); border-radius: 3px 3px 0 0; min-height: 2px; position: relative; }
+  .ore-l { display: grid; grid-template-columns: repeat(24, 1fr); gap: 2px; font-size: 10px; color: var(--muted); text-align: center; }
+  @media (max-width: 520px) { .stat4 { grid-template-columns: repeat(2, 1fr); } }
   @media (prefers-color-scheme: dark) {
     :root { --bg: #0b1326; --surface: #122144; --fg: #eef0f5; --muted: #a9b2c6; --line: rgba(255,255,255,.14); --gold: #d1a85c; }
     header { background: var(--surface); }
@@ -136,10 +148,10 @@ function viewHome() {
         <button class="b" id="logout">Esci</button>
       </div>
       <nav>
-        ${["oggi", "ordini", "coupon", "follower", "eventi", "calendario"].map((k) => `<button data-t="${k}" class="${k === tab ? "on" : ""}">${{oggi:"📅 Oggi",ordini:"🛵 Ordini",coupon:"🎁 Coupon",follower:"🔔 Follower",eventi:"🎉 Eventi",calendario:"🗓 Calendario"}[k]}</button>`).join("")}
+        ${["oggi", "ordini", "coupon", "follower", "eventi", "visite", "calendario"].map((k) => `<button data-t="${k}" class="${k === tab ? "on" : ""}">${{oggi:"📅 Oggi",ordini:"🛵 Ordini",coupon:"🎁 Coupon",follower:"🔔 Follower",eventi:"🎉 Eventi",visite:"📊 Visite",calendario:"🗓 Calendario"}[k]}</button>`).join("")}
       </nav>
     </header>
-    <main>${{oggi: viewOggi, ordini: viewOrdini, coupon: viewCoupon, follower: viewFollower, eventi: viewEventi, calendario: viewCalendario}[tab]()}</main>`;
+    <main>${{oggi: viewOggi, ordini: viewOrdini, coupon: viewCoupon, follower: viewFollower, eventi: viewEventi, visite: viewVisite, calendario: viewCalendario}[tab]()}</main>`;
 }
 
 function bindHome() {
@@ -150,6 +162,7 @@ function bindHome() {
   if (tab === "coupon") bindCoupon();
   if (tab === "follower") bindFollower();
   if (tab === "eventi") bindEventi();
+  if (tab === "visite") document.querySelectorAll("[data-vg]").forEach((r) => r.onclick = () => { viewVisite.sel = r.dataset.vg; render(); });
 }
 
 function iso(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
@@ -339,6 +352,49 @@ function bindEventi() {
       if (confirm("Eliminare questo evento? Sparisce subito dal sito.")) azione("evento-elimina", { id: +c.dataset.ev });
     };
   });
+}
+
+/* Visite: quante persone sono entrate nel sito ogni giorno (ultimi 30 giorni) e a che ora */
+function viewVisite() {
+  const V = dati.visite;
+  if (!V) return `<div class="empty">Statistiche non ancora disponibili. Riprova tra poco.</div>`;
+  const per = {}; V.giorni.forEach((g) => per[g.giorno] = g);
+  const giorno = (k) => per[k] || { giorno: k, n: 0, ore: Array(24).fill(0), prenot: 0, ordini: 0 };
+  const d0 = new Date(V.oggi + "T12:00");
+  const lista = []; for (let i = 0; i < 30; i++) { const d = new Date(d0); d.setDate(d.getDate() - i); lista.push(giorno(iso(d))); }
+  const somma = (n) => lista.slice(0, n).reduce((a, g) => a + g.n, 0);
+  const max = Math.max(1, ...lista.map((g) => g.n));
+  const sel = giorno(viewVisite.sel || V.oggi), maxO = Math.max(1, ...sel.ore);
+  const top = sel.ore.reduce((b, n, h) => (n > sel.ore[b] ? h : b), 0);
+  const corto = (k) => new Date(k + "T12:00").toLocaleDateString("it-IT", { weekday: "short", day: "numeric", month: "short" });
+  const NOMI = { it: "🇮🇹 Italiano", en: "🇬🇧 Inglese", fr: "🇫🇷 Francese", de: "🇩🇪 Tedesco", es: "🇪🇸 Spagnolo", zh: "🇨🇳 Cinese", ja: "🇯🇵 Giapponese", altro: "🌍 Altre lingue" };
+  const lingue = Object.entries(V.lingue || {}).sort((a, b) => b[1] - a[1]);
+  const totL = lingue.reduce((a, x) => a + x[1], 0) || 1;
+  return `
+    <div class="stat4">
+      <div><b>${giorno(V.oggi).n}</b><span>Oggi</span></div>
+      <div><b>${lista[1].n}</b><span>Ieri</span></div>
+      <div><b>${somma(7)}</b><span>Ultimi 7 giorni</span></div>
+      <div><b>${somma(30)}</b><span>Ultimi 30 giorni</span></div>
+    </div>
+    <div class="card">
+      <h3 style="text-transform:capitalize">🕗 ${esc(fmtDay(sel.giorno))}: ${sel.n} ${sel.n === 1 ? "persona" : "persone"}</h3>
+      <p class="meta">${sel.n ? `Ora con più visite: <strong>${top}:00–${top + 1}:00</strong> (${sel.ore[top]}) · ` : ""}Prenotazioni: ${sel.prenot} · Ordini: ${sel.ordini}</p>
+      <div class="ore">${sel.ore.map((n, h) => `<i title="${h}:00 · ${n}" style="height:${Math.round(n / maxO * 100)}%"></i>`).join("")}</div>
+      <div class="ore-l">${sel.ore.map((_, h) => `<span>${h % 3 === 0 ? h : ""}</span>`).join("")}</div>
+    </div>
+    <div class="card">
+      <h3>📅 Persone entrate ogni giorno</h3>
+      <p class="meta">Tocca un giorno per vedere le ore.</p>
+      ${lista.map((g) => `<div class="vg ${g.giorno === sel.giorno ? "on" : ""}" data-vg="${g.giorno}">
+        <span style="text-transform:capitalize">${esc(corto(g.giorno))}</span>
+        <span class="bar"><i style="width:${Math.round(g.n / max * 100)}%"></i></span>
+        <span><strong>${g.n}</strong>${g.prenot || g.ordini ? ` <small>· ${g.prenot} pren · ${g.ordini} ord</small>` : ""}</span>
+      </div>`).join("")}
+    </div>
+    ${lingue.length ? `<div class="card"><h3>🌍 Lingua dei visitatori (30 giorni)</h3>
+      ${lingue.map(([l, n]) => `<div class="vg" style="cursor:default"><span>${esc(NOMI[l] || l)}</span><span class="bar"><i style="width:${Math.round(n / totL * 100)}%"></i></span><span><strong>${n}</strong></span></div>`).join("")}</div>` : ""}
+    <p class="hint">Contiamo ogni telefono una volta al giorno, senza nomi e senza IP. I dati delle visite si cancellano da soli dopo 30 giorni; gli ordini da casa dopo 14 giorni.</p>`;
 }
 
 function viewCalendario() {
