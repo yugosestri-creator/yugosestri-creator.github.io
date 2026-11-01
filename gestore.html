@@ -287,9 +287,10 @@ function bindCoupon() {
       out.innerHTML = `<div class="card">
         <h3>Coupon ${esc(c.codice)} ${stato}</h3>
         <p><strong>${c.tipo === "cena" ? "🍣 Buono cena gratis" : c.tipo === "sconto" ? "％ Buono sconto" : "🎁 Omaggio"}: ${esc(c.premio)}</strong></p>
-        <p class="meta"><strong>Vale per 1 persona.</strong></p>
+        <p class="meta"><strong>Vale per 1 persona.</strong>${c.condizione ? ` <strong style="color:var(--err)">${esc(c.condizione)}.</strong>` : ""}</p>
+        ${c.stato === "valido" && r.oggi && !r.oggi.ok ? `<p class="err" style="font-weight:700">⛔ ${esc(r.oggi.motivo)}</p>` : ""}
         <p class="meta">Cliente: ${esc(c.nome)} · ${esc(c.telefono)}<br>Invito ${esc(c.invito)} · livello ${esc(c.livello)}</p>
-        ${c.stato === "valido" ? `<div class="row"><button class="b ok" id="use">Segna come usato</button></div>` : `<p class="meta">Usato il ${esc(c.usato || "")}</p>`}
+        ${c.stato === "valido" ? (r.oggi && !r.oggi.ok ? `<p class="meta">${esc(c.giorni || "")}.</p>` : `<div class="row"><button class="b ok" id="use">Segna come usato</button></div>`) : `<p class="meta">Usato il ${esc(c.usato || "")}</p>`}
       </div>`;
       $("#use")?.addEventListener("click", async () => { await azione("coupon-usato", { codice: c.codice }); bindCoupon(); out.innerHTML = ""; $("#cod-in").value = ""; });
     } catch (e) { out.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
