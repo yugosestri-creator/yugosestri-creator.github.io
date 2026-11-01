@@ -224,10 +224,17 @@ let EVENTI = null;
 function contaVisita() {
   if (!WORKER || DEMO || /gestore/.test(location.pathname)) return;
   const oggi = isoDate(new Date());
-  try { if (localStorage.getItem("yugo-visita") === oggi) return; localStorage.setItem("yugo-visita", oggi); } catch { /* conta lo stesso */ }
+  let ritorno = false;
+  try {
+    const ultima = localStorage.getItem("yugo-visita");
+    if (ultima === oggi) return;
+    // "tornato" = era già entrato un altro giorno (o aveva già scelto la lingua in passato)
+    ritorno = !!ultima || !!localStorage.getItem("yugo-lingua");
+    localStorage.setItem("yugo-visita", oggi);
+  } catch { /* conta lo stesso */ }
   let lingua = ""; try { lingua = localStorage.getItem("yugo-lingua") || ""; } catch { /* ok */ }
   lingua = lingua || (navigator.language || "it").slice(0, 2);
-  fetch(WORKER + "/visita", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lingua }), keepalive: true }).catch(() => {});
+  fetch(WORKER + "/visita", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lingua, ritorno }), keepalive: true }).catch(() => {});
 }
 function caricaEventi() {
   if (!WORKER || DEMO) return;
