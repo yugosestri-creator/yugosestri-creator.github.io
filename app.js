@@ -279,6 +279,9 @@ const linkInvito = (c) => `${SITO}invito/${c}`;
 /* Testo del premio di un coupon (il livello 9 dà due buoni: cena gratis + sconto) */
 const premioCoupon = (c) => c.livello >= 9 && c.tipo === "cena" ? "una cena gratis per una persona"
   : c.livello >= 9 && c.tipo === "sconto" ? "−15% per una persona" : premioDi(c.livello);
+const condizioneDi = (liv) => { const C = (CFG.promoInviti && CFG.promoInviti.condizioni) || []; return C[Math.min(liv - 1, C.length - 1)] || ""; };
+const condizioneCoupon = (c) => c.livello >= 9 && c.tipo === "sconto" ? "Spesa minima 35 €" : condizioneDi(c.livello);
+const regoleCoupon = () => { const R2 = (CFG.promoInviti && CFG.promoInviti.regole) || []; return R2.length ? `<div class="regole"><h3>Regole dei coupon</h3><ul>${R2.map((r) => `<li>${esc(r)}</li>`).join("")}</ul></div>` : ""; };
 const premioDi = (liv) => { const P = (CFG.promoInviti && CFG.promoInviti.premi) || []; return P.length ? P[Math.min(liv - 1, P.length - 1)] : "un premio da Yugo"; };
 async function api(path, body) {
   if (!WORKER) throw new Error("Servizio non ancora attivo.");
@@ -350,7 +353,7 @@ async function renderInvite() {
   if (!backend || user === undefined) { area.innerHTML = `<p class="muted">Caricamento…</p>`; return; }
   const intro = `<span class="promo-tag">Invita amici</span><h2>Porta i tuoi amici, vinci premi</h2>
     <p>Ogni amico che ci segue su TikTok o Instagram riempie la tua barra. Barra piena = un coupon da usare da Yugo.</p>
-    <p class="hint">Ogni premio vale per una sola persona.</p>`;
+    <p class="hint">Ogni premio vale per una sola persona. Coupon validi solo dal lunedì al giovedì, festivi esclusi.</p>`;
   if (!user) { area.innerHTML = `<article class="block invite">${intro}<a href="#account" data-go="account" class="btn">Accedi o registrati per partecipare</a></article>`; return; }
   if (!user.verified) { area.innerHTML = `<article class="block invite">${intro}<div class="vbox"></div></article>`; verifyBox(area.querySelector(".vbox")); return; }
   if (!area.innerHTML.trim()) area.innerHTML = `<p class="muted">Caricamento…</p>`;
@@ -366,6 +369,7 @@ function drawInvite(area, me, nuovo) {
       <p>Iscriviti e ricevi il tuo link personale. Ogni amico che ci segue riempie la tua barra: barra piena = coupon.</p>
       <p class="hint">Ogni premio vale per una sola persona.</p>
       <ol class="steps-path">${me.livelli.map((t) => `<li>${t}</li>`).join("")}</ol>
+      ${regoleCoupon()}
       <form class="form" id="inv-join" novalidate>
         <div class="field"><label for="ij-nome">Nome</label><input class="input" id="ij-nome" autocomplete="given-name" value="${esc((user.nome || "").split(" ")[0])}"></div>
         <div class="field"><label for="ij-tel">Telefono</label><input class="input" id="ij-tel" type="tel" inputmode="tel" autocomplete="tel" placeholder="+39 333 123 4567" value="${esc(store.get("yugo-draft", {}).telefono || "")}"></div>
@@ -402,7 +406,8 @@ function drawInvite(area, me, nuovo) {
           <span class="c-tipo">${c.tipo === "cena" ? "🍣 Buono cena gratis" : c.tipo === "sconto" ? "％ Buono sconto" : "🎁 Omaggio"}</span>
           <span class="c-code">${esc(c.codice)}</span>
           <span class="c-info">Livello ${c.livello} · ${esc(premioCoupon(c))}</span>
-          <span class="c-uno">Vale per 1 persona</span>
+          <span class="c-uno">Vale per 1 persona${condizioneCoupon(c) ? ` · ${esc(condizioneCoupon(c))}` : ""}</span>
+          <span class="c-giorni">Solo dal lunedì al giovedì, festivi esclusi</span>
           <span class="c-state">${c.stato === "usato" ? "Usato ✅" : "Valido · mostralo alla cassa"}</span>
         </div>`).join("")}</div>` : `<p class="muted">Ancora nessuno. Riempi la barra per il primo coupon.</p>`}
     </article>
@@ -416,6 +421,7 @@ function drawInvite(area, me, nuovo) {
         <li>Ogni premio vale per una sola persona: una bibita, un dolce, uno sconto sul conto di una persona, una cena per una persona.</li>
         <li>Barra piena: tocca «Richiedi premio» e mostra il codice alla cassa.</li>
       </ol>
+      ${regoleCoupon()}
     </article>`;
   $("#inv-copy").onclick = async () => {
     try { await navigator.clipboard.writeText(link); toast("Link copiato."); }
