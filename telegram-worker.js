@@ -18,7 +18,7 @@ const CONFIG = {
   CHAT_ORDINI: "",                                          // gruppo per gli ordini da casa (vuoto = stesso gruppo)
   FIREBASE_API_KEY: "AIzaSyAEnC8afPxW6XJhdZnfiTTHxZ1qun_MFwc", // pubblica, è la stessa del sito
   ORIGINE: "https://yugosestri-creator.github.io",
-  PREMI: ["una bibita piccola in omaggio", "un dolce in omaggio", "−10% per una persona", "un antipasto in omaggio", "−15% per una persona", "una bibita grande da 1,5 L (Coca-Cola o Fanta) oppure 3 bibite piccole", "−20% per una persona", "una cena gratis per una persona", "una cena gratis per una persona + un buono −15% per una persona"]
+  PREMI: ["una bibita piccola in omaggio", "un dolce in omaggio", "−10% per una persona", "un antipasto in omaggio", "−15% per una persona", "un roll speciale in omaggio", "−20% per una persona", "una cena gratis per una persona", "una cena gratis per una persona + un buono −15% per una persona"]
 };
 /* Buoni che si ricevono a ogni livello. Ogni buono vale per UNA sola persona.
    tipo: "omaggio" (bibita, dolce, antipasto), "sconto" (percentuale sul conto di una persona), "cena" (cena gratis) */
@@ -28,14 +28,35 @@ const BUONI = [
   [{ tipo: "sconto", premio: "−10% sul conto di una persona" }],
   [{ tipo: "omaggio", premio: "Un antipasto in omaggio" }],
   [{ tipo: "sconto", premio: "−15% sul conto di una persona" }],
-  [{ tipo: "omaggio", premio: "Una bibita grande da 1,5 L (Coca-Cola o Fanta) oppure 3 bibite piccole" }],
+  [{ tipo: "omaggio", premio: "Un roll speciale in omaggio" }],
   [{ tipo: "sconto", premio: "−20% sul conto di una persona" }],
   [{ tipo: "cena", premio: "Una cena gratis per una persona" }],
   [{ tipo: "cena", premio: "Una cena gratis per una persona" }, { tipo: "sconto", premio: "−15% sul conto di una persona (alla prossima visita)" }]
 ];
 // Gli stessi premi in cinese, per il messaggio nel gruppo
 const BUONI_ZH = [["小饮料一杯（赠送）"], ["甜点一份（赠送）"], ["一人九折"], ["前菜一份（赠送）"], ["一人八五折"],
-  ["1.5升大瓶饮料（可乐或芬达）或小饮料三瓶"], ["一人八折"], ["一人免费晚餐"], ["一人免费晚餐", "一人八五折（下次来店使用）"]];
+  ["特色卷一份（赠送）"], ["一人八折"], ["一人免费晚餐"], ["一人免费晚餐", "一人八五折（下次来店使用）"]];
+/* Condizioni dei coupon (spesa minima, tetto della cena gratis) e giorni in cui si possono usare */
+const COND = { min35: "Spesa minima 35 €", min50: "Spesa minima 50 €", cena: "Massimo 35 € di consumazione · al tavolo almeno 2 persone paganti a prezzo pieno" };
+const COND_ZH = { min35: "最低消费35欧元", min50: "最低消费50欧元", cena: "最多抵扣35欧元 · 同桌至少2位全价付费客人" };
+const condDi = (livello, tipo) => livello >= 9 ? (tipo === "cena" ? "cena" : "min35") : ({ 3: "min35", 5: "min35", 7: "min50", 8: "cena" }[livello] || "");
+const GIORNI_COUPON = "Valido solo dal lunedì al giovedì, festivi esclusi";
+function pasqua(anno) { // domenica di Pasqua (calendario gregoriano)
+  const a = anno % 19, b = Math.floor(anno / 100), c = anno % 100, d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
+  return new Date(Date.UTC(anno, Math.floor((h + l - 7 * m + 114) / 31) - 1, ((h + l - 7 * m + 114) % 31) + 1));
+}
+function festivo(giorno) { // festività nazionali italiane + Pasquetta
+  if (["01-01", "01-06", "04-25", "05-01", "06-02", "08-15", "11-01", "12-08", "12-25", "12-26"].includes(giorno.slice(5))) return true;
+  const p = pasqua(+giorno.slice(0, 4)); p.setUTCDate(p.getUTCDate() + 1);
+  return p.toISOString().slice(0, 10) === giorno;
+}
+function couponOggi() {
+  const g = giornoOraRoma().giorno, dow = new Date(g + "T12:00:00Z").getUTCDay();
+  if (festivo(g)) return { ok: false, motivo: "Oggi è festivo: i coupon valgono solo dal lunedì al giovedì, festivi esclusi." };
+  if (![1, 2, 3, 4].includes(dow)) return { ok: false, motivo: "Oggi non si può: i coupon valgono solo dal lunedì al giovedì." };
+  return { ok: true };
+}
 const buoniDi = (livello) => BUONI[Math.min(livello, BUONI.length) - 1] || [{ tipo: "omaggio", premio: `Premio livello ${livello}` }];
 /* Cosa arriva nel gruppo Telegram.
    Sempre: prenotazioni e ordini (nuovi, annullati, orario cambiato) e il codice del Gestore.
@@ -510,19 +531,21 @@ async function promoPremio(env, body) {
     await env.DB.prepare(`INSERT INTO coupon (codice, promoter_id, livello, creato, tipo, premio) VALUES (?, ?, ?, ?, ?, ?)`).bind(codice, p.id, s.livello, adessoISO(), b.tipo, b.premio).run();
     codici.push(codice);
   }
-  const elenco = buoniDi(s.livello).map((b, i) => `${codici[i]} · ${b.premio}`).join("\n");
+  const elenco = buoniDi(s.livello).map((b, i) => { const k = condDi(s.livello, b.tipo); return `${codici[i]} · ${b.premio}${k ? ` (${COND[k]})` : ""}`; }).join("\n");
   const zh = BUONI_ZH[Math.min(s.livello, BUONI_ZH.length) - 1] || [];
   if (AVVISO_COUPON) await tg(env, [
     `🎁 COUPON SBLOCCATO – Yugo`, "",
     `👤 ${p.nome}${p.telefono ? ` · 📞 ${p.telefono}` : ""}`,
     `🔗 Codice invito ${p.codice} · livello ${s.livello} completato`, "",
     `🏆 Ha vinto (vale per 1 persona):`, elenco, "",
+    `📅 ${GIORNI_COUPON}.`,
     "Alla cassa: controlla il codice con /coupon, poi segnalo come usato con /usato",
     "", "— — — — — — —", "",
     `🎁 优惠券已解锁`, "",
     `👤 ${p.nome}${p.telefono ? ` · 📞 ${p.telefono}` : ""}`,
     `🔗 邀请码 ${p.codice} · 完成第 ${s.livello} 级`, "",
-    `🏆 奖品（仅限一人使用）：`, codici.map((c, i) => `${c} · ${zh[i] || ""}`).join("\n"), "",
+    `🏆 奖品（仅限一人使用）：`, codici.map((c, i) => { const k = condDi(s.livello, buoniDi(s.livello)[i].tipo); return `${c} · ${zh[i] || ""}${k ? `（${COND_ZH[k]}）` : ""}`; }).join("\n"), "",
+    "📅 仅限周一至周四使用，节假日除外",
     "收银时：先用 /coupon 查询，再用 /usato 标记为已使用"
   ].join("\n"));
   return { ...(await promoMe(env, body, u)), ok: true, nuovoCoupon: codici[0], nuoviCoupon: codici, livelloSbloccato: s.livello };
@@ -580,7 +603,10 @@ async function comando(env, msg) {
     if (!c) return rispondi(`❌ Il coupon ${codice} non esiste.\n❌ 优惠券 ${codice} 不存在。`);
     const chi = `${c.nome} · ${c.telefono} · ${c.invito} · livello ${c.livello}`;
     if (c.stato === "usato") return rispondi(`⚠️ Coupon ${codice} GIÀ USATO il ${oraRoma(c.usato).it}\n${chi}\n⚠️ 优惠券 ${codice} 已于 ${oraRoma(c.usato).zh} 使用过`);
-    if (cmd === "/coupon") return rispondi(`✅ Coupon ${codice} VALIDO\n${chi}\n✅ 优惠券 ${codice} 有效`);
+    const k = condDi(c.livello, c.tipo), oggi = couponOggi();
+    const premio = (c.premio || (CONFIG.PREMI || [])[c.livello - 1] || "") + " · vale per 1 persona" + (k ? `\n⚠️ ${COND[k]}` : "");
+    if (!oggi.ok) return rispondi(`⛔ ${oggi.motivo}\nCoupon ${codice}: ${premio}\n${chi}\n⛔ 今天不能使用优惠券（仅限周一至周四，节假日除外）`);
+    if (cmd === "/coupon") return rispondi(`✅ Coupon ${codice} VALIDO oggi\n🎁 ${premio}\n${chi}\n✅ 优惠券 ${codice} 今天有效${k ? `（${COND_ZH[k]}）` : ""}`);
     await env.DB.prepare(`UPDATE coupon SET stato = 'usato', usato = ? WHERE codice = ? AND stato = 'valido'`).bind(adessoISO(), codice).run();
     return rispondi(`✅ Coupon ${codice} segnato come usato.\n${chi}\n✅ 优惠券 ${codice} 已标记为已使用。`);
   }
@@ -886,7 +912,8 @@ async function gestAzione(env, body) {
     const c = await env.DB.prepare("SELECT c.*, p.nome, p.telefono, p.codice AS invito FROM coupon c JOIN promoter p ON p.id = c.promoter_id WHERE c.codice = ?").bind(codice).first();
     if (!c) return { ok: true, coupon: null };
     const premio = c.premio || ((CONFIG && CONFIG.PREMI) || [])[c.livello - 1] || `livello ${c.livello}`;
-    return { ok: true, coupon: { codice: c.codice, stato: c.stato, livello: c.livello, premio, tipo: c.tipo || "", nome: c.nome, telefono: c.telefono, invito: c.invito, usato: c.usato, creato: c.creato } };
+    const k = condDi(c.livello, c.tipo || "");
+    return { ok: true, oggi: couponOggi(), coupon: { codice: c.codice, stato: c.stato, livello: c.livello, premio, tipo: c.tipo || "", condizione: k ? COND[k] : "", giorni: GIORNI_COUPON, nome: c.nome, telefono: c.telefono, invito: c.invito, usato: c.usato, creato: c.creato } };
   }
   if (az === "evento-aggiungi") {
     const t = (s, m) => String(s || "").replace(/[\u0000-\u001f]/g, " ").trim().slice(0, m);
@@ -904,6 +931,8 @@ async function gestAzione(env, body) {
   }
   if (az === "coupon-usato") {
     const codice = String(body.codice || "").replace(/\D/g, "");
+    const oggi = couponOggi();
+    if (!oggi.ok) throw new Errore(oggi.motivo, 400);
     const r = await env.DB.prepare("UPDATE coupon SET stato = 'usato', usato = ? WHERE codice = ? AND stato = 'valido'").bind(adessoISO(), codice).run();
     if (!r.meta || r.meta.changes !== 1) throw new Errore("Coupon già usato o non valido.", 400);
     return { ok: true };
