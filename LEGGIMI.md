@@ -161,4 +161,4 @@ Su Android: Chrome → tre puntini → **Installa app**.
 | `config.js` | **L'unico da modificare**: info, prezzi, menu, Firebase, Telegram |
 | `telegram-worker.js` | Il codice da incollare su Cloudflare |
 | `index.html`, `style.css`, `app.js` | Il sito |
-| `manifest.json`, `sw.js`, `` | Servono per installarlo come app, con il logo |
+| `manifest.json`, `sw.js`, `icon-*.png` | Servono per installarlo come app, con il logo |
