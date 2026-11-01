@@ -750,10 +750,25 @@ window.YUGO_CONFIG = {
       "−10% per una persona",
       "un antipasto in omaggio",
       "−15% per una persona",
-      "una bibita grande da 1,5 L (Coca-Cola o Fanta) oppure 3 bibite piccole",
+      "un roll speciale in omaggio",
       "−20% per una persona",
       "una cena gratis per una persona",
       "una cena gratis per una persona + un buono −15% per una persona"
+    ],
+    // Condizioni scritte sul coupon (stesso ordine dei livelli; "" = nessuna condizione)
+    condizioni: [
+      "", "", "Spesa minima 35 €", "", "Spesa minima 35 €", "", "Spesa minima 50 €",
+      "Massimo 35 € di consumazione · al tavolo almeno 2 persone paganti a prezzo pieno",
+      "Massimo 35 € di consumazione · al tavolo almeno 2 persone paganti a prezzo pieno"
+    ],
+    // Regole mostrate nella pagina Promo
+    regole: [
+      "I coupon sono validi e riscattabili esclusivamente dal lunedì al giovedì (festivi esclusi), sia in sala che per l'asporto.",
+      "Ogni premio vale per una sola persona.",
+      "Sconti del 10% e del 15%: spesa minima 35 €. Sconto del 20%: spesa minima 50 €.",
+      "Cena gratis: massimo 35 € di consumazione, valida solo se al tavolo ci sono almeno 2 persone paganti a prezzo pieno.",
+      "Quando completi un livello, gli amici di quel livello non contano più: la barra riparte da zero.",
+      "Ogni coupon si usa una volta sola."
     ]
   }
 };
