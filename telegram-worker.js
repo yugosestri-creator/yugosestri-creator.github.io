@@ -86,7 +86,7 @@ const SCHEMA = [
             '10% · 20% se ci segui', 'Halloween', '2026-10-21', '2026-11-02', datetime('now')
      WHERE NOT EXISTS (SELECT 1 FROM eventi)`
 ];
-const NUOVE_COLONNE = ["ALTER TABLE coupon ADD COLUMN tipo TEXT", "ALTER TABLE coupon ADD COLUMN premio TEXT", "ALTER TABLE ordini ADD COLUMN stato TEXT DEFAULT 'inviato'", "ALTER TABLE ordini ADD COLUMN nome TEXT",
+const NUOVE_COLONNE = ["ALTER TABLE visite ADD COLUMN ritorni INTEGER NOT NULL DEFAULT 0", "ALTER TABLE coupon ADD COLUMN tipo TEXT", "ALTER TABLE coupon ADD COLUMN premio TEXT", "ALTER TABLE ordini ADD COLUMN stato TEXT DEFAULT 'inviato'", "ALTER TABLE ordini ADD COLUMN nome TEXT",
   "ALTER TABLE ordini ADD COLUMN telefono TEXT", "ALTER TABLE ordini ADD COLUMN ora TEXT", "ALTER TABLE ordini ADD COLUMN lang TEXT",
   "ALTER TABLE ordini ADD COLUMN oraPrima TEXT", "ALTER TABLE ordini ADD COLUMN nascosto INTEGER",
   "ALTER TABLE prenot ADD COLUMN oraPrima TEXT", "ALTER TABLE ordini ADD COLUMN data TEXT"];
@@ -269,20 +269,21 @@ async function visita(env, body, request) {
   const { giorno, ora } = giornoOraRoma();
   const l = String(body.lingua || "").toLowerCase().slice(0, 2);
   const lingua = LINGUE_VISITE.includes(l) ? l : "altro";
-  await env.DB.prepare("INSERT INTO visite (giorno, ora, lingua, n) VALUES (?, ?, ?, 1) ON CONFLICT (giorno, ora, lingua) DO UPDATE SET n = n + 1").bind(giorno, ora, lingua).run();
+  const ritorno = body.ritorno ? 1 : 0; // 1 = era già entrato nel sito un altro giorno
+  await env.DB.prepare("INSERT INTO visite (giorno, ora, lingua, n, ritorni) VALUES (?, ?, ?, 1, ?) ON CONFLICT (giorno, ora, lingua) DO UPDATE SET n = n + 1, ritorni = ritorni + excluded.ritorni").bind(giorno, ora, lingua, ritorno).run();
   return { ok: true };
 }
 async function statVisite(env) {
   const da = giornoOraRoma(new Date(Date.now() - (GIORNI_VISITE - 1) * 864e5)).giorno;
   const daISO = new Date(Date.now() - (GIORNI_VISITE + 1) * 864e5).toISOString();
   const [v, p, o] = await Promise.all([
-    env.DB.prepare("SELECT giorno, ora, lingua, n FROM visite WHERE giorno >= ?").bind(da).all(),
+    env.DB.prepare("SELECT giorno, ora, lingua, n, ritorni FROM visite WHERE giorno >= ?").bind(da).all(),
     env.DB.prepare("SELECT creato FROM prenot WHERE creato > ?").bind(daISO).all(),
     env.DB.prepare("SELECT creato FROM ordini WHERE creato > ?").bind(daISO).all()
   ]);
   const giorni = {}, lingue = {};
-  const g = (k) => (giorni[k] = giorni[k] || { giorno: k, n: 0, ore: Array(24).fill(0), prenot: 0, ordini: 0 });
-  for (const r of v.results || []) { const x = g(r.giorno); x.n += r.n; x.ore[r.ora] += r.n; lingue[r.lingua] = (lingue[r.lingua] || 0) + r.n; }
+  const g = (k) => (giorni[k] = giorni[k] || { giorno: k, n: 0, ritorni: 0, ore: Array(24).fill(0), oreRit: Array(24).fill(0), prenot: 0, ordini: 0 });
+  for (const r of v.results || []) { const x = g(r.giorno), rit = r.ritorni || 0; x.n += r.n; x.ritorni += rit; x.ore[r.ora] += r.n; x.oreRit[r.ora] += rit; lingue[r.lingua] = (lingue[r.lingua] || 0) + r.n; }
   for (const r of p.results || []) { const k = giornoOraRoma(new Date(r.creato)).giorno; if (k >= da) g(k).prenot++; }
   for (const r of o.results || []) { const k = giornoOraRoma(new Date(r.creato)).giorno; if (k >= da) g(k).ordini++; }
   return { oggi: giornoOraRoma().giorno, giorni: Object.values(giorni).sort((a, b) => b.giorno.localeCompare(a.giorno)), lingue };
