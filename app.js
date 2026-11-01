@@ -220,22 +220,26 @@ function socialLinks() {
 }
 /* Eventi e promozioni: li gestisce lo staff dalla pagina Gestore. Se il servizio non risponde si usano quelli di config.js */
 let EVENTI = null;
-/* Conta quante persone entrano nel sito: una volta al giorno per telefono, senza nome e senza cookie */
+/* Conta ogni volta che il sito viene aperto, senza nome e senza cookie.
+   Prima volta di questo telefono = "nuovo" (giallo); tutte le volte dopo = "tornato" (blu). */
 function contaVisita() {
   if (!WORKER || DEMO || /gestore/.test(location.pathname)) return;
-  const oggi = isoDate(new Date());
   let ritorno = false;
   try {
-    const ultima = localStorage.getItem("yugo-visita");
-    if (ultima === oggi) return;
-    // "tornato" = era già entrato un altro giorno (o aveva già scelto la lingua in passato)
-    ritorno = !!ultima || !!localStorage.getItem("yugo-lingua");
-    localStorage.setItem("yugo-visita", oggi);
+    ritorno = !!localStorage.getItem("yugo-visita") || !!localStorage.getItem("yugo-lingua");
+    localStorage.setItem("yugo-visita", isoDate(new Date()));
   } catch { /* conta lo stesso */ }
   let lingua = ""; try { lingua = localStorage.getItem("yugo-lingua") || ""; } catch { /* ok */ }
   lingua = lingua || (navigator.language || "it").slice(0, 2);
   fetch(WORKER + "/visita", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lingua, ritorno }), keepalive: true }).catch(() => {});
 }
+// Se il sito resta aperto in background (succede spesso su iPhone) e lo riapri dopo almeno 30 minuti, conta di nuovo
+let nascostoDa = 0;
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) { nascostoDa = Date.now(); return; }
+  if (nascostoDa && Date.now() - nascostoDa > 30 * 60 * 1000) contaVisita();
+  nascostoDa = 0;
+});
 function caricaEventi() {
   if (!WORKER || DEMO) return;
   fetch(WORKER + "/eventi").then((r) => r.json()).then((d) => {
