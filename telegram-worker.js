@@ -37,9 +37,9 @@ const BUONI = [
 const BUONI_ZH = [["小饮料一杯（赠送）"], ["甜点一份（赠送）"], ["一人九折"], ["前菜一份（赠送）"], ["一人八五折"],
   ["特色卷一份（赠送）"], ["一人八折"], ["一人免费晚餐"], ["一人免费晚餐", "一人八五折（下次来店使用）"]];
 /* Condizioni dei coupon (spesa minima, tetto della cena gratis) e giorni in cui si possono usare */
-const COND = { min35: "Spesa minima 35 €", min50: "Spesa minima 50 €", cena: "Massimo 35 € di consumazione · al tavolo almeno 2 persone paganti a prezzo pieno" };
-const COND_ZH = { min35: "最低消费35欧元", min50: "最低消费50欧元", cena: "最多抵扣35欧元 · 同桌至少2位全价付费客人" };
-const condDi = (livello, tipo) => livello >= 9 ? (tipo === "cena" ? "cena" : "min35") : ({ 3: "min35", 5: "min35", 7: "min50", 8: "cena" }[livello] || "");
+const COND = { min35: "Spesa minima 35 €", cena: "Massimo 35 € di consumazione · al tavolo almeno 2 persone paganti a prezzo pieno" };
+const COND_ZH = { min35: "最低消费35欧元", cena: "最多抵扣35欧元 · 同桌至少2位全价付费客人" };
+const condDi = (livello, tipo) => livello >= 9 ? (tipo === "cena" ? "cena" : "min35") : ({ 3: "min35", 5: "min35", 7: "min35", 8: "cena" }[livello] || "");
 const GIORNI_COUPON = "Valido solo dal lunedì al giovedì, festivi esclusi";
 function pasqua(anno) { // domenica di Pasqua (calendario gregoriano)
   const a = anno % 19, b = Math.floor(anno / 100), c = anno % 100, d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3);
