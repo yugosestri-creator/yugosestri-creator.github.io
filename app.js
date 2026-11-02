@@ -222,18 +222,33 @@ function socialLinks() {
 let EVENTI = null;
 /* Conta ogni volta che il sito viene aperto, senza nome e senza cookie.
    Prima volta di questo telefono = "nuovo" (giallo); tutte le volte dopo = "tornato" (blu). */
-function contaVisita() {
+/* Conta ogni apertura del sito.
+   Chi ha accettato i cookie: sappiamo se è nuovo (giallo) o tornato (blu).
+   Chi non ha accettato: la visita conta lo stesso, ma in forma anonima (grigio), senza salvare nulla sul telefono. */
+let visitaInSospeso = false;
+function contaVisita(subito) {
   if (!WORKER || DEMO || /gestore/.test(location.pathname)) return;
-  try { if (localStorage.getItem("yugo-consenso") !== "si") return; } catch { return; } // solo se il visitatore ha accettato
-  let ritorno = false;
-  try {
-    ritorno = !!localStorage.getItem("yugo-visita") || !!localStorage.getItem("yugo-lingua");
-    localStorage.setItem("yugo-visita", isoDate(new Date()));
-  } catch { /* conta lo stesso */ }
+  let consenso = null; try { consenso = localStorage.getItem("yugo-consenso"); } catch { /* ok */ }
+  if (!consenso && !subito) { // prima visita: aspetta la scelta sui cookie (o che chiuda la pagina)
+    visitaInSospeso = true; return;
+  }
+  visitaInSospeso = false;
   let lingua = ""; try { lingua = localStorage.getItem("yugo-lingua") || ""; } catch { /* ok */ }
   lingua = lingua || (navigator.language || "it").slice(0, 2);
-  fetch(WORKER + "/visita", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lingua, ritorno }), keepalive: true }).catch(() => {});
+  let ritorno = false, anonimo = consenso !== "si";
+  if (!anonimo) {
+    try {
+      ritorno = !!localStorage.getItem("yugo-visita");
+      localStorage.setItem("yugo-visita", isoDate(new Date()));
+    } catch { anonimo = true; }
+  }
+  const dati = JSON.stringify({ lingua, ritorno, anonimo });
+  if (document.visibilityState === "hidden" && navigator.sendBeacon && navigator.sendBeacon(WORKER + "/visita", dati)) return; // il sito si sta chiudendo
+  fetch(WORKER + "/visita", { method: "POST", headers: { "Content-Type": "application/json" }, body: dati, keepalive: true }).catch(() => {});
 }
+// chi chiude o lascia il sito senza scegliere viene contato in forma anonima
+window.addEventListener("pagehide", () => { if (visitaInSospeso) contaVisita(true); });
+document.addEventListener("visibilitychange", () => { if (document.hidden && visitaInSospeso) contaVisita(true); });
 /* ------------------------------------------------------------------ */
 /* Prima visita: avviso cookie, poi un piccolo tour animato del sito    */
 /* ------------------------------------------------------------------ */
@@ -262,7 +277,7 @@ function mostraCookie(forza) {
   d.id = "cookie-bar"; d.className = "cookie-bar"; d.setAttribute("role", "dialog"); d.setAttribute("aria-label", "Cookie e privacy");
   d.innerHTML = `<div class="cookie-in"><span class="cookie-ico">${ICO.cookie}</span><div>
       <b>Cookie e privacy</b>
-      <p>Usiamo solo cookie tecnici necessari (lingua, carrello, accesso). Se accetti, contiamo anche le visite in modo anonimo. Niente pubblicità né profilazione.</p>
+      <p>Usiamo solo cookie tecnici necessari (lingua, carrello, accesso) e contiamo le visite in modo anonimo. Se accetti, ricordiamo anche se sei già passato. Niente pubblicità né profilazione.</p>
       <a href="privacy.html">Informativa privacy</a></div></div>
     <div class="cookie-btns"><button type="button" class="btn btn-ghost btn-sm" data-ck="no">Solo necessari</button><button type="button" class="btn btn-gold btn-sm" data-ck="si">Accetta</button></div>`;
   document.body.appendChild(d);
@@ -271,7 +286,7 @@ function mostraCookie(forza) {
     const b = e.target.closest("[data-ck]"); if (!b) return;
     lsSet(CONSENSO, b.dataset.ck);
     d.classList.remove("on"); setTimeout(() => d.remove(), 400);
-    if (b.dataset.ck === "si") contaVisita();
+    if (visitaInSospeso) contaVisita(true);
     if (!forza) setTimeout(() => avviaTour(), 500);
   });
 }
