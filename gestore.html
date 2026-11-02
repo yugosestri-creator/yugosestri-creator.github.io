@@ -61,6 +61,7 @@
   /* visite: giallo = nuovi, blu = tornati */
   .vg .bar i.nuovi, .ore i.nuovi, .leg .nuovi::before { background: #e8b923; }
   .vg .bar i.tornati, .ore i.tornati, .leg .tornati::before { background: #2f7de1; }
+  .vg .bar i.anonimi, .ore i.anonimi, .leg .anonimi::before { background: #8a94a6; }
   .leg { display: flex; gap: 14px; font-size: 13px; color: var(--muted); margin: 8px 0 2px; }
   .leg span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
   .ore > span { display: flex; flex-direction: column-reverse; height: 100%; justify-content: flex-start; } .ore > span i { border-radius: 0; } .ore > span i:last-child { border-radius: 3px 3px 0 0; }
@@ -373,8 +374,8 @@ function viewVisite() {
   const V = dati.visite;
   if (!V) return `<div class="empty">Statistiche non ancora disponibili. Riprova tra poco.</div>`;
   const per = {}; V.giorni.forEach((g) => per[g.giorno] = g);
-  const giorno = (k) => { const g = per[k] || { giorno: k, n: 0, ore: Array(24).fill(0), prenot: 0, ordini: 0 }; g.ritorni = g.ritorni || 0; g.oreRit = g.oreRit || Array(24).fill(0); return g; };
-  const LEG = `<div class="leg"><span class="nuovi">Nuovi</span><span class="tornati">Tornati</span></div>`;
+  const giorno = (k) => { const g = per[k] || { giorno: k, n: 0, ore: Array(24).fill(0), prenot: 0, ordini: 0 }; g.ritorni = g.ritorni || 0; g.anonimi = g.anonimi || 0; g.oreRit = g.oreRit || Array(24).fill(0); g.oreAnon = g.oreAnon || Array(24).fill(0); return g; };
+  const LEG = `<div class="leg"><span class="nuovi">Nuovi</span><span class="tornati">Tornati</span><span class="anonimi">Cookie rifiutati</span></div>`;
   const d0 = new Date(V.oggi + "T12:00");
   const lista = []; for (let i = 0; i < 30; i++) { const d = new Date(d0); d.setDate(d.getDate() - i); lista.push(giorno(iso(d))); }
   const somma = (n) => lista.slice(0, n).reduce((a, g) => a + g.n, 0);
@@ -394,17 +395,17 @@ function viewVisite() {
     </div>
     <div class="card">
       <h3 style="text-transform:capitalize">🕗 ${esc(fmtDay(sel.giorno))}: ${sel.n} ${sel.n === 1 ? "visita" : "visite"}</h3>
-      <p class="meta">${sel.n ? `<span style="color:#b8860b;font-weight:700">${sel.n - sel.ritorni} nuovi</span> · <span style="color:#2f7de1;font-weight:700">${sel.ritorni} tornati</span> · Ora con più visite: <strong>${top}:00–${top + 1}:00</strong> (${sel.ore[top]}) · ` : ""}Prenotazioni: ${sel.prenot} · Ordini: ${sel.ordini}</p>
+      <p class="meta">${sel.n ? `<span style="color:#b8860b;font-weight:700">${sel.n - sel.ritorni - sel.anonimi} nuovi</span> · <span style="color:#2f7de1;font-weight:700">${sel.ritorni} tornati</span>${sel.anonimi ? ` · <span style="font-weight:700">${sel.anonimi} cookie rifiutati</span>` : ""} · Ora con più visite: <strong>${top}:00–${top + 1}:00</strong> (${sel.ore[top]}) · ` : ""}Prenotazioni: ${sel.prenot} · Ordini: ${sel.ordini}</p>
       ${LEG}
-      <div class="ore">${sel.ore.map((n, h) => `<span title="${h}:00 · ${n - sel.oreRit[h]} nuovi, ${sel.oreRit[h]} tornati"><i class="nuovi" style="height:${(n - sel.oreRit[h]) / maxO * 100}%"></i><i class="tornati" style="height:${sel.oreRit[h] / maxO * 100}%"></i></span>`).join("")}</div>
+      <div class="ore">${sel.ore.map((n, h) => `<span title="${h}:00 · ${n - sel.oreRit[h] - sel.oreAnon[h]} nuovi, ${sel.oreRit[h]} tornati, ${sel.oreAnon[h]} cookie rifiutati"><i class="nuovi" style="height:${(n - sel.oreRit[h] - sel.oreAnon[h]) / maxO * 100}%"></i><i class="tornati" style="height:${sel.oreRit[h] / maxO * 100}%"></i><i class="anonimi" style="height:${sel.oreAnon[h] / maxO * 100}%"></i></span>`).join("")}</div>
       <div class="ore-l">${sel.ore.map((_, h) => `<span>${h % 3 === 0 ? h : ""}</span>`).join("")}</div>
     </div>
     <div class="card">
       <h3>📅 Visite ogni giorno</h3>
-      <p class="meta">Tocca un giorno per vedere le ore. <span style="color:#b8860b;font-weight:700">Giallo = nuovi</span>, <span style="color:#2f7de1;font-weight:700">blu = tornati</span>.</p>
+      <p class="meta">Tocca un giorno per vedere le ore. <span style="color:#b8860b;font-weight:700">Giallo = nuovi</span>, <span style="color:#2f7de1;font-weight:700">blu = tornati</span>, <span style="font-weight:700">grigio = hanno rifiutato i cookie</span> (contati lo stesso, ma non sappiamo se sono nuovi o tornati).</p>
       ${lista.map((g) => `<div class="vg ${g.giorno === sel.giorno ? "on" : ""}" data-vg="${g.giorno}">
         <span style="text-transform:capitalize">${esc(corto(g.giorno))}</span>
-        <span class="bar"><i class="nuovi" style="width:${(g.n - g.ritorni) / max * 100}%"></i><i class="tornati" style="width:${g.ritorni / max * 100}%"></i></span>
+        <span class="bar"><i class="nuovi" style="width:${(g.n - g.ritorni - g.anonimi) / max * 100}%"></i><i class="tornati" style="width:${g.ritorni / max * 100}%"></i><i class="anonimi" style="width:${g.anonimi / max * 100}%"></i></span>
         <span><strong>${g.n}</strong>${g.prenot || g.ordini ? ` <small>· ${g.prenot} pren · ${g.ordini} ord</small>` : ""}</span>
       </div>`).join("")}
     </div>
