@@ -224,6 +224,7 @@ let EVENTI = null;
    Prima volta di questo telefono = "nuovo" (giallo); tutte le volte dopo = "tornato" (blu). */
 function contaVisita() {
   if (!WORKER || DEMO || /gestore/.test(location.pathname)) return;
+  try { if (localStorage.getItem("yugo-consenso") !== "si") return; } catch { return; } // solo se il visitatore ha accettato
   let ritorno = false;
   try {
     ritorno = !!localStorage.getItem("yugo-visita") || !!localStorage.getItem("yugo-lingua");
@@ -233,6 +234,93 @@ function contaVisita() {
   lingua = lingua || (navigator.language || "it").slice(0, 2);
   fetch(WORKER + "/visita", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lingua, ritorno }), keepalive: true }).catch(() => {});
 }
+/* ------------------------------------------------------------------ */
+/* Prima visita: avviso cookie, poi un piccolo tour animato del sito    */
+/* ------------------------------------------------------------------ */
+const CONSENSO = "yugo-consenso"; // "si" = accetta anche il contatore anonimo delle visite, "no" = solo cookie tecnici
+const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch { /* ok */ } };
+// aspetta che spariscano la scelta della lingua e l'animazione d'ingresso
+function dopoIngresso(fn) {
+  const t = setInterval(() => {
+    if (document.getElementById("lang-pick") || document.querySelector(".fx-intro:not(.out)")) return;
+    clearInterval(t); setTimeout(fn, 500);
+  }, 300);
+}
+const ICO = {
+  cookie: '<svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.5 12.6A8.5 8.5 0 1 1 11.4 3.5a3 3 0 0 0 3.6 3.6 3 3 0 0 0 3.6 3.6 3 3 0 0 0 1.9 1.9Z"></path><circle cx="8.5" cy="10" r="1"></circle><circle cx="14.5" cy="15" r="1"></circle><circle cx="9" cy="15.5" r="1"></circle></svg>',
+  menu: '<svg viewBox="0 0 24 24" width="46" height="46" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 12.5h17a8.5 8.5 0 0 1-17 0Z"></path><path d="M9 21h6"></path><path d="M14 3.5l5 7M17 3l3.5 6"></path></svg>',
+  prenota: '<svg viewBox="0 0 24 24" width="46" height="46" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"></rect><path d="M3.5 10h17M8 3v4M16 3v4M9 14.5l2 2 4-4"></path></svg>',
+  asporto: '<svg viewBox="0 0 24 24" width="46" height="46" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 8h14l-1.2 12.1a1 1 0 0 1-1 .9H7.2a1 1 0 0 1-1-.9Z"></path><path d="M9 8V6.5a3 3 0 0 1 6 0V8"></path></svg>',
+  promo: '<svg viewBox="0 0 24 24" width="46" height="46" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="9" width="17" height="11.5" rx="1.5"></rect><path d="M3.5 13h17M12 9v11.5"></path><path d="M12 9c-1.5-3.5-5.5-4-5.5-1.5S10 9 12 9Zm0 0c1.5-3.5 5.5-4 5.5-1.5S14 9 12 9Z"></path></svg>',
+  account: '<svg viewBox="0 0 24 24" width="46" height="46" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="8.5" r="3.5"></circle><path d="M3.5 20a6.5 6.5 0 0 1 13 0"></path><path d="M18.5 9.5a2.5 2.5 0 0 1 2.5 2.5c0 2 1 2.5 1 2.5h-7s1-.5 1-2.5a2.5 2.5 0 0 1 2.5-2.5ZM17.5 17h2"></path></svg>'
+};
+function mostraCookie(forza) {
+  if (!forza && lsGet(CONSENSO)) return avviaTour();
+  if ($("#cookie-bar")) return;
+  const d = document.createElement("div");
+  d.id = "cookie-bar"; d.className = "cookie-bar"; d.setAttribute("role", "dialog"); d.setAttribute("aria-label", "Cookie e privacy");
+  d.innerHTML = `<div class="cookie-in"><span class="cookie-ico">${ICO.cookie}</span><div>
+      <b>Cookie e privacy</b>
+      <p>Usiamo solo cookie tecnici necessari (lingua, carrello, accesso). Se accetti, contiamo anche le visite in modo anonimo. Niente pubblicità né profilazione.</p>
+      <a href="privacy.html">Informativa privacy</a></div></div>
+    <div class="cookie-btns"><button type="button" class="btn btn-ghost btn-sm" data-ck="no">Solo necessari</button><button type="button" class="btn btn-gold btn-sm" data-ck="si">Accetta</button></div>`;
+  document.body.appendChild(d);
+  requestAnimationFrame(() => requestAnimationFrame(() => d.classList.add("on")));
+  d.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-ck]"); if (!b) return;
+    lsSet(CONSENSO, b.dataset.ck);
+    d.classList.remove("on"); setTimeout(() => d.remove(), 400);
+    if (b.dataset.ck === "si") contaVisita();
+    if (!forza) setTimeout(() => avviaTour(), 500);
+  });
+}
+const TOUR = [
+  { go: "home", ico: '<img src="logo-word.webp" alt="" width="120" height="49">', t: "Benvenuto da Yugo", d: "Sushi all you can eat a Sestri Levante. Ti mostriamo il sito in pochi secondi." },
+  { go: "menu", ico: ICO.menu, t: "Il menu giusto, da solo", d: "A pranzo e a cena vedi il menu del momento. Cerca per categoria o fatti consigliare." },
+  { go: "prenota", ico: ICO.prenota, t: "Prenota in 10 secondi", d: "Scegli giorno, ora e persone: il ristorante riceve subito la tua richiesta." },
+  { go: "menu", ico: ICO.asporto, t: "Ordina da asporto", d: "Scegli i piatti o un menu F1–F4, il giorno e l'ora, e passi a ritirare." },
+  { go: "promo", ico: ICO.promo, t: "Promo e premi", d: "Eventi, sconti e coupon: invita gli amici a seguirci e vinci bibite, dolci, sconti e cene." },
+  { go: "account", ico: ICO.account, t: "Il tuo account", d: "Prenotazioni e ordini in un posto, notifiche se cambia qualcosa e Yugo come app sul telefono." }
+];
+function avviaTour(forza) {
+  if (!forza && lsGet("yugo-tour")) return;
+  if ($("#tour")) return;
+  lsSet("yugo-tour", "1");
+  let i = 0;
+  const o = document.createElement("div");
+  o.id = "tour"; o.className = "tour"; o.setAttribute("role", "dialog"); o.setAttribute("aria-modal", "true"); o.setAttribute("aria-label", "Tour del sito");
+  document.body.appendChild(o); document.body.classList.add("tour-open");
+  const chiudi = () => {
+    document.querySelectorAll(".tour-hl").forEach((x) => x.classList.remove("tour-hl"));
+    document.body.classList.remove("tour-open"); o.classList.remove("on"); setTimeout(() => o.remove(), 350);
+  };
+  const disegna = () => {
+    const s = TOUR[i], ultima = i === TOUR.length - 1;
+    document.querySelectorAll(".tour-hl").forEach((x) => x.classList.remove("tour-hl"));
+    const tab = document.querySelector(`.tabbar [data-go="${s.go}"]`); if (tab) tab.classList.add("tour-hl");
+    o.innerHTML = `<div class="tour-card">
+        <button type="button" class="tour-skip" data-t="skip">Salta</button>
+        <div class="tour-slide" key="${i}">
+          <div class="tour-ico">${s.ico}</div>
+          <h2>${esc(s.t)}</h2>
+          <p>${esc(s.d)}</p>
+        </div>
+        <div class="tour-dots" aria-hidden="true">${TOUR.map((_, k) => `<span class="${k === i ? "on" : ""}"></span>`).join("")}</div>
+        <button type="button" class="btn btn-gold btn-block" data-t="next">${ultima ? "Inizia" : "Avanti"}</button>
+      </div>`;
+  };
+  o.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-t]"); if (!b) return;
+    if (b.dataset.t === "skip" || i === TOUR.length - 1) return chiudi();
+    i++; disegna();
+  });
+  disegna(); requestAnimationFrame(() => requestAnimationFrame(() => o.classList.add("on")));
+}
+document.addEventListener("click", (e) => {
+  if (e.target.closest("[data-tour]")) { e.preventDefault(); avviaTour(true); }
+  if (e.target.closest("[data-cookie]")) { e.preventDefault(); mostraCookie(true); }
+});
 // Se il sito resta aperto in background (succede spesso su iPhone) e lo riapri dopo almeno 30 minuti, conta di nuovo
 let nascostoDa = 0;
 document.addEventListener("visibilitychange", () => {
@@ -1288,6 +1376,8 @@ function renderAccount() {
       <article class="block" id="my-ord-box" hidden><h2>I miei ordini</h2><div id="my-ord" class="blist"></div></article>
       <article class="block" id="notif-box" hidden></article>
       ${installBlock()}
+      <button type="button" class="btn btn-ghost" data-tour>✨ Guarda il tour del sito</button>
+      <button type="button" class="btn btn-ghost" data-cookie>🍪 Preferenze cookie</button>
       <a class="btn btn-ghost" href="gestore.html">🔒 Gestore</a>
       <button class="btn btn-ghost" id="btn-logout">Esci dall'account</button>
       <p class="legal"><a href="privacy.html">Informativa privacy</a> · Per cancellare l'account chiama il ${esc(R.telefono || "")}.</p>
@@ -1473,6 +1563,7 @@ async function start() {
   renderPromo();
   caricaEventi();
   contaVisita();
+  dopoIngresso(() => mostraCookie());
   requestAnimationFrame(drawWaves);
   const initial = (location.hash || "").replace("#", "");
   if (INVITO) { go("invito", false); renderLanding(INVITO); }
