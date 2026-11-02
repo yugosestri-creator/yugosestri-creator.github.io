@@ -265,6 +265,7 @@ function giornoRoma() {
 }
 const FASCE = [["12:00", "14:30"], ["19:00", "22:00"]]; // orari di consegna/ritiro; dopo le 14:30 e le 22:00 niente ordini
 const MINIMO = 20;
+const CONSEGNA_SOSPESA = true; // consegne a domicilio sospese: metti false per riattivarle
 const GIORNI_AVANTI = 5; // ordini da oggi fino a 5 giorni dopo
 const eur = (n) => "€ " + n.toFixed(2).replace(".", ",");
 const minuti = (hhmm) => { const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; };
@@ -339,6 +340,7 @@ async function ordine(env, body) {
   const u = await utente(env, body.idToken);
   if (!u || !u.verificato) { await registra(env, "ordine rifiutato", false, !u ? "accesso non valido (token)" : "email non confermata"); throw new Errore("Accedi con un account confermato per ordinare", 401); }
   const consegna = body.modo === "consegna";
+  if (consegna && CONSEGNA_SOSPESA) throw new Errore("Le consegne a domicilio sono temporaneamente sospese. Puoi ordinare da asporto e ritirare da noi.");
   const righe = (Array.isArray(body.righe) ? body.righe : []).slice(0, 60).map((r) => ({
     n: Number.isInteger(r.n) ? r.n : null, nome: pulisci(r.nome, 80),
     q: Math.max(0, Math.min(20, parseInt(r.q, 10) || 0)), prezzo: Math.max(0, Math.min(200, Number(r.prezzo) || 0))
