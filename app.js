@@ -544,9 +544,9 @@ function renderHome() {
   $("#hero-slogan").textContent = R.slogan || "";
   $("#home-formule").previousElementSibling.textContent = R.titoloFormule || "All You Can Eat";
   $("#home-formule").innerHTML = (R.formule || []).map((f, i) => `<div class="formula f-link" role="button" tabindex="0" data-fam-home="${i}"><span class="f-name">${esc(f.nome)}</span><span class="f-when">${esc(f.quando || "")}</span><span class="f-price">€ ${euro(f.prezzo)}</span></div>`).join("");
-  const regole = R.regoleFormule || (R.notaFormule ? [R.notaFormule] : []);
-  $("#home-formule-nota").innerHTML = regole.length ? `<ul class="f-regole">${regole.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>` : "";
-  if (ORD && !$("#home-ordina")) $("#home-formule-nota").insertAdjacentHTML("afterend", `<button class="btn btn-gold btn-block" id="home-ordina" type="button" style="margin-top:14px">🛵 Ordina da casa</button>`);
+  const regole = (R.regoleFormule || (R.notaFormule ? [R.notaFormule] : [])).filter((r) => !SOSPESA || !/^(Consegna|Costo consegna)/.test(r));
+  $("#home-formule-nota").innerHTML = bannerSospesa() + (regole.length ? `<ul class="f-regole">${regole.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>` : "");
+  if (ORD && !$("#home-ordina")) $("#home-formule-nota").insertAdjacentHTML("afterend", `<button class="btn btn-gold btn-block" id="home-ordina" type="button" style="margin-top:14px">${SOSPESA ? "🥡 Ordina da asporto" : "🛵 Ordina da casa"}</button>`);
   const ay = $("#home-ayce"); if (ay) { ay.hidden = !ayceAttivo(); ay.innerHTML = ayceHTML(true); }
   $("#home-desc").innerHTML = (R.descrizione || []).map((p) => `<p>${esc(p)}</p>`).join("");
   const todayIdx = (new Date().getDay() + 6) % 7; // lunedì = 0
@@ -642,11 +642,12 @@ function ayceHTML(conBottone) {
 let menuReset = () => {};
 
 function mostraModo() {
+  if (SOSPESA) { const sm = document.querySelector('[data-modo="casa"] small'); if (sm) sm.textContent = "Solo asporto"; }
   $("#mode-pick").hidden = !!MODO;
   $("#menu-body").hidden = !MODO;
   if (!MODO) return;
   const casa = MODO === "casa";
-  $("#mode-label").innerHTML = casa ? "Menu <b>a casa</b> · asporto e consegna" : "Menu <b>al ristorante</b>";
+  $("#mode-label").innerHTML = casa ? (SOSPESA ? "Menu <b>a casa</b> · solo asporto" : "Menu <b>a casa</b> · asporto e consegna") : "Menu <b>al ristorante</b>";
   $("#menu-note").textContent = (casa ? R.notaMenuCasa : (aPranzo() ? R.notaMenuPranzo : R.notaMenuCena) || R.notaMenuRistorante) || "";
   const box = $("#menu-ayce");
   if (box) { box.hidden = casa || !ayceAttivo(); box.innerHTML = casa ? "" : ayceHTML(false); }
@@ -658,6 +659,9 @@ function mostraModo() {
 /* Ordine da casa: carrello, consegna o ritiro, invio su Telegram      */
 /* ------------------------------------------------------------------ */
 const ORD = R.ordini || null;
+/* Consegne a domicilio sospese (config.js → ordini.consegnaSospesa): resta solo l'asporto */
+const SOSPESA = !!(ORD && ORD.consegnaSospesa);
+const bannerSospesa = () => SOSPESA ? `<div class="sospeso" role="status"><svg class="cantiere" viewBox="0 0 64 52" width="58" height="47" aria-hidden="true"><defs><clipPath id="cant-clip"><rect x="5" y="12" width="54" height="14" rx="2"></rect></clipPath></defs><circle cx="14" cy="8" r="4" fill="#FF8A00"></circle><circle cx="50" cy="8" r="4" fill="#FF8A00"></circle><rect x="12.5" y="10" width="3" height="3" fill="#6B7280"></rect><rect x="48.5" y="10" width="3" height="3" fill="#6B7280"></rect><rect x="5" y="12" width="54" height="14" rx="2" fill="#F5B700"></rect><g clip-path="url(#cant-clip)" fill="#1F2937"><path d="M2 26 14 12h7L9 26Z"></path><path d="M16 26 28 12h7L23 26Z"></path><path d="M30 26 42 12h7L37 26Z"></path><path d="M44 26 56 12h7L51 26Z"></path></g><rect x="12" y="26" width="4" height="20" fill="#6B7280"></rect><rect x="48" y="26" width="4" height="20" fill="#6B7280"></rect><rect x="7" y="45" width="14" height="4" rx="1.5" fill="#4B5563"></rect><rect x="43" y="45" width="14" height="4" rx="1.5" fill="#4B5563"></rect></svg><div><b>Consegne a domicilio temporaneamente sospese</b><span>Puoi sempre ordinare da asporto e ritirare da noi.</span></div></div>` : "";
 let carrello = store.get("yugo-carrello", {});
 const chiave = (p) => String(p.n != null ? p.n : p.nome);
 const righeCarrello = () => Object.values(carrello).filter((r) => r.q > 0);
@@ -783,6 +787,7 @@ function disegnaCarrello() {
       <button class="btn btn-block" type="button" data-close>Torna al menu</button>`;
     return;
   }
+  if (SOSPESA) ordDati.modo = "ritiro";
   const d = ordDati, consegna = d.modo === "consegna", zone = ORD.zone || [];
   const zona = zone[d.zona] || zone[0], costo = consegna && zona ? zona.costo : 0;
   const F = famAtt(), mancano = F ? Math.max(0, F.piatti - pezzi()) : 0;
@@ -801,10 +806,10 @@ function disegnaCarrello() {
       <span><b>${esc(r.nome)}</b><small>${F ? "incluso" : `€ ${euro(r.prezzo)} l'uno`}</small></span>
       <span class="qty on"><button type="button" data-d="-1" aria-label="Togli uno">−</button><output>${r.q}</output><button type="button" data-d="1" aria-label="Aggiungi uno">+</button></span></li>`).join("")}</ul>
     ${fam ? `<p class="hint">💡 Hai ${n} piatti: con il <b>${esc(fam.f.nome)}</b> li paghi <b>€ ${euro(fam.f.prezzo)}</b> e c'è la bibita. Scrivilo nelle note.</p>` : ""}
-    <div class="tabs2" role="tablist" aria-label="Consegna o ritiro">
+    ${SOSPESA ? bannerSospesa() : `<div class="tabs2" role="tablist" aria-label="Consegna o ritiro">
       <button role="tab" type="button" data-modo-ord="consegna" aria-selected="${consegna}">🛵 Consegna</button>
       <button role="tab" type="button" data-modo-ord="ritiro" aria-selected="${!consegna}">🥡 Ritiro</button>
-    </div>
+    </div>`}
     ${consegna ? `<div class="field"><label for="o-zona">Zona</label><select class="input" id="o-zona">${zone.map((z, i) => `<option value="${i}" ${i === d.zona ? "selected" : ""}>${esc(z.nome)} · consegna € ${euro(z.costo)}</option>`).join("")}</select></div>
       <div class="field"><label for="o-ind">Indirizzo</label><input class="input" id="o-ind" autocomplete="street-address" placeholder="Via, numero civico, citofono" value="${esc(d.indirizzo || "")}"></div>`
       : `<p class="hint">Ritiri da noi in ${esc(R.indirizzo || "")}.</p>`}
