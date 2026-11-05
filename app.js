@@ -353,7 +353,8 @@ function caricaEventi() {
 }
 function promoAttive() {
   const oggi = isoDate(new Date());
-  return (EVENTI || R.promozioni || []).filter((p) => (!p.dal || p.dal <= oggi) && (!p.al || p.al >= oggi));
+  const tutte = [...(R.promozioni || []), ...(EVENTI || [])].filter((p, i, a) => a.findIndex((q) => q.titolo === p.titolo) === i);
+  return tutte.filter((p) => (!p.dal || p.dal <= oggi) && (!p.al || p.al >= oggi));
 }
 function renderPromo() {
   const list = promoAttive();
@@ -878,9 +879,23 @@ function fasceGiorno(data) {
 }
 
 let ordDati = store.get("yugo-ordine-dati", { modo: "consegna", zona: 0, indirizzo: "", ora: "", note: "" });
+/* Sconti di novembre (benvenuto 20% / primo ordine 10%): il bot decide, qui li mostriamo */
+let SCONTI = null, scontiQuando = 0;
+function caricaSconti(forza) {
+  if (!WORKER || DEMO || !user || !user.verified || !backend) return Promise.resolve(null);
+  if (!forza && SCONTI && Date.now() - scontiQuando < 60000) return Promise.resolve(SCONTI);
+  return backend.token().then((t) => api("/sconti/me", { idToken: t })).then((d) => { SCONTI = d; scontiQuando = Date.now(); return d; }).catch(() => SCONTI);
+}
+const percSconto = () => (user && SCONTI && SCONTI.attiva && SCONTI.prossimo) || 0;
+const nomeSconto = () => SCONTI && SCONTI.benvenuto && SCONTI.benvenuto.stato === "valido" ? "Sconto di benvenuto" : "Sconto primo ordine";
 function apriCarrello() {
   const s = $("#carrello"); s.hidden = false; document.documentElement.classList.add("no-scroll");
   disegnaCarrello();
+  const prima = percSconto();
+  caricaSconti().then(() => {
+    const a = document.activeElement;
+    if (!s.hidden && percSconto() !== prima && !(a && a.closest && a.closest("#ord-body input, #ord-body textarea, #ord-body select")) && !$("#ord-body .ord-ok")) disegnaCarrello();
+  });
 }
 function chiudiCarrello() { $("#carrello").hidden = true; document.documentElement.classList.remove("no-scroll"); }
 document.addEventListener("click", (e) => { if (e.target.closest("#carrello [data-close]")) chiudiCarrello(); });
@@ -897,7 +912,8 @@ function disegnaCarrello() {
   const d = ordDati, consegna = d.modo === "consegna", zone = ORD.zone || [];
   const zona = zone[d.zona] || zone[0], costo = consegna && zona ? zona.costo : 0;
   const F = famAtt(), mancano = F ? Math.max(0, F.piatti - pezzi()) : 0;
-  const sub = F ? F.prezzo : subtotale(), tot = Math.round((sub + costo) * 100) / 100;
+  const sub = F ? F.prezzo : subtotale(), perc = percSconto(), meno = perc ? Math.round(sub * perc) / 100 : 0;
+  const tot = Math.round((sub - meno + costo) * 100) / 100;
   const giorni = giorniOrdine();
   if (!giorni.includes(d.data) || !fasceGiorno(d.data).slots.length) d.data = giorni.find((g) => fasceGiorno(g).slots.length) || "";
   const { slots } = d.data ? fasceGiorno(d.data) : { slots: [] }, chiusoOggi = false;
@@ -930,6 +946,7 @@ function disegnaCarrello() {
     <div class="field"><label for="o-note">Note (facoltativo)</label><textarea class="input" id="o-note" placeholder="Allergie, menu Family, bacchette…">${esc(d.note || "")}</textarea></div>
     <div class="ord-sum">
       <div><span>${F ? esc(F.nome) : "Piatti"}</span><span>€ ${euro(sub)}</span></div>
+      ${perc ? `<div class="ord-sconto"><span>🎉 ${nomeSconto()} ${perc}%</span><span>− € ${euro(meno)}</span></div>` : ""}
       ${consegna ? `<div><span>Consegna</span><span>€ ${euro(costo)}</span></div>` : ""}
       <div class="cs-total"><span>Totale</span><b>€ ${euro(tot)}</b></div>
     </div>
@@ -982,10 +999,12 @@ function disegnaCarrello() {
         righe: (F ? [{ n: null, nome: F.nome, prezzo: F.prezzo, q: 1 }] : []).concat(righeCarrello().map(({ n, nome, prezzo, q }) => ({ n, nome, prezzo: F ? 0 : prezzo, q }))) };
       const res = DEMO ? { ok: true, numero: Math.floor(Math.random() * 90) + 10 } : await api("/ordine", { idToken: await backend.token(), lang: (window.YUGO_I18N && window.YUGO_I18N.lang) || "it", ...ordine });
       carrello = {}; salvaCarrello(); aggiornaBarra(); ridisegnaQta();
+      SCONTI = null; caricaSconti(true);
       if (F) { FAM = null; store.set("yugo-family", null); disegnaFamily(); menuReset(); }
       body.innerHTML = `<div class="ord-ok"><div class="ord-check" aria-hidden="true">✓</div>
         <p class="cs-kicker">Ordine n. ${esc(res.numero)} inviato</p><h2 id="ord-title">Grazie ${esc(d.nome.split(" ")[0])}!</h2>
         <p class="muted">Il ristorante l'ha ricevuto ora. ${consegna ? "Ti portiamo tutto" : "Ti aspettiamo"}${d.data && d.data !== isoDate(new Date()) ? ` ${esc(nomeGiorno(d.data).toLowerCase())}` : ""} per le ${esc(d.ora)}. Se c'è un problema ti chiamiamo al ${esc(d.telefono)}.</p>
+        ${res.sconto ? `<p class="ord-risparmio">🎉 Sconto del ${res.sconto.perc}% applicato: hai risparmiato € ${euro(res.sconto.meno)}.</p>` : ""}
         <p class="hint">Per modifiche chiama il ${esc(R.telefono || "")}.</p>
         ${bottoneNotifiche()}
         <button class="btn btn-block" type="button" data-close>Chiudi</button></div>`;
@@ -1391,6 +1410,7 @@ function renderAccount() {
     ${!user.verified ? `<div class="vbox" id="acc-verify" style="margin-bottom:14px"></div>` : ""}
     <div class="stack" style="margin-top:0">
       <article class="block"><h2>Le mie prenotazioni</h2><div id="my-list" class="blist"><p class="muted">Caricamento…</p></div></article>
+      <article class="block sconti-box" id="sconti-box" hidden></article>
       <article class="block" id="my-ord-box" hidden><h2>I miei ordini</h2><div id="my-ord" class="blist"></div></article>
       <article class="block" id="notif-box" hidden></article>
       ${installBlock()}
@@ -1403,6 +1423,7 @@ function renderAccount() {
   $("#btn-logout").onclick = async () => { await backend.logout(); lastBooking = null; toast("Sei uscito."); };
   if (!user.verified) verifyBox($("#acc-verify"));
   disegnaNotifiche();
+  caricaSconti(true).then(disegnaSconti);
   const dalRist = WORKER && !DEMO ? backend.token().then((t) => api("/miei", { idToken: t })).catch(() => ({ prenot: [], ordini: [] })) : Promise.resolve({ prenot: [], ordini: [] });
   dalRist.then((d) => disegnaOrdini(d.ordini || []));
   Promise.all([backend.mine(user.uid), dalRist]).then(([list, dr]) => {
@@ -1447,6 +1468,20 @@ function renderAccount() {
       } catch { btn.disabled = false; toast("Non sono riuscito a eliminarla. Riprova."); }
     }));
   }).catch(() => { const el = $("#my-list"); if (el) el.innerHTML = `<p class="muted">Non riesco a caricare le prenotazioni. Riprova più tardi.</p>`; });
+}
+
+function disegnaSconti(d) {
+  const box = $("#sconti-box"); if (!box) return;
+  if (!d || !d.attiva) { box.hidden = true; return; }
+  const b = d.benvenuto, valido = b && b.stato === "valido";
+  box.hidden = false;
+  box.innerHTML = `<span class="promo-tag">Novembre</span><h2>I tuoi sconti</h2>
+    ${valido ? `<div class="coupon c-benvenuto"><span class="c-tipo">🎉 Sconto di benvenuto ${d.percBenvenuto}%</span><span class="c-code" translate="no">${esc(b.codice)}</span>
+      <span class="c-info">Mostra questo codice alla cassa, oppure si applica da solo al tuo prossimo ordine da casa.</span><span class="c-giorni">Vale una volta sola, fino al 30 novembre.</span></div>`
+      : b ? `<p>✅ Sconto di benvenuto già usato</p>` : ""}
+    ${!d.primoFatto && !valido ? `<p>🛵 Primo ordine da casa: ${d.percPrimo}% di sconto, si applica da solo.</p>` : ""}
+    <p class="hint">Al ristorante: se ci segui su Instagram o TikTok hai il 10% di sconto (mostralo alla cassa).</p>
+    <p class="hint">Gli sconti non si sommano: vale il più alto.</p>`;
 }
 
 /* Ordini da casa nell'account: annullati dal ristorante o con orario cambiato */
