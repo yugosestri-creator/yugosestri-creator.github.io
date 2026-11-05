@@ -265,7 +265,7 @@ function giornoRoma() {
 }
 const FASCE = [["12:00", "14:30"], ["19:00", "22:00"]]; // orari di consegna/ritiro; dopo le 14:30 e le 22:00 niente ordini
 const MINIMO = 20;
-const CONSEGNA_SOSPESA = true; // consegne a domicilio sospese: metti false per riattivarle
+const CONSEGNA_SOSPESA = false; // metti true per sospendere le consegne a domicilio
 const GIORNI_AVANTI = 5; // ordini da oggi fino a 5 giorni dopo
 const eur = (n) => "€ " + n.toFixed(2).replace(".", ",");
 const minuti = (hhmm) => { const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; };
