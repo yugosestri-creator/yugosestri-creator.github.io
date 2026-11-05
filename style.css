@@ -769,3 +769,6 @@ body.tour-open .tabbar { z-index: 80; pointer-events: none; }
 .coupon.c-benvenuto { border-color: #3FB27F; background: linear-gradient(135deg, rgba(63,178,127,.14), var(--surface-2)); }
 .coupon.c-benvenuto .c-tipo { color: #5ED39C; }
 .sconti-box p { margin: 10px 0 0; }
+.fed-timbri { display: flex; gap: 8px; margin-top: 8px; }
+.fed-timbri span { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; font-size: 18px; border: 1.5px dashed var(--line); filter: grayscale(1); opacity: .35; }
+.fed-timbri span.on { border: 1.5px solid var(--gold); background: rgba(201,165,90,.15); filter: none; opacity: 1; }
