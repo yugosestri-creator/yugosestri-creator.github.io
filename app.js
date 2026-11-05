@@ -887,7 +887,7 @@ function caricaSconti(forza) {
   return backend.token().then((t) => api("/sconti/me", { idToken: t })).then((d) => { SCONTI = d; scontiQuando = Date.now(); return d; }).catch(() => SCONTI);
 }
 const percSconto = () => (user && SCONTI && SCONTI.attiva && SCONTI.prossimo) || 0;
-const nomeSconto = () => "Sconto ordine dal sito";
+const nomeSconto = () => SCONTI && SCONTI.prossimoTipo === "fedelta" ? "Buono fedeltà" : "Sconto ordine dal sito";
 function apriCarrello() {
   const s = $("#carrello"); s.hidden = false; document.documentElement.classList.add("no-scroll");
   disegnaCarrello();
@@ -1005,6 +1005,7 @@ function disegnaCarrello() {
         <p class="cs-kicker">Ordine n. ${esc(res.numero)} inviato</p><h2 id="ord-title">Grazie ${esc(d.nome.split(" ")[0])}!</h2>
         <p class="muted">Il ristorante l'ha ricevuto ora. ${consegna ? "Ti portiamo tutto" : "Ti aspettiamo"}${d.data && d.data !== isoDate(new Date()) ? ` ${esc(nomeGiorno(d.data).toLowerCase())}` : ""} per le ${esc(d.ora)}. Se c'è un problema ti chiamiamo al ${esc(d.telefono)}.</p>
         ${res.sconto ? `<p class="ord-risparmio">🎉 Sconto del ${res.sconto.perc}% applicato: hai risparmiato € ${euro(res.sconto.meno)}.</p>` : ""}
+        ${res.nuovoBuono ? `<p class="ord-risparmio">🎁 Hai raggiunto ${res.servono} ordini: al prossimo ordine dal sito hai il ${res.nuovoBuono}% di sconto!</p>` : ""}
         <p class="hint">Per modifiche chiama il ${esc(R.telefono || "")}.</p>
         ${bottoneNotifiche()}
         <button class="btn btn-block" type="button" data-close>Chiudi</button></div>`;
@@ -1472,11 +1473,17 @@ function renderAccount() {
 
 function disegnaSconti(d) {
   const box = $("#sconti-box"); if (!box) return;
-  if (!d || !d.attiva) { box.hidden = true; return; }
+  const f = d && d.fedelta;
+  if (!d || (!d.attiva && !f)) { box.hidden = true; return; }
   const b = d.benvenuto, valido = b && b.stato === "valido";
+  const pieni = f ? Math.min(f.ordini, f.servono) : 0;
   box.hidden = false;
   box.innerHTML = `<span class="promo-tag">Promo</span><h2>I tuoi sconti</h2>
     ${d.online ? `<p>🛵 Ordini dal sito: ${d.online}% di sconto su ogni ordine, con consegna o ritiro.</p>` : ""}
+    ${f ? (f.buono === "valido" ? `<div class="coupon c-benvenuto"><span class="c-tipo">🎁 Buono fedeltà ${f.perc}%</span><span class="c-info">Hai un buono del ${f.perc}%: si applica da solo al prossimo ordine dal sito.</span></div>`
+      : f.buono === "usato" ? `<p>✅ Buono fedeltà del ${f.perc}% già usato.</p>`
+      : `<p>⭐ Carta fedeltà: ${pieni} di ${f.servono} ordini dal sito.</p><div class="fed-timbri" aria-hidden="true">${Array.from({ length: f.servono }, (_, i) => `<span class="${i < pieni ? "on" : ""}">🍣</span>`).join("")}</div>
+        <p class="hint">Dopo ${f.servono} ordini ricevi un buono del ${f.perc}% che si applica da solo all'ordine successivo.</p>`) : ""}
     ${valido ? `<div class="coupon c-benvenuto"><span class="c-tipo">🎉 Sconto di benvenuto ${d.percBenvenuto}%</span><span class="c-code" translate="no">${esc(b.codice)}</span>
       <span class="c-info">Mostra questo codice alla cassa: vale solo al ristorante.</span></div>` : ""}`;
 }
