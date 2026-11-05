@@ -762,3 +762,10 @@ body.tour-open .tabbar { z-index: 80; pointer-events: none; }
   .fx-mascot *, .fx-ord *, .fx-sleep *, .fx-chop *, .coupon.fx-flip { animation: none !important; }
   .fx-sleep .s-z text { opacity: 1; }
 }
+
+/* Sconti di novembre */
+.ord-sum .ord-sconto { color: #3FB27F !important; font-weight: 700; }
+.ord-risparmio { color: #3FB27F; font-weight: 700; }
+.coupon.c-benvenuto { border-color: #3FB27F; background: linear-gradient(135deg, rgba(63,178,127,.14), var(--surface-2)); }
+.coupon.c-benvenuto .c-tipo { color: #5ED39C; }
+.sconti-box p { margin: 10px 0 0; }
