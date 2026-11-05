@@ -82,8 +82,10 @@ window.YUGO_CONFIG = {
     // Menu da tavolo: quando c'è, mettilo qui con la stessa forma di "menu". Finché è vuoto si usa "menu".
     // Ordini da casa dal sito: arrivano su Telegram. Il cliente paga alla consegna o al ritiro.
     ordini: {
-      // Consegne a domicilio: metti false per riattivarle
-      consegnaSospesa: true,
+      // Consegne a domicilio: metti true per sospenderle
+      consegnaSospesa: false,
+      // Avviso "consegne di nuovo attive" (con l'omino che smonta il cantiere) visibile fino a questo giorno compreso
+      consegnaRiapertaFino: "2026-11-09",
       justEat: "https://www.justeat.it/restaurants-yugo-sushi-experience-sestri-levante/menu",
       minimo: 20,              // ordine minimo per la consegna (€)
       anticipo: 30,            // minuti minimi tra ordine e consegna/ritiro
