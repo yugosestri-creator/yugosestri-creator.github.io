@@ -108,12 +108,15 @@ const SCHEMA = [
      WHERE NOT EXISTS (SELECT 1 FROM eventi)`,
   // chi ha già fatto il primo ordine da casa (resta per sempre: serve per lo sconto "primo ordine")
   `CREATE TABLE IF NOT EXISTS primo_ordine (uid TEXT PRIMARY KEY, ordine INTEGER, creato TEXT NOT NULL)`,
-  // promo di novembre (si può modificare o eliminare dal Gestore → Eventi)
+  // la prima versione della promo di novembre (sconti social/registrazione) per ora è spenta
+  `UPDATE eventi SET eliminato = 1 WHERE nome = 'Novembre da Yugo: sconti fino al 20%' AND eliminato = 0`,
+  // promo attive (si possono modificare o eliminare dal Gestore → Eventi)
   `INSERT INTO eventi (nome, descrizione, sconto, etichetta, dal, al, creato)
-     SELECT 'Novembre da Yugo: sconti fino al 20%', 'Seguici su Instagram o TikTok: 10% di sconto mangiando al ristorante (mostralo alla cassa). Registrati sul sito: buono di benvenuto del 20%, da usare una volta sola al ristorante. Primo ordine da casa (consegna o ritiro): 10% di sconto, una volta sola. Gli sconti non si sommano: vale il più alto.',
-            '', 'Novembre', '2026-11-06', '2026-11-30', datetime('now')
-     WHERE NOT EXISTS (SELECT 1 FROM eventi WHERE nome = 'Novembre da Yugo: sconti fino al 20%')`,
-  `UPDATE eventi SET descrizione = 'Seguici su Instagram o TikTok: 10% di sconto mangiando al ristorante (mostralo alla cassa). Registrati sul sito: buono di benvenuto del 20%, da usare una volta sola al ristorante. Primo ordine da casa (consegna o ritiro): 10% di sconto, una volta sola. Gli sconti non si sommano: vale il più alto.' WHERE nome = 'Novembre da Yugo: sconti fino al 20%' AND descrizione LIKE '%al ristorante o da casa%'`
+     SELECT 'Bibita offerta da Yugo', 'Prezzi invariati e da bere ci pensiamo noi: in 2 persone una bottiglietta d''acqua o una bibita in omaggio; in 3 o più persone una bibita grande, una birra o del vino.', '', 'Omaggio', '2026-11-06', '2026-11-12', datetime('now')
+     WHERE NOT EXISTS (SELECT 1 FROM eventi WHERE nome = 'Bibita offerta da Yugo')`,
+  `INSERT INTO eventi (nome, descrizione, sconto, etichetta, dal, al, creato)
+     SELECT 'Ordina dal sito: 10% di sconto', 'Su ogni ordine fatto dal sito, con consegna a casa o ritiro al ristorante, hai il 10% di sconto. Lo sconto è già calcolato nel totale.', '10%', 'Online', '2026-11-06', '2026-11-30', datetime('now')
+     WHERE NOT EXISTS (SELECT 1 FROM eventi WHERE nome = 'Ordina dal sito: 10% di sconto')`
 ];
 const NUOVE_COLONNE = ["ALTER TABLE visite ADD COLUMN anonimi INTEGER NOT NULL DEFAULT 0", "ALTER TABLE visite ADD COLUMN ritorni INTEGER NOT NULL DEFAULT 0", "ALTER TABLE coupon ADD COLUMN tipo TEXT", "ALTER TABLE coupon ADD COLUMN premio TEXT", "ALTER TABLE ordini ADD COLUMN stato TEXT DEFAULT 'inviato'", "ALTER TABLE ordini ADD COLUMN nome TEXT",
   "ALTER TABLE ordini ADD COLUMN telefono TEXT", "ALTER TABLE ordini ADD COLUMN ora TEXT", "ALTER TABLE ordini ADD COLUMN lang TEXT",
@@ -278,7 +281,10 @@ const CONSEGNA_SOSPESA = false; // metti true per sospendere le consegne a domic
 const GIORNI_AVANTI = 5; // ordini da oggi fino a 5 giorni dopo
 /* Promo di novembre: buono di benvenuto 20% a chi si registra (una volta, SOLO al ristorante),
    10% sul primo ordine da casa, consegna o ritiro (una volta). Il 10% social si mostra alla cassa. */
-const PROMO_SCONTI = { dal: "2026-11-06", al: "2026-11-30", benvenuto: 20, primoOrdine: 10 };
+const PROMO_SCONTI = { dal: "2026-11-06", al: "2026-11-30", benvenuto: 20, primoOrdine: 10, online: 10 };
+/* Decisione del capo (5/11): prezzi invariati + bibita offerta al ristorante, 10% su TUTTI gli ordini dal sito.
+   Il buono di benvenuto 20% (solo al ristorante) è pronto ma spento: metti true per attivarlo più avanti. */
+const BENVENUTO_ATTIVO = false;
 const oggiRomaISO = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Rome" }).format(new Date());
 const promoScontiAttiva = () => { const g = oggiRomaISO(); return g >= PROMO_SCONTI.dal && g <= PROMO_SCONTI.al; };
 async function codiceCouponNuovo(env) {
@@ -305,7 +311,7 @@ async function scontiMe(env, body) {
   if (!u) throw new Errore("Accedi per vedere i tuoi sconti.", 401);
   const attiva = promoScontiAttiva();
   let b = await env.DB.prepare(`SELECT codice, stato, usato, creato FROM coupon WHERE uid = ? AND tipo = 'benvenuto'`).bind(u.uid).first();
-  if (!b && attiva && u.verificato) {
+  if (!b && attiva && BENVENUTO_ATTIVO && u.verificato) {
     const codice = await codiceCouponNuovo(env);
     await env.DB.prepare(`INSERT INTO coupon (codice, promoter_id, livello, creato, tipo, premio, uid) VALUES (?, 0, 0, ?, 'benvenuto', ?, ?)`)
       .bind(codice, adessoISO(), `Sconto di benvenuto ${PROMO_SCONTI.benvenuto}%`, u.uid).run();
@@ -314,7 +320,8 @@ async function scontiMe(env, body) {
   const primoFatto = await giaOrdinato(env, u.uid);
   return { ok: true, attiva, dal: PROMO_SCONTI.dal, al: PROMO_SCONTI.al, percBenvenuto: PROMO_SCONTI.benvenuto, percPrimo: PROMO_SCONTI.primoOrdine,
     verificato: u.verificato, benvenuto: b, primoFatto,
-    prossimo: attiva && !primoFatto ? PROMO_SCONTI.primoOrdine : 0 }; // sugli ordini da casa vale solo il 10% del primo ordine
+    online: attiva ? PROMO_SCONTI.online : 0,
+    prossimo: attiva ? PROMO_SCONTI.online : 0 }; // 10% su ogni ordine dal sito
 }
 const eur = (n) => "€ " + n.toFixed(2).replace(".", ",");
 const minuti = (hhmm) => { const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; };
@@ -425,9 +432,8 @@ async function ordine(env, body) {
   const recenti = await env.DB.prepare("SELECT COUNT(*) AS n FROM ordini WHERE uid = ? AND creato > ?")
     .bind(u.uid, new Date(Date.now() - 12 * 3600e3).toISOString()).first();
   if (recenti && recenti.n >= 5) throw new Errore("Hai già inviato diversi ordini oggi: per altri chiama il ristorante", 429);
-  // Sconto di novembre sugli ordini da casa: 10% solo sul primo ordine (il buono di benvenuto vale solo al ristorante)
-  const primo = !(await giaOrdinato(env, u.uid));
-  const sconto = promoScontiAttiva() && primo ? { tipo: "primo", perc: PROMO_SCONTI.primoOrdine, it: "Sconto primo ordine", zh: "首单优惠" } : null;
+  // 10% su ogni ordine fatto dal sito (consegna o ritiro) durante la promo
+  const sconto = promoScontiAttiva() ? { tipo: "online", perc: PROMO_SCONTI.online, it: "Sconto ordine dal sito", zh: "网站订餐优惠" } : null;
   const meno = sconto ? Math.round(sub * sconto.perc) / 100 : 0;
   const tot = Math.round((sub - meno + costo) * 100) / 100;
   const ins = await env.DB.prepare("INSERT INTO ordini (uid, email, totale, creato, nome, telefono, ora, lang, data, sconto) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
