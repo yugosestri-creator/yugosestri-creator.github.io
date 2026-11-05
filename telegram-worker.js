@@ -110,9 +110,10 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS primo_ordine (uid TEXT PRIMARY KEY, ordine INTEGER, creato TEXT NOT NULL)`,
   // promo di novembre (si può modificare o eliminare dal Gestore → Eventi)
   `INSERT INTO eventi (nome, descrizione, sconto, etichetta, dal, al, creato)
-     SELECT 'Novembre da Yugo: sconti fino al 20%', 'Seguici su Instagram o TikTok: 10% di sconto mangiando al ristorante (mostralo alla cassa). Registrati sul sito: 20% di benvenuto, una volta sola, al ristorante o da casa. Primo ordine da casa (consegna o ritiro): 10% di sconto. Gli sconti non si sommano: vale il più alto.',
+     SELECT 'Novembre da Yugo: sconti fino al 20%', 'Seguici su Instagram o TikTok: 10% di sconto mangiando al ristorante (mostralo alla cassa). Registrati sul sito: buono di benvenuto del 20%, da usare una volta sola al ristorante. Primo ordine da casa (consegna o ritiro): 10% di sconto, una volta sola. Gli sconti non si sommano: vale il più alto.',
             '', 'Novembre', '2026-11-06', '2026-11-30', datetime('now')
-     WHERE NOT EXISTS (SELECT 1 FROM eventi WHERE nome = 'Novembre da Yugo: sconti fino al 20%')`
+     WHERE NOT EXISTS (SELECT 1 FROM eventi WHERE nome = 'Novembre da Yugo: sconti fino al 20%')`,
+  `UPDATE eventi SET descrizione = 'Seguici su Instagram o TikTok: 10% di sconto mangiando al ristorante (mostralo alla cassa). Registrati sul sito: buono di benvenuto del 20%, da usare una volta sola al ristorante. Primo ordine da casa (consegna o ritiro): 10% di sconto, una volta sola. Gli sconti non si sommano: vale il più alto.' WHERE nome = 'Novembre da Yugo: sconti fino al 20%' AND descrizione LIKE '%al ristorante o da casa%'`
 ];
 const NUOVE_COLONNE = ["ALTER TABLE visite ADD COLUMN anonimi INTEGER NOT NULL DEFAULT 0", "ALTER TABLE visite ADD COLUMN ritorni INTEGER NOT NULL DEFAULT 0", "ALTER TABLE coupon ADD COLUMN tipo TEXT", "ALTER TABLE coupon ADD COLUMN premio TEXT", "ALTER TABLE ordini ADD COLUMN stato TEXT DEFAULT 'inviato'", "ALTER TABLE ordini ADD COLUMN nome TEXT",
   "ALTER TABLE ordini ADD COLUMN telefono TEXT", "ALTER TABLE ordini ADD COLUMN ora TEXT", "ALTER TABLE ordini ADD COLUMN lang TEXT",
@@ -275,8 +276,8 @@ const FASCE = [["12:00", "14:30"], ["19:00", "22:00"]]; // orari di consegna/rit
 const MINIMO = 20;
 const CONSEGNA_SOSPESA = false; // metti true per sospendere le consegne a domicilio
 const GIORNI_AVANTI = 5; // ordini da oggi fino a 5 giorni dopo
-/* Promo di novembre: 20% di benvenuto a chi si registra (una volta, al ristorante o da casa),
-   10% sul primo ordine da casa (una volta). Non si sommano: vale il più alto. Il 10% social si mostra alla cassa. */
+/* Promo di novembre: buono di benvenuto 20% a chi si registra (una volta, SOLO al ristorante),
+   10% sul primo ordine da casa, consegna o ritiro (una volta). Il 10% social si mostra alla cassa. */
 const PROMO_SCONTI = { dal: "2026-11-06", al: "2026-11-30", benvenuto: 20, primoOrdine: 10 };
 const oggiRomaISO = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Rome" }).format(new Date());
 const promoScontiAttiva = () => { const g = oggiRomaISO(); return g >= PROMO_SCONTI.dal && g <= PROMO_SCONTI.al; };
@@ -313,7 +314,7 @@ async function scontiMe(env, body) {
   const primoFatto = await giaOrdinato(env, u.uid);
   return { ok: true, attiva, dal: PROMO_SCONTI.dal, al: PROMO_SCONTI.al, percBenvenuto: PROMO_SCONTI.benvenuto, percPrimo: PROMO_SCONTI.primoOrdine,
     verificato: u.verificato, benvenuto: b, primoFatto,
-    prossimo: !attiva ? 0 : b && b.stato === "valido" ? PROMO_SCONTI.benvenuto : !primoFatto ? PROMO_SCONTI.primoOrdine : 0 };
+    prossimo: attiva && !primoFatto ? PROMO_SCONTI.primoOrdine : 0 }; // sugli ordini da casa vale solo il 10% del primo ordine
 }
 const eur = (n) => "€ " + n.toFixed(2).replace(".", ",");
 const minuti = (hhmm) => { const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; };
@@ -424,14 +425,9 @@ async function ordine(env, body) {
   const recenti = await env.DB.prepare("SELECT COUNT(*) AS n FROM ordini WHERE uid = ? AND creato > ?")
     .bind(u.uid, new Date(Date.now() - 12 * 3600e3).toISOString()).first();
   if (recenti && recenti.n >= 5) throw new Errore("Hai già inviato diversi ordini oggi: per altri chiama il ristorante", 429);
-  // Sconti di novembre: prima il 20% di benvenuto (se non l'ha ancora usato), altrimenti il 10% del primo ordine
+  // Sconto di novembre sugli ordini da casa: 10% solo sul primo ordine (il buono di benvenuto vale solo al ristorante)
   const primo = !(await giaOrdinato(env, u.uid));
-  let sconto = null;
-  if (promoScontiAttiva()) {
-    const bv = await env.DB.prepare(`UPDATE coupon SET stato = 'usato', usato = ? WHERE uid = ? AND tipo = 'benvenuto' AND stato = 'valido'`).bind(adessoISO(), u.uid).run();
-    if (bv.meta && bv.meta.changes === 1) sconto = { tipo: "benvenuto", perc: PROMO_SCONTI.benvenuto, it: "Sconto di benvenuto", zh: "新会员优惠" };
-    else if (primo) sconto = { tipo: "primo", perc: PROMO_SCONTI.primoOrdine, it: "Sconto primo ordine", zh: "首单优惠" };
-  }
+  const sconto = promoScontiAttiva() && primo ? { tipo: "primo", perc: PROMO_SCONTI.primoOrdine, it: "Sconto primo ordine", zh: "首单优惠" } : null;
   const meno = sconto ? Math.round(sub * sconto.perc) / 100 : 0;
   const tot = Math.round((sub - meno + costo) * 100) / 100;
   const ins = await env.DB.prepare("INSERT INTO ordini (uid, email, totale, creato, nome, telefono, ora, lang, data, sconto) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
@@ -671,7 +667,7 @@ async function comando(env, msg) {
       const giu = c.stato === "usato" ? `⚠️ Buono di benvenuto ${codice} GIÀ USATO il ${oraRoma(c.usato).it}\n⚠️ 新会员优惠券 ${codice} 已于 ${oraRoma(c.usato).zh} 使用过` : null;
       if (giu) return rispondi(giu);
       if (!promoScontiAttiva()) return rispondi(`⛔ Buono di benvenuto ${codice} scaduto (valeva dal 6 al 30 novembre).\n⛔ 新会员优惠券已过期。`);
-      if (cmd === "/coupon") return rispondi(`✅ Buono di benvenuto ${codice} VALIDO: ${PROMO_SCONTI.benvenuto}% di sconto sul conto, una volta sola.\n✅ 新会员优惠券 ${codice} 有效：账单 ${PROMO_SCONTI.benvenuto}% 折扣，仅限一次。`);
+      if (cmd === "/coupon") return rispondi(`✅ Buono di benvenuto ${codice} VALIDO: ${PROMO_SCONTI.benvenuto}% di sconto sul conto al ristorante, una volta sola.\n✅ 新会员优惠券 ${codice} 有效：账单 ${PROMO_SCONTI.benvenuto}% 折扣，仅限一次。`);
       await env.DB.prepare(`UPDATE coupon SET stato = 'usato', usato = ? WHERE codice = ? AND stato = 'valido'`).bind(adessoISO(), codice).run();
       return rispondi(`✅ Buono di benvenuto ${codice} segnato come usato (${PROMO_SCONTI.benvenuto}%).\n✅ 新会员优惠券 ${codice} 已标记为已使用。`);
     }
