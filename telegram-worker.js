@@ -105,12 +105,20 @@ const SCHEMA = [
   `INSERT INTO eventi (nome, descrizione, sconto, etichetta, dal, al, creato)
      SELECT 'Halloween da Yugo: fino al 20% di sconto', 'Per tutti il 10% di sconto. Se ci segui su Instagram o TikTok lo sconto sale al 20%. Mostra alla cassa che ci segui per avere il 20%.',
             '10% · 20% se ci segui', 'Halloween', '2026-10-21', '2026-11-02', datetime('now')
-     WHERE NOT EXISTS (SELECT 1 FROM eventi)`
+     WHERE NOT EXISTS (SELECT 1 FROM eventi)`,
+  // chi ha già fatto il primo ordine da casa (resta per sempre: serve per lo sconto "primo ordine")
+  `CREATE TABLE IF NOT EXISTS primo_ordine (uid TEXT PRIMARY KEY, ordine INTEGER, creato TEXT NOT NULL)`,
+  // promo di novembre (si può modificare o eliminare dal Gestore → Eventi)
+  `INSERT INTO eventi (nome, descrizione, sconto, etichetta, dal, al, creato)
+     SELECT 'Novembre da Yugo: sconti fino al 20%', 'Seguici su Instagram o TikTok: 10% di sconto mangiando al ristorante (mostralo alla cassa). Registrati sul sito: 20% di benvenuto, una volta sola, al ristorante o da casa. Primo ordine da casa (consegna o ritiro): 10% di sconto. Gli sconti non si sommano: vale il più alto.',
+            '', 'Novembre', '2026-11-06', '2026-11-30', datetime('now')
+     WHERE NOT EXISTS (SELECT 1 FROM eventi WHERE nome = 'Novembre da Yugo: sconti fino al 20%')`
 ];
 const NUOVE_COLONNE = ["ALTER TABLE visite ADD COLUMN anonimi INTEGER NOT NULL DEFAULT 0", "ALTER TABLE visite ADD COLUMN ritorni INTEGER NOT NULL DEFAULT 0", "ALTER TABLE coupon ADD COLUMN tipo TEXT", "ALTER TABLE coupon ADD COLUMN premio TEXT", "ALTER TABLE ordini ADD COLUMN stato TEXT DEFAULT 'inviato'", "ALTER TABLE ordini ADD COLUMN nome TEXT",
   "ALTER TABLE ordini ADD COLUMN telefono TEXT", "ALTER TABLE ordini ADD COLUMN ora TEXT", "ALTER TABLE ordini ADD COLUMN lang TEXT",
   "ALTER TABLE ordini ADD COLUMN oraPrima TEXT", "ALTER TABLE ordini ADD COLUMN nascosto INTEGER",
-  "ALTER TABLE prenot ADD COLUMN oraPrima TEXT", "ALTER TABLE ordini ADD COLUMN data TEXT"];
+  "ALTER TABLE prenot ADD COLUMN oraPrima TEXT", "ALTER TABLE ordini ADD COLUMN data TEXT",
+  "ALTER TABLE coupon ADD COLUMN uid TEXT", "ALTER TABLE ordini ADD COLUMN sconto TEXT"];
 let schemaPronto = false;
 async function init(env) {
   if (schemaPronto) return;
@@ -267,6 +275,46 @@ const FASCE = [["12:00", "14:30"], ["19:00", "22:00"]]; // orari di consegna/rit
 const MINIMO = 20;
 const CONSEGNA_SOSPESA = false; // metti true per sospendere le consegne a domicilio
 const GIORNI_AVANTI = 5; // ordini da oggi fino a 5 giorni dopo
+/* Promo di novembre: 20% di benvenuto a chi si registra (una volta, al ristorante o da casa),
+   10% sul primo ordine da casa (una volta). Non si sommano: vale il più alto. Il 10% social si mostra alla cassa. */
+const PROMO_SCONTI = { dal: "2026-11-06", al: "2026-11-30", benvenuto: 20, primoOrdine: 10 };
+const oggiRomaISO = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Rome" }).format(new Date());
+const promoScontiAttiva = () => { const g = oggiRomaISO(); return g >= PROMO_SCONTI.dal && g <= PROMO_SCONTI.al; };
+async function codiceCouponNuovo(env) {
+  for (let i = 0; i < 30; i++) {
+    const c = String(100000 + Math.floor(Math.random() * 900000));
+    if (!(await env.DB.prepare(`SELECT 1 FROM coupon WHERE codice = ?`).bind(c).first())) return c;
+  }
+  throw new Errore("Riprova tra un attimo.", 503);
+}
+/* Ordine annullato dal ristorante: lo sconto torna disponibile al cliente */
+async function ridaiSconto(env, id) {
+  const o = await env.DB.prepare(`SELECT uid, sconto FROM ordini WHERE id = ?`).bind(id).first();
+  if (!o) return;
+  await env.DB.prepare(`DELETE FROM primo_ordine WHERE uid = ? AND ordine = ?`).bind(o.uid, id).run();
+  if (/benvenuto/.test(o.sconto || "")) await env.DB.prepare(`UPDATE coupon SET stato = 'valido', usato = NULL WHERE uid = ? AND tipo = 'benvenuto'`).bind(o.uid).run();
+}
+async function giaOrdinato(env, uid) {
+  if (await env.DB.prepare(`SELECT 1 FROM primo_ordine WHERE uid = ?`).bind(uid).first()) return true;
+  return !!(await env.DB.prepare(`SELECT 1 FROM ordini WHERE uid = ? AND COALESCE(stato, '') NOT LIKE 'annullat%' LIMIT 1`).bind(uid).first());
+}
+/* Lo stato degli sconti per il cliente; crea il codice di benvenuto la prima volta (solo account confermati, durante la promo) */
+async function scontiMe(env, body) {
+  const u = await utente(env, body.idToken);
+  if (!u) throw new Errore("Accedi per vedere i tuoi sconti.", 401);
+  const attiva = promoScontiAttiva();
+  let b = await env.DB.prepare(`SELECT codice, stato, usato, creato FROM coupon WHERE uid = ? AND tipo = 'benvenuto'`).bind(u.uid).first();
+  if (!b && attiva && u.verificato) {
+    const codice = await codiceCouponNuovo(env);
+    await env.DB.prepare(`INSERT INTO coupon (codice, promoter_id, livello, creato, tipo, premio, uid) VALUES (?, 0, 0, ?, 'benvenuto', ?, ?)`)
+      .bind(codice, adessoISO(), `Sconto di benvenuto ${PROMO_SCONTI.benvenuto}%`, u.uid).run();
+    b = { codice, stato: "valido", usato: null, creato: adessoISO() };
+  }
+  const primoFatto = await giaOrdinato(env, u.uid);
+  return { ok: true, attiva, dal: PROMO_SCONTI.dal, al: PROMO_SCONTI.al, percBenvenuto: PROMO_SCONTI.benvenuto, percPrimo: PROMO_SCONTI.primoOrdine,
+    verificato: u.verificato, benvenuto: b, primoFatto,
+    prossimo: !attiva ? 0 : b && b.stato === "valido" ? PROMO_SCONTI.benvenuto : !primoFatto ? PROMO_SCONTI.primoOrdine : 0 };
+}
 const eur = (n) => "€ " + n.toFixed(2).replace(".", ",");
 const minuti = (hhmm) => { const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; };
 function minutiRoma() {
@@ -376,10 +424,20 @@ async function ordine(env, body) {
   const recenti = await env.DB.prepare("SELECT COUNT(*) AS n FROM ordini WHERE uid = ? AND creato > ?")
     .bind(u.uid, new Date(Date.now() - 12 * 3600e3).toISOString()).first();
   if (recenti && recenti.n >= 5) throw new Errore("Hai già inviato diversi ordini oggi: per altri chiama il ristorante", 429);
-  const tot = Math.round((sub + costo) * 100) / 100;
-  const ins = await env.DB.prepare("INSERT INTO ordini (uid, email, totale, creato, nome, telefono, ora, lang, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    .bind(u.uid, u.email, tot, adessoISO(), o.nome, o.telefono, o.ora, pulisci(body.lang, 5) || "it", data).run();
+  // Sconti di novembre: prima il 20% di benvenuto (se non l'ha ancora usato), altrimenti il 10% del primo ordine
+  const primo = !(await giaOrdinato(env, u.uid));
+  let sconto = null;
+  if (promoScontiAttiva()) {
+    const bv = await env.DB.prepare(`UPDATE coupon SET stato = 'usato', usato = ? WHERE uid = ? AND tipo = 'benvenuto' AND stato = 'valido'`).bind(adessoISO(), u.uid).run();
+    if (bv.meta && bv.meta.changes === 1) sconto = { tipo: "benvenuto", perc: PROMO_SCONTI.benvenuto, it: "Sconto di benvenuto", zh: "新会员优惠" };
+    else if (primo) sconto = { tipo: "primo", perc: PROMO_SCONTI.primoOrdine, it: "Sconto primo ordine", zh: "首单优惠" };
+  }
+  const meno = sconto ? Math.round(sub * sconto.perc) / 100 : 0;
+  const tot = Math.round((sub - meno + costo) * 100) / 100;
+  const ins = await env.DB.prepare("INSERT INTO ordini (uid, email, totale, creato, nome, telefono, ora, lang, data, sconto) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(u.uid, u.email, tot, adessoISO(), o.nome, o.telefono, o.ora, pulisci(body.lang, 5) || "it", data, sconto ? `${sconto.perc}% ${sconto.tipo}` : null).run();
   const numero = ins.meta && ins.meta.last_row_id;
+  await env.DB.prepare(`INSERT OR IGNORE INTO primo_ordine (uid, ordine, creato) VALUES (?, ?, ?)`).bind(u.uid, numero, adessoISO()).run();
 
   const [yy, mm, dd] = data.split("-").map(Number);
   const quando = diff ? `📅 ${GIORNI[dow].toUpperCase()} ${dd} ${MESI[mm - 1]} alle ${o.ora}` : `Oggi alle ${o.ora}`;
@@ -391,7 +449,9 @@ async function ordine(env, body) {
     `👤 ${o.nome}`, `📞 ${o.telefono}`,
     consegna ? `📍 ${o.indirizzo} (${o.zona})` : "📍 Ritiro al ristorante",
     `🕗 ${quando}`, "", ...lista, "",
-    consegna ? `Piatti ${eur(sub)} + consegna ${eur(costo)}` : null, `💶 TOTALE ${eur(tot)} – paga alla ${consegna ? "consegna" : "cassa"}`,
+    consegna || sconto ? `Piatti ${eur(sub)}${sconto ? ` − ${sconto.it.toLowerCase()} ${sconto.perc}% (${eur(meno)})` : ""}${consegna ? ` + consegna ${eur(costo)}` : ""}` : null,
+    sconto ? `🎉 ${sconto.it.toUpperCase()} ${sconto.perc}% GIÀ CALCOLATO` : null,
+    `💶 TOTALE ${eur(tot)} – paga alla ${consegna ? "consegna" : "cassa"}`,
     o.note ? `📝 ${o.note}` : null, `✉️ ${u.email}`, `⏱ Inviato il ${t.it}`
   ];
   const zh = [
@@ -399,12 +459,14 @@ async function ordine(env, body) {
     `👤 姓名：${o.nome}`, `📞 电话：${o.telefono}`,
     consegna ? `📍 地址：${o.indirizzo}（${o.zona}）` : "📍 到店自取",
     `🕗 时间：${quandoZh}`, "", ...lista, "",
-    consegna ? `菜品 ${eur(sub)} + 配送费 ${eur(costo)}` : null, `💶 合计 ${eur(tot)}（${consegna ? "送达时付款" : "取餐时付款"}）`,
+    consegna || sconto ? `菜品 ${eur(sub)}${sconto ? ` − ${sconto.zh} ${sconto.perc}%（${eur(meno)}）` : ""}${consegna ? ` + 配送费 ${eur(costo)}` : ""}` : null,
+    sconto ? `🎉 ${sconto.zh} ${sconto.perc}%（已计算在内）` : null,
+    `💶 合计 ${eur(tot)}（${consegna ? "送达时付款" : "取餐时付款"}）`,
     o.note ? `📝 备注：${o.note}` : null, `⏱ 提交时间：${t.zh}`
   ];
   const testo = [...it, "", "— — — — — — —", "", ...zh, "", `🔁 Per annullarlo / 取消：/annulla O${numero}`].filter((r) => r !== null).join("\n");
   if (!(await tg(env, testo, CONFIG.CHAT_ORDINI || CONFIG.CHAT_ID))) throw new Errore("Non siamo riusciti a inviare l'ordine. Chiama il ristorante.", 502);
-  return { ok: true, numero, totale: tot };
+  return { ok: true, numero, totale: tot, sconto: sconto ? { tipo: sconto.tipo, perc: sconto.perc, meno } : null };
 }
 
 /* Prenotazioni che il ristorante ha annullato da Telegram: il sito le mostra al cliente */
@@ -570,6 +632,7 @@ async function comando(env, msg) {
     if (!r) return rispondi(`Non trovo ${ordine ? "l'ordine" : "la prenotazione"} ${m[1]}${id}.\n找不到 ${m[1]}${id}。`);
     if (/annullat/.test(r.stato || "")) return rispondi(`${m[1]}${id} è già annullat${ordine ? "o" : "a"}.\n${m[1]}${id} 已取消。`);
     await env.DB.prepare(`UPDATE ${ordine ? "ordini" : "prenot"} SET stato = 'annullata_ristorante' WHERE id = ?`).bind(id).run();
+    if (ordine) await ridaiSconto(env, id);
     const quando = ordine ? `n. ${id}${r.ora ? " (" + r.ora + ")" : ""}` : `${r.data.split("-").reverse().join("/")} ${r.ora}`;
     const email = await avvisaCliente(env, r.email, r.lang || "it", ordine, quando);
     const chi = [r.nome, r.telefono].filter(Boolean).join(" · ");
@@ -601,9 +664,17 @@ async function comando(env, msg) {
     const codice = String(arg || "").replace(/\D/g, "");
     if (!codice) return rispondi(`Scrivi il codice, per esempio ${cmd} 234543\n请写优惠券号码，例如 ${cmd} 234543`);
     const c = await env.DB.prepare(
-      `SELECT c.*, p.nome, p.telefono, p.codice AS invito FROM coupon c JOIN promoter p ON p.id = c.promoter_id WHERE c.codice = ?`
+      `SELECT c.*, p.nome, p.telefono, p.codice AS invito FROM coupon c LEFT JOIN promoter p ON p.id = c.promoter_id WHERE c.codice = ?`
     ).bind(codice).first();
     if (!c) return rispondi(`❌ Il coupon ${codice} non esiste.\n❌ 优惠券 ${codice} 不存在。`);
+    if (c.tipo === "benvenuto") {
+      const giu = c.stato === "usato" ? `⚠️ Buono di benvenuto ${codice} GIÀ USATO il ${oraRoma(c.usato).it}\n⚠️ 新会员优惠券 ${codice} 已于 ${oraRoma(c.usato).zh} 使用过` : null;
+      if (giu) return rispondi(giu);
+      if (!promoScontiAttiva()) return rispondi(`⛔ Buono di benvenuto ${codice} scaduto (valeva dal 6 al 30 novembre).\n⛔ 新会员优惠券已过期。`);
+      if (cmd === "/coupon") return rispondi(`✅ Buono di benvenuto ${codice} VALIDO: ${PROMO_SCONTI.benvenuto}% di sconto sul conto, una volta sola.\n✅ 新会员优惠券 ${codice} 有效：账单 ${PROMO_SCONTI.benvenuto}% 折扣，仅限一次。`);
+      await env.DB.prepare(`UPDATE coupon SET stato = 'usato', usato = ? WHERE codice = ? AND stato = 'valido'`).bind(adessoISO(), codice).run();
+      return rispondi(`✅ Buono di benvenuto ${codice} segnato come usato (${PROMO_SCONTI.benvenuto}%).\n✅ 新会员优惠券 ${codice} 已标记为已使用。`);
+    }
     const chi = `${c.nome} · ${c.telefono} · ${c.invito} · livello ${c.livello}`;
     if (c.stato === "usato") return rispondi(`⚠️ Coupon ${codice} GIÀ USATO il ${oraRoma(c.usato).it}\n${chi}\n⚠️ 优惠券 ${codice} 已于 ${oraRoma(c.usato).zh} 使用过`);
     const k = condDi(c.livello, c.tipo), oggi = couponOggi();
@@ -885,6 +956,7 @@ async function gestAzione(env, body) {
     if (!r) throw new Errore("Ordine non trovato.", 404);
     if (/annullat/.test(r.stato || "")) return { ok: true, gia: true };
     await env.DB.prepare("UPDATE ordini SET stato = 'annullata_ristorante' WHERE id = ?").bind(id).run();
+    await ridaiSconto(env, id);
     await avvisaCliente(env, r.email, r.lang || "it", true, `n. ${id}${r.ora ? " (" + r.ora + ")" : ""}`);
     await notifica(env, r.uid, "Ordine annullato", `Il ristorante ha annullato il tuo ordine n. ${id}. Per info: 0185 177 1400.`);
     await tg(env, testoModifica(r, true, null), CONFIG.CHAT_ORDINI || CONFIG.CHAT_ID);
@@ -912,8 +984,13 @@ async function gestAzione(env, body) {
   if (az === "coupon-cerca") {
     const codice = String(body.codice || "").replace(/\D/g, "");
     if (!codice) throw new Errore("Scrivi il codice del coupon.", 400);
-    const c = await env.DB.prepare("SELECT c.*, p.nome, p.telefono, p.codice AS invito FROM coupon c JOIN promoter p ON p.id = c.promoter_id WHERE c.codice = ?").bind(codice).first();
+    const c = await env.DB.prepare("SELECT c.*, p.nome, p.telefono, p.codice AS invito FROM coupon c LEFT JOIN promoter p ON p.id = c.promoter_id WHERE c.codice = ?").bind(codice).first();
     if (!c) return { ok: true, coupon: null };
+    if (c.tipo === "benvenuto") {
+      const att = promoScontiAttiva();
+      return { ok: true, oggi: att ? { ok: true } : { ok: false, motivo: "Buono scaduto: valeva dal 6 al 30 novembre." },
+        coupon: { codice: c.codice, stato: c.stato, livello: 0, premio: `${PROMO_SCONTI.benvenuto}% di sconto sul conto (benvenuto, una volta sola)`, tipo: "benvenuto", condizione: "", giorni: "Tutti i giorni fino al 30 novembre", nome: "", telefono: "", invito: "", usato: c.usato, creato: c.creato } };
+    }
     const premio = c.premio || ((CONFIG && CONFIG.PREMI) || [])[c.livello - 1] || `livello ${c.livello}`;
     const k = condDi(c.livello, c.tipo || "");
     return { ok: true, oggi: couponOggi(), coupon: { codice: c.codice, stato: c.stato, livello: c.livello, premio, tipo: c.tipo || "", condizione: k ? COND[k] : "", giorni: GIORNI_COUPON, nome: c.nome, telefono: c.telefono, invito: c.invito, usato: c.usato, creato: c.creato } };
@@ -934,7 +1011,8 @@ async function gestAzione(env, body) {
   }
   if (az === "coupon-usato") {
     const codice = String(body.codice || "").replace(/\D/g, "");
-    const oggi = couponOggi();
+    const tc = await env.DB.prepare("SELECT tipo FROM coupon WHERE codice = ?").bind(codice).first();
+    const oggi = tc && tc.tipo === "benvenuto" ? (promoScontiAttiva() ? { ok: true } : { ok: false, motivo: "Buono scaduto." }) : couponOggi();
     if (!oggi.ok) throw new Errore(oggi.motivo, 400);
     const r = await env.DB.prepare("UPDATE coupon SET stato = 'usato', usato = ? WHERE codice = ? AND stato = 'valido'").bind(adessoISO(), codice).run();
     if (!r.meta || r.meta.changes !== 1) throw new Errore("Coupon già usato o non valido.", 400);
@@ -1069,6 +1147,7 @@ export default {
       await init(env);
       const ip = request.headers.get("CF-Connecting-IP") || "";
       if (url.pathname === "/ordine") return json(await ordine(env, body));
+      if (url.pathname === "/sconti/me") return json(await scontiMe(env, body));
       if (url.pathname === "/promo/iscrivi") return json(await promoIscrivi(env, body));
       if (url.pathname === "/promo/me") return json(await promoMe(env, body));
       if (url.pathname === "/promo/invito") return json(await promoInvito(env, body));
