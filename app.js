@@ -879,7 +879,7 @@ function fasceGiorno(data) {
 }
 
 let ordDati = store.get("yugo-ordine-dati", { modo: "consegna", zona: 0, indirizzo: "", ora: "", note: "" });
-/* Sconti di novembre (benvenuto 20% / primo ordine 10%): il bot decide, qui li mostriamo */
+/* Sconti di novembre: sugli ordini da casa solo il 10% del primo ordine (il buono di benvenuto 20% vale solo al ristorante) */
 let SCONTI = null, scontiQuando = 0;
 function caricaSconti(forza) {
   if (!WORKER || DEMO || !user || !user.verified || !backend) return Promise.resolve(null);
@@ -887,7 +887,7 @@ function caricaSconti(forza) {
   return backend.token().then((t) => api("/sconti/me", { idToken: t })).then((d) => { SCONTI = d; scontiQuando = Date.now(); return d; }).catch(() => SCONTI);
 }
 const percSconto = () => (user && SCONTI && SCONTI.attiva && SCONTI.prossimo) || 0;
-const nomeSconto = () => SCONTI && SCONTI.benvenuto && SCONTI.benvenuto.stato === "valido" ? "Sconto di benvenuto" : "Sconto primo ordine";
+const nomeSconto = () => "Sconto primo ordine";
 function apriCarrello() {
   const s = $("#carrello"); s.hidden = false; document.documentElement.classList.add("no-scroll");
   disegnaCarrello();
@@ -1477,9 +1477,9 @@ function disegnaSconti(d) {
   box.hidden = false;
   box.innerHTML = `<span class="promo-tag">Novembre</span><h2>I tuoi sconti</h2>
     ${valido ? `<div class="coupon c-benvenuto"><span class="c-tipo">🎉 Sconto di benvenuto ${d.percBenvenuto}%</span><span class="c-code" translate="no">${esc(b.codice)}</span>
-      <span class="c-info">Mostra questo codice alla cassa, oppure si applica da solo al tuo prossimo ordine da casa.</span><span class="c-giorni">Vale una volta sola, fino al 30 novembre.</span></div>`
+      <span class="c-info">Mostra questo codice alla cassa: vale solo al ristorante.</span><span class="c-giorni">Vale una volta sola, fino al 30 novembre.</span></div>`
       : b ? `<p>✅ Sconto di benvenuto già usato</p>` : ""}
-    ${!d.primoFatto && !valido ? `<p>🛵 Primo ordine da casa: ${d.percPrimo}% di sconto, si applica da solo.</p>` : ""}
+    ${!d.primoFatto ? `<p>🛵 Primo ordine da casa: ${d.percPrimo}% di sconto, si applica da solo.</p>` : ""}
     <p class="hint">Al ristorante: se ci segui su Instagram o TikTok hai il 10% di sconto (mostralo alla cassa).</p>
     <p class="hint">Gli sconti non si sommano: vale il più alto.</p>`;
 }
