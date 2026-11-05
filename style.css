@@ -643,6 +643,25 @@ body.has-cart .menu-list { padding-bottom: 80px; }
 .sospeso b { display: block; font-size: 15px; line-height: 1.3; color: var(--fg); }
 .sospeso span { display: block; margin-top: 3px; font-size: 13px; line-height: 1.4; color: var(--muted); }
 
+/* Consegne di nuovo attive: l'omino porta via il cantiere, poi arriva lo scooter (ciclo lento di 14 s) */
+.sospeso.riaperto { border: 1.5px solid #3FB27F; background: rgba(63, 178, 127, .10); }
+.omino-anim { flex: 0 0 auto; color: var(--fg); overflow: hidden; }
+.omino-anim .oa-trans { animation: oa-via 14s ease-in-out infinite; }
+.omino-anim .oa-barr { animation: oa-alza 14s ease-in-out infinite; }
+.omino-anim .oa-man { animation: oa-cammina 14s ease-in-out infinite; }
+.omino-anim .oa-g1, .omino-anim .oa-g2 { transform-box: fill-box; transform-origin: top center; animation: oa-passo .7s ease-in-out infinite alternate; }
+.omino-anim .oa-g2 { animation-direction: alternate-reverse; }
+.omino-anim .oa-moto { animation: oa-arriva 14s ease-in-out infinite; }
+@keyframes oa-cammina { 0% { transform: translateX(-40px); } 22%, 100% { transform: translateX(0); } }
+@keyframes oa-alza { 0%, 26% { transform: translateY(0); } 32%, 100% { transform: translateY(-4px); } }
+@keyframes oa-via { 0%, 34% { transform: translateX(0); opacity: 1; } 68% { transform: translateX(96px); opacity: 1; } 69%, 100% { transform: translateX(96px); opacity: 0; } }
+@keyframes oa-arriva { 0%, 70% { transform: translateX(-90px); opacity: 1; } 86%, 96% { transform: translateX(0); opacity: 1; } 100% { transform: translateX(0); opacity: 0; } }
+@keyframes oa-passo { from { transform: rotate(-14deg); } to { transform: rotate(14deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .omino-anim .oa-trans { animation: none; opacity: 0; }
+  .omino-anim .oa-moto, .omino-anim .oa-g1, .omino-anim .oa-g2 { animation: none; }
+}
+
 /* Prima visita: avviso cookie */
 .cookie-bar { position: fixed; z-index: 65; left: 12px; right: 12px; bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 12px);
   max-width: 560px; margin: 0 auto; padding: 16px; border-radius: 18px; background: var(--surface); border: 1px solid var(--line);
