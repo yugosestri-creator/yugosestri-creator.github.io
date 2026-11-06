@@ -112,8 +112,9 @@ const SCHEMA = [
   `UPDATE eventi SET eliminato = 1 WHERE nome = 'Novembre da Yugo: sconti fino al 20%' AND eliminato = 0`,
   // promo attive (si possono modificare o eliminare dal Gestore → Eventi)
   `INSERT INTO eventi (nome, descrizione, sconto, etichetta, dal, al, creato)
-     SELECT 'Bibita offerta da Yugo', 'Prezzi invariati e da bere ci pensiamo noi: in 2 persone una bottiglietta d''acqua o una bibita in omaggio; in 3 o più persone una bibita grande, una birra o del vino.', '', 'Omaggio', '2026-11-06', '2026-11-12', datetime('now')
+     SELECT 'Bibita offerta da Yugo', 'Prezzi invariati e da bere ci pensiamo noi: in 2 persone una bottiglietta d''acqua o una bibita in omaggio; in 3 o più persone una bibita grande, oppure una birra o del vino solo per i maggiorenni (18+).', '', 'Omaggio', '2026-11-06', '2026-11-12', datetime('now')
      WHERE NOT EXISTS (SELECT 1 FROM eventi WHERE nome = 'Bibita offerta da Yugo')`,
+  `UPDATE eventi SET descrizione = 'Prezzi invariati e da bere ci pensiamo noi: in 2 persone una bottiglietta d''acqua o una bibita in omaggio; in 3 o più persone una bibita grande, oppure una birra o del vino solo per i maggiorenni (18+).' WHERE nome = 'Bibita offerta da Yugo' AND descrizione NOT LIKE '%maggiorenni%'`,
   `INSERT INTO eventi (nome, descrizione, sconto, etichetta, dal, al, creato)
      SELECT 'Ordina dal sito: 10% di sconto', 'Su ogni ordine fatto dal sito, con consegna a casa o ritiro al ristorante, hai il 10% di sconto. Lo sconto è già calcolato nel totale.', '10%', 'Online', '2026-11-06', '2026-11-30', datetime('now')
      WHERE NOT EXISTS (SELECT 1 FROM eventi WHERE nome = 'Ordina dal sito: 10% di sconto')`,
