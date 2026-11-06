@@ -887,7 +887,7 @@ function caricaSconti(forza) {
   return backend.token().then((t) => api("/sconti/me", { idToken: t })).then((d) => { SCONTI = d; scontiQuando = Date.now(); return d; }).catch(() => SCONTI);
 }
 const percSconto = () => (user && SCONTI && SCONTI.attiva && SCONTI.prossimo) || 0;
-const nomeSconto = () => SCONTI && SCONTI.prossimoTipo === "fedelta" ? "Buono fedeltà" : "Sconto ordine dal sito";
+const nomeSconto = () => SCONTI && SCONTI.prossimoTipo === "fedelta" ? "Buono fedeltà" : "Sconto primo ordine";
 function apriCarrello() {
   const s = $("#carrello"); s.hidden = false; document.documentElement.classList.add("no-scroll");
   disegnaCarrello();
@@ -1479,7 +1479,7 @@ function disegnaSconti(d) {
   const pieni = f ? Math.min(f.ordini, f.servono) : 0;
   box.hidden = false;
   box.innerHTML = `<span class="promo-tag">Promo</span><h2>I tuoi sconti</h2>
-    ${d.online ? `<p>🛵 Ordini dal sito: ${d.online}% di sconto su ogni ordine, con consegna o ritiro.</p>` : ""}
+    ${d.online ? `<p>🛵 Primo ordine da casa: ${d.online}% di sconto, si applica da solo.</p>` : ""}
     ${f ? (f.buono === "valido" ? `<div class="coupon c-benvenuto"><span class="c-tipo">🎁 Buono fedeltà ${f.perc}%</span><span class="c-info">Hai un buono del ${f.perc}%: si applica da solo al prossimo ordine dal sito.</span></div>`
       : f.buono === "usato" ? `<p>✅ Buono fedeltà del ${f.perc}% già usato.</p>`
       : `<p>⭐ Carta fedeltà: ${pieni} di ${f.servono} ordini dal sito.</p><div class="fed-timbri" aria-hidden="true">${Array.from({ length: f.servono }, (_, i) => `<span class="${i < pieni ? "on" : ""}">🍣</span>`).join("")}</div>
