@@ -131,6 +131,8 @@ const SCHEMA = [
      WHERE NOT EXISTS (SELECT 1 FROM eventi WHERE nome = 'Carta fedeltà: 20% dopo 5 ordini')`,
   // 8/11: il 10% sul primo ordine e la carta fedeltà valgono dall'11 al 22 novembre (si contano solo gli ordini di quei giorni)
   `UPDATE eventi SET dal = '2026-11-11', al = '2026-11-22' WHERE nome IN ('Primo ordine dal sito: 10% di sconto', 'Carta fedeltà: 20% dopo 5 ordini') AND dal = '2026-11-06'`,
+  // 8/11: bibita dall'11 al 22 novembre, in 2 una bibita, in 5 o più bibita/birra/vino
+  `UPDATE eventi SET descrizione = 'Seguici su Instagram (@yugosushisestri) o TikTok (@yugo.sestri) e mostralo alla cassa: in 2 persone una bibita in omaggio; in 5 o più persone una bibita, una birra o un vino (birra e vino solo ai maggiorenni, 18+). Prezzi invariati.' WHERE nome = 'Bibita offerta a chi ci segue' AND descrizione LIKE '%in 3 o più%'`,
   // carta fedeltà: quanti ordini ha fatto dal sito e se ha il buono (no / valido / usato)
   `CREATE TABLE IF NOT EXISTS fedelta (uid TEXT PRIMARY KEY, ordini INTEGER NOT NULL DEFAULT 0, buono TEXT NOT NULL DEFAULT 'no', aggiornato TEXT)`,
   `DELETE FROM fedelta WHERE aggiornato < '2026-11-10T23:00:00Z'`
