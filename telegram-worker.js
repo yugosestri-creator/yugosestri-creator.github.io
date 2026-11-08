@@ -129,8 +129,11 @@ const SCHEMA = [
   `INSERT INTO eventi (nome, descrizione, sconto, etichetta, dal, al, creato)
      SELECT 'Carta fedeltà: 20% dopo 5 ordini', 'Ogni ordine fatto dal sito conta: dopo 5 ordini ricevi un buono del 20% che si applica da solo al tuo ordine successivo.', '20%', 'Fedeltà', '2026-11-06', NULL, datetime('now')
      WHERE NOT EXISTS (SELECT 1 FROM eventi WHERE nome = 'Carta fedeltà: 20% dopo 5 ordini')`,
+  // 8/11: il 10% sul primo ordine e la carta fedeltà valgono dall'11 al 22 novembre (si contano solo gli ordini di quei giorni)
+  `UPDATE eventi SET dal = '2026-11-11', al = '2026-11-22' WHERE nome IN ('Primo ordine dal sito: 10% di sconto', 'Carta fedeltà: 20% dopo 5 ordini') AND dal = '2026-11-06'`,
   // carta fedeltà: quanti ordini ha fatto dal sito e se ha il buono (no / valido / usato)
-  `CREATE TABLE IF NOT EXISTS fedelta (uid TEXT PRIMARY KEY, ordini INTEGER NOT NULL DEFAULT 0, buono TEXT NOT NULL DEFAULT 'no', aggiornato TEXT)`
+  `CREATE TABLE IF NOT EXISTS fedelta (uid TEXT PRIMARY KEY, ordini INTEGER NOT NULL DEFAULT 0, buono TEXT NOT NULL DEFAULT 'no', aggiornato TEXT)`,
+  `DELETE FROM fedelta WHERE aggiornato < '2026-11-10T23:00:00Z'`
 ];
 const NUOVE_COLONNE = ["ALTER TABLE visite ADD COLUMN anonimi INTEGER NOT NULL DEFAULT 0", "ALTER TABLE visite ADD COLUMN ritorni INTEGER NOT NULL DEFAULT 0", "ALTER TABLE coupon ADD COLUMN tipo TEXT", "ALTER TABLE coupon ADD COLUMN premio TEXT", "ALTER TABLE ordini ADD COLUMN stato TEXT DEFAULT 'inviato'", "ALTER TABLE ordini ADD COLUMN nome TEXT",
   "ALTER TABLE ordini ADD COLUMN telefono TEXT", "ALTER TABLE ordini ADD COLUMN ora TEXT", "ALTER TABLE ordini ADD COLUMN lang TEXT",
@@ -295,7 +298,7 @@ const CONSEGNA_SOSPESA = false; // metti true per sospendere le consegne a domic
 const GIORNI_AVANTI = 5; // ordini da oggi fino a 5 giorni dopo
 /* Promo di novembre: buono di benvenuto 20% a chi si registra (una volta, SOLO al ristorante),
    10% sul primo ordine da casa, consegna o ritiro (una volta). Il 10% social si mostra alla cassa. */
-const PROMO_SCONTI = { dal: "2026-11-06", al: "2026-11-30", benvenuto: 20, primoOrdine: 10, online: 10 };
+const PROMO_SCONTI = { dal: "2026-11-11", al: "2026-11-22", benvenuto: 20, primoOrdine: 10, online: 10 };
 /* Decisione del capo (5/11, aggiornata 6/11): bibita offerta a chi ci segue sui social, 10% solo sul PRIMO ordine dal sito.
    Il buono di benvenuto 20% (solo al ristorante) è pronto ma spento: metti true per attivarlo più avanti. */
 const BENVENUTO_ATTIVO = false;
@@ -346,9 +349,9 @@ async function scontiMe(env, body) {
   return { ok: true, attiva, dal: PROMO_SCONTI.dal, al: PROMO_SCONTI.al, percBenvenuto: PROMO_SCONTI.benvenuto, percPrimo: PROMO_SCONTI.primoOrdine,
     verificato: u.verificato, benvenuto: b, primoFatto,
     online: attiva && !primoFatto ? PROMO_SCONTI.online : 0, // 10% solo sul primo ordine dal sito
-    fedelta: { ordini: f.ordini, servono: FEDELTA.ordini, perc: FEDELTA.perc, buono: f.buono },
-    prossimoTipo: buono ? "fedelta" : attiva && !primoFatto ? "primo" : "",
-    prossimo: buono ? FEDELTA.perc : attiva && !primoFatto ? PROMO_SCONTI.online : 0 }; // 20% col buono fedeltà, altrimenti 10% solo sul primo ordine
+    fedelta: attiva ? { ordini: f.ordini, servono: FEDELTA.ordini, perc: FEDELTA.perc, buono: f.buono } : null,
+    prossimoTipo: attiva && buono ? "fedelta" : attiva && !primoFatto ? "primo" : "",
+    prossimo: attiva && buono ? FEDELTA.perc : attiva && !primoFatto ? PROMO_SCONTI.online : 0 }; // 20% col buono fedeltà, altrimenti 10% solo sul primo ordine
 }
 const eur = (n) => "€ " + n.toFixed(2).replace(".", ",");
 const minuti = (hhmm) => { const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; };
@@ -461,8 +464,9 @@ async function ordine(env, body) {
   if (recenti && recenti.n >= 5) throw new Errore("Hai già inviato diversi ordini oggi: per altri chiama il ristorante", 429);
   // Buono fedeltà 20% (se ce l'ha), altrimenti 10% su ogni ordine fatto dal sito durante la promo
   let sconto = null;
-  const usaBuono = await env.DB.prepare(`UPDATE fedelta SET buono = 'usato', aggiornato = ? WHERE uid = ? AND buono = 'valido'`).bind(adessoISO(), u.uid).run();
-  if (usaBuono.meta && usaBuono.meta.changes === 1) sconto = { tipo: "fedelta", perc: FEDELTA.perc, it: "Buono fedeltà", zh: "会员优惠券" };
+  const inPromo = promoScontiAttiva(); // dall'11 al 22 novembre
+  const usaBuono = inPromo ? await env.DB.prepare(`UPDATE fedelta SET buono = 'usato', aggiornato = ? WHERE uid = ? AND buono = 'valido'`).bind(adessoISO(), u.uid).run() : null;
+  if (usaBuono && usaBuono.meta && usaBuono.meta.changes === 1) sconto = { tipo: "fedelta", perc: FEDELTA.perc, it: "Buono fedeltà", zh: "会员优惠券" };
   else if (promoScontiAttiva() && !(await giaOrdinato(env, u.uid))) sconto = { tipo: "primo", perc: PROMO_SCONTI.online, it: "Sconto primo ordine", zh: "首单优惠" };
   const meno = sconto ? Math.round(sub * sconto.perc) / 100 : 0;
   const tot = Math.round((sub - meno + costo) * 100) / 100;
@@ -501,10 +505,10 @@ async function ordine(env, body) {
     if (sconto && sconto.tipo === "fedelta") await env.DB.prepare(`UPDATE fedelta SET buono = 'valido' WHERE uid = ?`).bind(u.uid).run();
     throw new Errore("Non siamo riusciti a inviare l'ordine. Chiama il ristorante.", 502);
   }
-  // carta fedeltà: conta l'ordine; al 5° ordine si sblocca il buono del 20% (uno solo)
-  await env.DB.prepare(`INSERT INTO fedelta (uid, ordini, buono, aggiornato) VALUES (?, 1, 'no', ?) ON CONFLICT (uid) DO UPDATE SET ordini = ordini + 1, aggiornato = excluded.aggiornato`).bind(u.uid, adessoISO()).run();
-  const sblocca = await env.DB.prepare(`UPDATE fedelta SET buono = 'valido' WHERE uid = ? AND buono = 'no' AND ordini >= ?`).bind(u.uid, FEDELTA.ordini).run();
-  const nuovoBuono = !!(sblocca.meta && sblocca.meta.changes === 1);
+  // carta fedeltà (solo dall'11 al 22 novembre): conta l'ordine; al 5° ordine si sblocca il buono del 20% (uno solo)
+  if (inPromo) await env.DB.prepare(`INSERT INTO fedelta (uid, ordini, buono, aggiornato) VALUES (?, 1, 'no', ?) ON CONFLICT (uid) DO UPDATE SET ordini = ordini + 1, aggiornato = excluded.aggiornato`).bind(u.uid, adessoISO()).run();
+  const sblocca = inPromo ? await env.DB.prepare(`UPDATE fedelta SET buono = 'valido' WHERE uid = ? AND buono = 'no' AND ordini >= ?`).bind(u.uid, FEDELTA.ordini).run() : null;
+  const nuovoBuono = !!(sblocca && sblocca.meta && sblocca.meta.changes === 1);
   if (nuovoBuono && AVVISO_COUPON) await tg(env, `🎁 ${o.nome} (${o.telefono}) ha fatto ${FEDELTA.ordini} ordini dal sito: il suo prossimo ordine avrà il buono fedeltà del ${FEDELTA.perc}% (già calcolato).\n🎁 ${o.nome} 已在网站下单 ${FEDELTA.ordini} 次：下一单自动享受 ${FEDELTA.perc}% 会员优惠。`, CONFIG.CHAT_ORDINI || CONFIG.CHAT_ID);
   return { ok: true, numero, totale: tot, sconto: sconto ? { tipo: sconto.tipo, perc: sconto.perc, meno } : null, nuovoBuono: nuovoBuono ? FEDELTA.perc : 0, servono: FEDELTA.ordini };
 }
