@@ -295,7 +295,7 @@ const TOUR = [
   { go: "menu", ico: ICO.menu, t: "Il menu giusto, da solo", d: "A pranzo e a cena vedi il menu del momento. Cerca per categoria o fatti consigliare." },
   { go: "prenota", ico: ICO.prenota, t: "Prenota in 10 secondi", d: "Scegli giorno, ora e persone: il ristorante riceve subito la tua richiesta." },
   { go: "menu", ico: ICO.asporto, t: "Ordina da asporto", d: "Scegli i piatti o un menu F1–F4, il giorno e l'ora, e passi a ritirare." },
-  { go: "promo", ico: ICO.promo, t: "Promo e premi", d: "Eventi, sconti e coupon: invita gli amici a seguirci e vinci bibite, dolci, sconti e cene." },
+  { go: "ordina", ico: ICO.promo, t: "Ordina e segui l'ordine", d: "Scegli i piatti, scrivi nome e telefono e invii: senza account. Poi vedi quando lo prepariamo e quando arriva." },
   { go: "account", ico: ICO.account, t: "Il tuo account", d: "Prenotazioni e ordini in un posto, notifiche se cambia qualcosa e Yugo come app sul telefono." }
 ];
 function avviaTour(forza) {
@@ -356,22 +356,20 @@ function promoAttive() {
   const tutte = [...(R.promozioni || []), ...(EVENTI || [])].filter((p, i, a) => a.findIndex((q) => q.titolo === p.titolo) === i);
   return tutte.filter((p) => (!p.dal || p.dal <= oggi) && (!p.al || p.al >= oggi));
 }
+/* Le offerte attive stanno direttamente in home, sotto i due pulsanti grandi */
 function renderPromo() {
   const list = promoAttive();
-  $("#promo-list").innerHTML = list.length ? list.map((p) => `<article class="block promo">
-      <span class="promo-tag">${esc(p.etichetta || "Promo")}</span>
-      <h2>${esc(p.titolo)}</h2>
-      <p>${esc(p.descrizione || "")}</p>
-      ${p.sconto ? `<p class="promo-sconto"><b>Sconto</b> <span translate="no">${esc(p.sconto)}</span></p>` : ""}
-      ${p.quando ? `<p class="hint">${esc(p.quando)}</p>` : ""}
-      ${p.al ? `<p class="hint">Valida fino a ${esc(fmtData(p.al))}</p>` : ""}
-    </article>`).join("")
-    : `<p class="muted">In questo momento non ci sono promozioni attive. Seguici sui social per non perdere le prossime.</p>`;
-  $("#promo-social").innerHTML = socialLinks();
   $("#home-social").innerHTML = socialLinks();
-  const hp = $("#home-promo");
-  hp.hidden = !list.length;
-  if (list.length) $("#home-promo-text").textContent = list.length > 1 ? `${list[0].titolo} e altre ${list.length - 1}` : list[0].titolo;
+  const box = $("#home-offerte"); if (!box) return;
+  box.hidden = !list.length;
+  box.innerHTML = list.length ? `<h2 class="offerte-tit">Offerte di adesso</h2>
+    <div class="offerte-scroll">${list.map((p) => `<article class="offerta">
+      <span class="promo-tag">${esc(p.etichetta || "Promo")}</span>
+      <h3>${esc(p.titolo)}</h3>
+      ${p.descrizione ? `<p>${esc(p.descrizione)}</p>` : ""}
+      ${p.sconto ? `<p class="promo-sconto"><b>Sconto</b> <span translate="no">${esc(p.sconto)}</span></p>` : ""}
+      ${p.al ? `<p class="hint">Fino a ${esc(fmtData(p.al))}</p>` : ""}
+    </article>`).join("")}</div>` : "";
 }
 
 /* ------------------------------------------------------------------ */
@@ -614,15 +612,20 @@ async function renderLanding(code) {
 const VIEWS = ["home", "menu", "prenota", "promo", "account", "invito"];
 const $$ = (s, el = document) => Array.from(el.querySelectorAll(s));
 function go(view, push = true) {
+  /* "Ordina" = menu già pronto per ordinare a casa */
+  if (view === "ordina") {
+    if (ORD) { MODO = "casa"; try { sessionStorage.setItem("yugo-modo", MODO); } catch { /* ok */ } mostraModo(); menuReset(); }
+    view = "menu";
+  }
   if (!VIEWS.includes(view)) view = "home";
   VIEWS.forEach((v) => { $("#view-" + v).hidden = v !== view; });
   document.querySelectorAll(".tab").forEach((t) => t.toggleAttribute("aria-current", false));
-  const active = document.querySelector(`.tab[data-go="${view}"]`);
+  const active = document.querySelector(`.tab[data-go="${view === "menu" && MODO === "casa" && ORD ? "ordina" : view}"]`);
   if (active) active.setAttribute("aria-current", "page");
   if (view === "prenota") renderBooking();
   if (view === "account") renderAccount();
   if (view === "promo") renderInvite();
-  if (view === "home") requestAnimationFrame(drawWaves);
+  if (view === "home") { requestAnimationFrame(drawWaves); disegnaTracker(); }
   if (typeof aggiornaBarra === "function") aggiornaBarra();
   if (push) { try { history.replaceState(null, "", (view === "invito" ? location.search : location.pathname) + "#" + view); } catch { /* frame senza history */ } }
   window.scrollTo({ top: 0 });
@@ -827,6 +830,8 @@ document.addEventListener("click", (e) => {
   if (h.dataset.famHome != null) scegliFamily(h.dataset.famHome);
   mostraModo(); menuReset(); aggiornaBarra(); go("menu");
 });
+/* Cambio "Al ristorante / A casa": aggiorna quale tab è acceso */
+document.addEventListener("click", (e) => { if (e.target.closest("[data-modo], #mode-change")) setTimeout(() => { if (!$("#view-menu").hidden) { document.querySelectorAll(".tab").forEach((t) => t.toggleAttribute("aria-current", false)); const a = document.querySelector(`.tab[data-go="${MODO === "casa" && ORD ? "ordina" : "menu"}"]`); if (a) a.setAttribute("aria-current", "page"); } }, 0); });
 
 function qtyHTML(p) {
   const k = chiave(p), q = (carrello[k] && carrello[k].q) || 0;
@@ -900,6 +905,84 @@ function apriCarrello() {
 function chiudiCarrello() { $("#carrello").hidden = true; document.documentElement.classList.remove("no-scroll"); }
 document.addEventListener("click", (e) => { if (e.target.closest("#carrello [data-close]")) chiudiCarrello(); });
 
+/* ------------------------------------------------------------------ */
+/* Segui l'ordine: ricevuto → in preparazione → in viaggio / pronto    */
+/* ------------------------------------------------------------------ */
+const chipGiorno = (iso) => {
+  const n = nomeGiorno(iso); if (n === "Oggi" || n === "Domani") return n;
+  const d = parseISO(iso); return cap(d.toLocaleDateString(LOC(), { weekday: "short" }).replace(".", "")) + " " + d.getDate();
+};
+const promoOnline = () => { const o = isoDate(new Date()); return o >= "2026-11-11" && o <= "2026-11-22"; };
+const ANIM_TRK = {
+  ricevuto: `<svg viewBox="0 0 120 70" class="trk-svg" aria-hidden="true"><rect x="38" y="8" width="44" height="56" rx="5" fill="#F7F2E8"/><path d="M46 20h28M46 28h22M46 36h26" stroke="#B9B2A3" stroke-width="3" stroke-linecap="round"/><circle cx="76" cy="50" r="13" fill="#2E9E5B"/><path class="trk-check" d="M69 50l5 5 9-10" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  prep: `<svg viewBox="0 0 120 70" class="trk-svg" aria-hidden="true"><path class="trk-steam" d="M38 30c-4-5 4-8 0-14" fill="none" stroke="#C9A55A" stroke-width="2.4" stroke-linecap="round"/><path class="trk-steam s2" d="M56 30c-4-5 4-8 0-14" fill="none" stroke="#C9A55A" stroke-width="2.4" stroke-linecap="round"/><rect x="14" y="54" width="92" height="8" rx="3" fill="#9A6A3A"/><g><circle cx="38" cy="44" r="9" fill="#14202E"/><circle cx="38" cy="44" r="6.5" fill="#fff"/><circle cx="38" cy="44" r="2.8" fill="#F26B4F"/><circle cx="58" cy="44" r="9" fill="#14202E"/><circle cx="58" cy="44" r="6.5" fill="#fff"/><circle cx="58" cy="44" r="2.8" fill="#3FAE6A"/></g><g class="trk-knife"><path d="M72 30h24l-2 6H72Z" fill="#D7DEE8"/><rect x="95" y="29" width="13" height="8" rx="2" fill="#3B2A1A"/></g></svg>`,
+  viaggio: `<svg viewBox="0 0 120 70" class="trk-svg" aria-hidden="true"><g class="trk-road" stroke="#C9A55A" stroke-width="2.4" stroke-linecap="round"><path d="M4 64h16M34 64h16M64 64h16M94 64h16M124 64h16"/></g><g class="trk-moto"><path d="M10 34h10M6 42h12M12 50h8" class="trk-wind" stroke="#B9B2A3" stroke-width="2" stroke-linecap="round"/><circle cx="40" cy="54" r="7" fill="#14202E"/><circle cx="40" cy="54" r="2.6" fill="#B9B2A3"/><circle cx="82" cy="54" r="7" fill="#14202E"/><circle cx="82" cy="54" r="2.6" fill="#B9B2A3"/><path d="M36 49h34l6-13h6l-5 18H40Z" fill="#D94A38"/><path d="M80 36l-4-12h-5" stroke="#374151" stroke-width="3" fill="none" stroke-linecap="round"/><rect x="34" y="26" width="22" height="18" rx="3" fill="#C9A55A"/><path d="M40 35h10" stroke="#03132D" stroke-width="2" stroke-linecap="round"/><circle cx="64" cy="24" r="6" fill="#F1C9A5"/><path d="M57 22a7 7 0 0 1 14 0Z" fill="#03132D"/><path d="M60 31h9l2 12h-9Z" fill="#1E3A8A"/></g></svg>`,
+  pronto: `<svg viewBox="0 0 120 70" class="trk-svg" aria-hidden="true"><g class="trk-bag"><path d="M42 26h36l-3 38H45Z" fill="#C9A55A"/><path d="M51 26v-5a9 9 0 0 1 18 0v5" fill="none" stroke="#8A6D2F" stroke-width="3"/><text x="60" y="50" text-anchor="middle" font-size="11" font-weight="700" fill="#03132D" font-family="Josefin Sans, sans-serif">YUGO</text></g><path class="trk-spark" d="M92 18l2 5 5 2-5 2-2 5-2-5-5-2 5-2Z" fill="#F3D58A"/><path class="trk-spark s2" d="M26 30l1.5 4 4 1.5-4 1.5-1.5 4-1.5-4-4-1.5 4-1.5Z" fill="#F3D58A"/></svg>`,
+  fine: `<svg viewBox="0 0 120 70" class="trk-svg" aria-hidden="true"><ellipse cx="60" cy="58" rx="30" ry="5" fill="#0B1F45" opacity=".18"/><g class="trk-nigiri"><rect x="40" y="40" width="40" height="15" rx="7" fill="#fff"/><path d="M38 41c6-10 38-10 44 0-8 4-36 4-44 0Z" fill="#F28C6B"/><path d="M48 36l3 7M58 35l2 8M68 36l1 7" stroke="#FBD3C3" stroke-width="1.6"/></g><g class="trk-sticks" stroke="#8A6D2F" stroke-width="3" stroke-linecap="round"><path d="M96 6 66 38"/><path d="M104 12 72 41"/></g></svg>`,
+  annullato: `<svg viewBox="0 0 120 70" class="trk-svg" aria-hidden="true"><circle cx="60" cy="36" r="22" fill="#B42318"/><path d="M51 27l18 18M69 27 51 45" stroke="#fff" stroke-width="4" stroke-linecap="round"/></svg>`
+};
+function slotMs(o) { const t = parseISO(o.data); const [h, m] = String(o.ora || "0:0").split(":").map(Number); t.setHours(h, m, 0, 0); return t.getTime(); }
+function faseOrdine(o) {
+  if (o.stato === "annullata_ristorante") return -1;
+  const slot = slotMs(o), now = Date.now(), casa = o.modo === "consegna";
+  if (now >= slot + (casa ? 10 : 20) * 60000) return 3;
+  if (now >= slot - (casa ? 15 : 5) * 60000) return 2;
+  if (now >= slot - 35 * 60000) return 1;
+  return 0;
+}
+function trackerHTML(o) {
+  const f = faseOrdine(o), casa = o.modo === "consegna";
+  const inizio = new Date(slotMs(o) - 35 * 60000), hhmm = `${pad(inizio.getHours())}:${pad(inizio.getMinutes())}`;
+  const altroGiorno = o.data !== isoDate(new Date());
+  const testi = [
+    ["ricevuto", "Ordine ricevuto", altroGiorno ? `È tutto segnato per ${nomeGiorno(o.data).toLowerCase()}, alle ${o.ora}.` : `Iniziamo a prepararlo verso le ${hhmm}.`],
+    ["prep", "Stiamo preparando il tuo sushi", `Lo stiamo preparando al momento, per le ${o.ora}.`],
+    casa ? ["viaggio", "Il tuo ordine è in viaggio", "Il rider sta arrivando da te. Tieni il telefono vicino!"] : ["pronto", "È pronto: ti aspettiamo!", `Passa a ritirarlo in ${R.indirizzo || "ristorante"}.`],
+    ["fine", "Buon appetito!", "Grazie per aver scelto Yugo. A presto!"]
+  ];
+  const [anim, tit, sub] = f < 0 ? ["annullato", "Ordine annullato dal ristorante", `Per informazioni chiama il ${R.telefono || ""}.`] : testi[f];
+  const passi = ["Ricevuto", "In preparazione", casa ? "In viaggio" : "Pronto"];
+  return `<div class="trk${f < 0 ? " trk-no" : ""}" data-fase="${f}">
+    <div class="trk-anim">${ANIM_TRK[anim]}</div>
+    <p class="trk-num">Ordine n. ${esc(o.numero)} · ${casa ? "consegna" : "ritiro"} alle ${esc(o.ora)}</p>
+    <h3 class="trk-tit">${esc(tit)}</h3>
+    <p class="trk-sub">${esc(sub)}</p>
+    ${f >= 0 ? `<ol class="trk-steps">${passi.map((p, i) => `<li class="${i < f || f === 3 ? "done" : i === f ? "now" : ""}"><span></span>${esc(p)}</li>`).join("")}</ol>` : ""}
+  </div>`;
+}
+function ultimoOrdine() {
+  const o = store.get("yugo-ultimo-ordine", null);
+  if (!o || !o.numero || !o.data || !o.ora) return null;
+  return Date.now() > slotMs(o) + 3 * 3600e3 ? null : o;
+}
+function disegnaTracker() {
+  const o = ultimoOrdine(), home = $("#home-ordine");
+  if (home) {
+    home.hidden = !o;
+    home.innerHTML = o ? `<article class="block trk-card"><h2>Il tuo ordine</h2>${trackerHTML(o)}
+      ${o.cosa && o.cosa.length ? `<p class="hint trk-cosa">${o.cosa.map(esc).join(" · ")}</p>` : ""}
+      <a class="btn btn-ghost btn-sm" href="tel:${esc((R.telefono || "").replace(/[^\d+]/g, ""))}">Chiama il ristorante</a></article>` : "";
+  }
+  document.querySelectorAll("#ord-body .trk-host").forEach((h) => { if (o) h.innerHTML = trackerHTML(o); });
+}
+let statoChiesto = 0;
+function aggiornaStatoOrdine() {
+  const o = ultimoOrdine(); if (!o || !WORKER || DEMO || o.stato === "annullata_ristorante") return;
+  if (Date.now() - statoChiesto < 80000) return; statoChiesto = Date.now();
+  api("/ordine/stato", { numero: o.numero, telefono: o.telefono }).then((r) => {
+    if (!r || !r.ok) return;
+    const n = { ...o, stato: r.stato, ora: r.ora || o.ora, data: r.data || o.data };
+    if (n.stato !== o.stato || n.ora !== o.ora || n.data !== o.data) { store.set("yugo-ultimo-ordine", n); disegnaTracker(); }
+  }).catch(() => {});
+}
+setInterval(() => {
+  const o = ultimoOrdine(), t = document.querySelector(".trk");
+  if (!o) { if ($("#home-ordine") && !$("#home-ordine").hidden) disegnaTracker(); return; }
+  if (!t || t.dataset.fase !== String(faseOrdine(o))) disegnaTracker();
+  aggiornaStatoOrdine();
+}, 30000);
+setTimeout(aggiornaStatoOrdine, 1500);
+
 function disegnaCarrello() {
   const body = $("#ord-body"), righe = righeCarrello();
   if (!righe.length) {
@@ -935,14 +1018,15 @@ function disegnaCarrello() {
     ${consegna ? `<div class="field"><label for="o-zona">Zona</label><select class="input" id="o-zona">${zone.map((z, i) => `<option value="${i}" ${i === d.zona ? "selected" : ""}>${esc(z.nome)} · consegna € ${euro(z.costo)}</option>`).join("")}</select></div>
       <div class="field"><label for="o-ind">Indirizzo</label><input class="input" id="o-ind" autocomplete="street-address" placeholder="Via, numero civico, citofono" value="${esc(d.indirizzo || "")}"></div>`
       : `<p class="hint">Ritiri da noi in ${esc(R.indirizzo || "")}.</p>`}
-    ${giorni.length > 1 ? `<div class="field"><label for="o-giorno">Giorno</label><select class="input" id="o-giorno">${giorni.filter((g) => fasceGiorno(g).slots.length).map((g) => `<option value="${g}" ${g === d.data ? "selected" : ""}>${esc(nomeGiorno(g))}</option>`).join("")}</select></div>` : ""}
-    <div class="field"><label for="o-ora">${consegna ? "Quando lo vuoi" : "Quando passi"}</label>
+    ${giorni.length > 1 ? `<div class="field"><span class="label">Giorno</span><div class="pick-row" id="o-giorni">${giorni.filter((g) => fasceGiorno(g).slots.length).map((g) => `<button type="button" class="pick" data-g="${g}" aria-pressed="${g === d.data}">${esc(chipGiorno(g))}</button>`).join("")}</div></div>` : ""}
+    <div class="field"><span class="label">${consegna ? "A che ora lo vuoi" : "A che ora passi"}</span>
       ${chiusoOggi ? `<p class="notice">Oggi siamo chiusi: gli ordini riaprono domani.</p>`
         : chiuso ? `<p class="notice">Per oggi gli ordini sono chiusi. Si ordina dalle ${esc((ORD.fasce || []).map(([a, b]) => a + " alle " + b).join(" e dalle "))}.</p>`
-        : `<select class="input" id="o-ora">${slots.map((t) => `<option ${t === d.ora ? "selected" : ""}>${t}</option>`).join("")}</select>`}</div>
+        : `<div id="o-ore">${[["Pranzo", slots.filter((t) => t < "17:00")], ["Cena", slots.filter((t) => t >= "17:00")]].filter(([, l]) => l.length).map(([n, l]) => `<p class="pick-gr">${n}</p><div class="pick-grid">${l.map((t) => `<button type="button" class="pick" data-t="${t}" aria-pressed="${t === d.ora}">${t}</button>`).join("")}</div>`).join("")}</div>`}</div>
     <div class="field"><label for="o-nome">Nome</label><input class="input" id="o-nome" autocomplete="name" value="${esc(d.nome || (user && user.nome) || "")}"></div>
     <div class="field"><label for="o-tel">Telefono</label><input class="input" id="o-tel" type="tel" inputmode="tel" autocomplete="tel" placeholder="+39 333 123 4567" value="${esc(d.telefono || store.get("yugo-draft", {}).telefono || "")}"></div>
     ${F && F.bibite ? `<div class="field"><label for="o-bib">Bibite in lattina incluse (${F.bibite})</label><input class="input" id="o-bib" placeholder="Coca-Cola, Fanta, Sprite…" value="${esc(d.bibita || "")}"></div>` : ""}
+    ${!user && promoOnline() ? `<p class="ord-risparmio">🎉 Primo ordine dal sito? Hai il 10% di sconto: lo calcoliamo quando invii.</p>` : ""}
     <div class="field"><label for="o-note">Note (facoltativo)</label><textarea class="input" id="o-note" placeholder="Allergie, menu Family, bacchette…">${esc(d.note || "")}</textarea></div>
     <div class="ord-sum">
       <div><span>${F ? esc(F.nome) : "Piatti"}</span><span>€ ${euro(sub)}</span></div>
@@ -953,9 +1037,9 @@ function disegnaCarrello() {
     <p class="hint">Paghi alla ${consegna ? "consegna" : "cassa quando ritiri"}.${sottoMinimo ? ` <b>Per la consegna l'ordine minimo è € ${euro(ORD.minimo)}.</b>` : ""}</p>
     <p class="error" id="o-err" hidden></p>
     <div class="cs-actions">
-      ${user ? (mancano ? `<button class="btn btn-gold btn-block" type="button" disabled>Scegli ancora ${mancano} ${mancano === 1 ? "piatto" : "piatti"}</button>`
-        : `<button class="btn btn-gold btn-block" id="o-send" type="button" ${chiuso || sottoMinimo ? "disabled" : ""}>Invia ordine · € ${euro(tot)}</button>`)
-        : `<a href="#account" data-go="account" data-close class="btn btn-gold btn-block">Accedi per inviare l'ordine</a>`}
+      ${mancano ? `<button class="btn btn-gold btn-block" type="button" disabled>Scegli ancora ${mancano} ${mancano === 1 ? "piatto" : "piatti"}</button>`
+        : `<button class="btn btn-gold btn-block" id="o-send" type="button" ${chiuso || sottoMinimo ? "disabled" : ""}>Invia ordine · € ${euro(tot)}</button>`}
+      ${!user ? `<p class="hint" style="text-align:center">Non serve un account: bastano nome e telefono.</p>` : ""}
       ${ORD.justEat ? `<button class="btn btn-ghost btn-block" id="o-je" type="button">Ordina su Just Eat</button>
       <p class="hint" style="text-align:center">Su Just Eat i piatti vanno aggiunti di nuovo: ti copiamo la lista da seguire.</p>` : ""}
     </div>`;
@@ -963,15 +1047,14 @@ function disegnaCarrello() {
   const leggi = () => {
     if ($("#o-zona")) d.zona = Number($("#o-zona").value);
     if ($("#o-ind")) d.indirizzo = $("#o-ind").value;
-    if ($("#o-giorno")) d.data = $("#o-giorno").value;
-    if ($("#o-ora")) d.ora = $("#o-ora").value;
     d.nome = $("#o-nome").value; d.telefono = $("#o-tel").value; d.note = $("#o-note").value;
     if ($("#o-bib")) d.bibita = $("#o-bib").value;
     store.set("yugo-ordine-dati", { ...d, note: "" });
   };
   body.querySelectorAll("[data-modo-ord]").forEach((b) => b.onclick = () => { leggi(); d.modo = b.dataset.modoOrd; disegnaCarrello(); });
   if ($("#o-zona")) $("#o-zona").onchange = () => { leggi(); disegnaCarrello(); };
-  if ($("#o-giorno")) $("#o-giorno").onchange = () => { leggi(); d.ora = ""; disegnaCarrello(); };
+  if ($("#o-giorni")) $("#o-giorni").onclick = (e) => { const b = e.target.closest("[data-g]"); if (!b) return; leggi(); d.data = b.dataset.g; d.ora = ""; disegnaCarrello(); };
+  if ($("#o-ore")) $("#o-ore").onclick = (e) => { const b = e.target.closest("[data-t]"); if (!b) return; d.ora = b.dataset.t; $$("#o-ore .pick").forEach((x) => x.setAttribute("aria-pressed", String(x === b))); };
   body.querySelector(".ord-list").onclick = (e) => {
     const btn = e.target.closest("[data-d]"); if (!btn) return;
     const li = btn.closest("li"), r = carrello[li.dataset.k]; if (!r) return;
@@ -989,6 +1072,7 @@ function disegnaCarrello() {
     const fail = (m) => { err.textContent = m; err.hidden = false; };
     if (!d.nome.trim()) return fail("Scrivi il tuo nome.");
     if (d.telefono.replace(/\D/g, "").length < 8) return fail("Serve un numero di telefono: ti chiamiamo se c'è un problema.");
+    if (!d.ora) return fail("Scegli l'ora.");
     if (consegna && d.indirizzo.trim().length < 5) return fail("Scrivi l'indirizzo di consegna.");
     if (F && F.bibite && !(d.bibita || "").trim()) return fail("Scrivi quale bibita vuoi.");
     btn.disabled = true; btn.textContent = "Invio…";
@@ -997,13 +1081,18 @@ function disegnaCarrello() {
         nome: d.nome, telefono: d.telefono,
         note: (F && F.bibite ? `Bibite: ${(d.bibita || "").trim()}. ` : "") + d.note,
         righe: (F ? [{ n: null, nome: F.nome, prezzo: F.prezzo, q: 1 }] : []).concat(righeCarrello().map(({ n, nome, prezzo, q }) => ({ n, nome, prezzo: F ? 0 : prezzo, q }))) };
-      const res = DEMO ? { ok: true, numero: Math.floor(Math.random() * 90) + 10 } : await api("/ordine", { idToken: await backend.token(), lang: (window.YUGO_I18N && window.YUGO_I18N.lang) || "it", ...ordine });
+      const res = DEMO ? { ok: true, numero: Math.floor(Math.random() * 90) + 10 } : await api("/ordine", { idToken: user && backend ? await backend.token().catch(() => "") : "", lang: (window.YUGO_I18N && window.YUGO_I18N.lang) || "it", ...ordine });
       carrello = {}; salvaCarrello(); aggiornaBarra(); ridisegnaQta();
       SCONTI = null; caricaSconti(true);
       if (F) { FAM = null; store.set("yugo-family", null); disegnaFamily(); menuReset(); }
-      body.innerHTML = `<div class="ord-ok"><div class="ord-check" aria-hidden="true">✓</div>
+      const traccia = { numero: res.numero, telefono: d.telefono, data: d.data || isoDate(new Date()), ora: d.ora, modo: d.modo, nome: d.nome.split(" ")[0], creato: Date.now(),
+        cosa: ordine.righe.map((r) => `${r.q}× ${r.nome}`).slice(0, 6), totale: res.totale != null ? res.totale : tot };
+      store.set("yugo-ultimo-ordine", traccia);
+      body.innerHTML = `<div class="ord-ok">
         <p class="cs-kicker">Ordine n. ${esc(res.numero)} inviato</p><h2 id="ord-title">Grazie ${esc(d.nome.split(" ")[0])}!</h2>
-        <p class="muted">Il ristorante l'ha ricevuto ora. ${consegna ? "Ti portiamo tutto" : "Ti aspettiamo"}${d.data && d.data !== isoDate(new Date()) ? ` ${esc(nomeGiorno(d.data).toLowerCase())}` : ""} per le ${esc(d.ora)}. Se c'è un problema ti chiamiamo al ${esc(d.telefono)}.</p>
+        <div class="trk-host">${trackerHTML(traccia)}</div>
+        <p class="muted">Se c'è un problema ti chiamiamo al ${esc(d.telefono)}.</p>
+        <p class="hint">Puoi seguire l'ordine anche dalla home.</p>
         ${res.sconto ? `<p class="ord-risparmio">🎉 Sconto del ${res.sconto.perc}% applicato: hai risparmiato € ${euro(res.sconto.meno)}.</p>` : ""}
         ${res.nuovoBuono ? `<p class="ord-risparmio">🎁 Hai raggiunto ${res.servono} ordini: al prossimo ordine dal sito hai il ${res.nuovoBuono}% di sconto!</p>` : ""}
         <p class="hint">Per modifiche chiama il ${esc(R.telefono || "")}.</p>
@@ -1270,8 +1359,7 @@ function renderBooking() {
   if (!backend) { area.innerHTML = `<p class="muted">Caricamento…</p>`; return; }
   if (lastBooking) return renderConfirmation(area, lastBooking);
   if (user === undefined) { area.innerHTML = `<p class="muted">Caricamento…</p>`; return; }
-  if (!user) return needLogin(area, "Accedi per prenotare");
-  if (!user.verified) return verifyBox(area);
+  const conAccount = !!(user && user.verified); // senza account (o email non confermata) si prenota con nome e telefono
 
   const draft = store.get("yugo-draft", {});
   const today = new Date();
@@ -1282,7 +1370,7 @@ function renderBooking() {
   area.innerHTML = `<form class="form card" id="book-form" novalidate>
       <div class="field">
         <label for="b-nome">Nome</label>
-        <input class="input" id="b-nome" autocomplete="name" required value="${esc(user.nome)}">
+        <input class="input" id="b-nome" autocomplete="name" required value="${esc((user && user.nome) || draft.nome || "")}">
       </div>
       <div class="field">
         <span class="label" id="b-persone-label">Quante persone</span>
@@ -1293,21 +1381,21 @@ function renderBooking() {
         </div>
         <p class="hint" id="b-big" hidden>Per gruppi di più di ${max} persone chiama il ristorante: ${esc(R.telefono || "")}</p>
       </div>
-      <div class="two">
-        <div class="field">
-          <label for="b-data">Giorno</label>
-          <input class="input" type="date" id="b-data" required min="${isoDate(today)}" max="${isoDate(maxD)}" value="${esc(draft.data && draft.data >= isoDate(today) ? draft.data : firstOpenDate())}">
-        </div>
-        <div class="field">
-          <label for="b-ora">Ora di arrivo</label>
-          <select class="input" id="b-ora" required></select>
-        </div>
+      <div class="field">
+        <span class="label">Giorno</span>
+        <div class="pick-row" id="b-giorni"></div>
+        <input class="input" type="date" id="b-data" required min="${isoDate(today)}" max="${isoDate(maxD)}" value="${esc(draft.data && draft.data >= isoDate(today) ? draft.data : firstOpenDate())}" hidden>
+      </div>
+      <div class="field">
+        <span class="label">Ora di arrivo</span>
+        <div id="b-ore"></div>
+        <input type="hidden" id="b-ora">
       </div>
       <p class="error" id="b-closed" hidden></p>
       <div class="field">
-        <label for="b-tel">Telefono</label>
+        <label for="b-tel">Telefono${conAccount ? "" : " (per confermarti il tavolo)"}</label>
         <input class="input" type="tel" id="b-tel" autocomplete="tel" inputmode="tel" placeholder="+39 333 123 4567" value="${esc(draft.telefono || "")}">
-        <p class="hint">Serve solo se il ristorante deve contattarti.</p>
+        ${conAccount ? `<p class="hint">Serve solo se il ristorante deve contattarti.</p>` : ""}
       </div>
       <div class="field">
         <label for="b-note">Note (facoltativo)</label>
@@ -1315,7 +1403,7 @@ function renderBooking() {
       </div>
       <p class="error" id="b-err" hidden></p>
       <button class="btn btn-block" id="b-submit" type="submit">Invia prenotazione</button>
-      <p class="hint">Prenoti come ${esc(user.email)}</p>
+      <p class="hint">${conAccount ? `Prenoti come ${esc(user.email)}` : "Non serve un account: bastano nome e telefono."}</p>
     </form>`;
 
   const out = $("#b-persone"), minus = $("#b-minus"), plus = $("#b-plus");
@@ -1323,27 +1411,44 @@ function renderBooking() {
   minus.onclick = () => { persone = Math.max(1, persone - 1); drawPersone(); saveDraft(); };
   plus.onclick = () => { persone = Math.min(max + 1, persone + 1); drawPersone(); saveDraft(); };
 
+  /* Giorni: i prossimi giorni aperti come pulsanti, più "Altro giorno" con il calendario */
+  const giorniB = []; { const d0 = new Date(); for (let i = 0; i < 21 && giorniB.length < 6; i++) { const d = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate() + i), iso = isoDate(d), g = slotsFor(iso); if (g && g.some((x) => x.times.length)) giorniB.push(iso); } }
+  const drawGiorni = () => {
+    const v = $("#b-data").value, altro = v && !giorniB.includes(v);
+    $("#b-giorni").innerHTML = giorniB.map((g) => `<button type="button" class="pick" data-g="${g}" aria-pressed="${g === v}">${esc(chipGiorno(g))}</button>`).join("")
+      + `<button type="button" class="pick" data-g="altro" aria-pressed="${altro}">${altro ? esc(chipGiorno(v)) : "Altro giorno"}</button>`;
+  };
+  $("#b-giorni").onclick = (e) => {
+    const b = e.target.closest("[data-g]"); if (!b) return;
+    if (b.dataset.g === "altro") { const i = $("#b-data"); i.hidden = false; try { i.showPicker(); } catch { i.focus(); } return; }
+    $("#b-data").value = b.dataset.g; $("#b-data").hidden = true; drawGiorni(); fillTimes(); saveDraft();
+  };
   const fillTimes = () => {
-    const sel = $("#b-ora"); const val = $("#b-data").value; const prev = sel.value || draft.ora;
+    const sel = $("#b-ora"), box = $("#b-ore"); const val = $("#b-data").value; const prev = sel.value || draft.ora;
     const groups = val ? slotsFor(val) : [];
     const closed = $("#b-closed");
-    if (groups === null) { sel.innerHTML = ""; closed.textContent = `Il ${fmtData(val)} siamo chiusi. Scegli un altro giorno.`; closed.hidden = false; }
-    else if (!groups.length) { sel.innerHTML = ""; closed.textContent = "Per questo giorno non ci sono più orari disponibili."; closed.hidden = false; }
+    if (groups === null) { sel.value = ""; box.innerHTML = ""; closed.textContent = `Il ${fmtData(val)} siamo chiusi. Scegli un altro giorno.`; closed.hidden = false; }
+    else if (!groups.some((g) => g.times.length)) { sel.value = ""; box.innerHTML = ""; closed.textContent = "Per questo giorno non ci sono più orari disponibili."; closed.hidden = false; }
     else {
       closed.hidden = true;
-      sel.innerHTML = groups.map((g) => `<optgroup label="${esc(g.nome)}">${g.times.map((t) => `<option ${t === prev ? "selected" : ""}>${t}</option>`).join("")}</optgroup>`).join("");
+      let pick = prev;
       if (!groups.some((g) => g.times.includes(prev))) {
-        const dinner = groups.find((g) => /cena/i.test(g.nome)) || groups[0];
-        const pick = dinner.times.includes("20:00") ? "20:00" : dinner.times[0];
-        sel.value = pick;
+        const dinner = groups.find((g) => /cena/i.test(g.nome) && g.times.length) || groups.find((g) => g.times.length);
+        pick = dinner.times.includes("20:00") ? "20:00" : dinner.times[0];
       }
+      sel.value = pick;
+      box.innerHTML = groups.filter((g) => g.times.length).map((g) => `<p class="pick-gr">${esc(g.nome)}</p><div class="pick-grid">${g.times.map((t) => `<button type="button" class="pick" data-t="${t}" aria-pressed="${t === pick}">${t}</button>`).join("")}</div>`).join("");
     }
     drawPersone();
   };
-  const saveDraft = () => store.set("yugo-draft", { persone, data: $("#b-data").value, ora: $("#b-ora").value, telefono: $("#b-tel").value, note: $("#b-note").value });
-  $("#b-data").addEventListener("change", () => { fillTimes(); saveDraft(); });
-  ["#b-ora", "#b-tel", "#b-note"].forEach((s) => $(s).addEventListener("change", saveDraft));
-  fillTimes();
+  $("#b-ore").onclick = (e) => {
+    const b = e.target.closest("[data-t]"); if (!b) return;
+    $("#b-ora").value = b.dataset.t; $$("#b-ore .pick").forEach((x) => x.setAttribute("aria-pressed", String(x === b))); drawPersone(); saveDraft();
+  };
+  const saveDraft = () => store.set("yugo-draft", { persone, nome: $("#b-nome").value, data: $("#b-data").value, ora: $("#b-ora").value, telefono: $("#b-tel").value, note: $("#b-note").value });
+  $("#b-data").addEventListener("change", () => { drawGiorni(); fillTimes(); saveDraft(); });
+  ["#b-nome", "#b-tel", "#b-note"].forEach((s) => $(s).addEventListener("change", saveDraft));
+  drawGiorni(); fillTimes();
 
   $("#book-form").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -1352,22 +1457,29 @@ function renderBooking() {
     const data = $("#b-data").value, ora = $("#b-ora").value;
     if (!nome) { err.textContent = "Scrivi il nome a cui intestare il tavolo."; err.hidden = false; return; }
     if (!data || !ora) { err.textContent = "Scegli giorno e ora di arrivo."; err.hidden = false; return; }
+    if (!conAccount && $("#b-tel").value.replace(/\D/g, "").length < 8) { err.textContent = "Scrivi il tuo numero di telefono: ci serve per confermarti il tavolo."; err.hidden = false; return; }
     const btn = $("#b-submit"); btn.disabled = true; btn.textContent = "Invio in corso…";
     const b = {
-      uid: user.uid, nome, email: user.email, persone, data, ora,
+      uid: conAccount ? user.uid : "", nome, email: conAccount ? user.email : "", persone, data, ora,
       telefono: $("#b-tel").value.trim(), note: $("#b-note").value.trim(),
       creataIl: nowStamp(), creataIlISO: new Date().toISOString(), stato: "confermata"
     };
     try {
       b.quandoMs = bookingMs(b);
-      b.id = await backend.save(b);
-      b.notificato = await notifyTelegram(b);
+      if (conAccount) {
+        b.id = await backend.save(b);
+        b.notificato = await notifyTelegram(b);
+      } else {
+        /* Senza account: la richiesta va direttamente al ristorante */
+        if (!DEMO) await api("/prenotazione", { nome: b.nome, persone: b.persone, data: b.data, ora: b.ora, telefono: b.telefono, note: b.note, lang: (window.YUGO_I18N && window.YUGO_I18N.lang) || "it" });
+        b.notificato = true;
+      }
       lastBooking = b;
-      store.set("yugo-draft", { telefono: b.telefono });
+      store.set("yugo-draft", { telefono: b.telefono, nome: b.nome });
       renderBooking();
       window.scrollTo({ top: 0 });
     } catch (ex) {
-      err.textContent = errMsg(ex); err.hidden = false;
+      err.textContent = ex.code || !ex.message ? errMsg(ex) : ex.message; err.hidden = false;
       btn.disabled = false; btn.textContent = "Invia prenotazione";
     }
   });
@@ -1384,15 +1496,16 @@ function renderConfirmation(area, b) {
         <dt>Persone</dt><dd>${b.persone}</dd>
         <dt>Arrivo</dt><dd>${esc(b.ora)}</dd>
         <dt>Richiesta fatta</dt><dd>${esc(b.creataIl)}</dd>
-        <dt>Email</dt><dd>${esc(b.email)}</dd>
+        ${b.email ? `<dt>Email</dt><dd>${esc(b.email)}</dd>` : ""}
       </dl>
       ${!b.notificato ? `<p class="error" style="padding:0 18px 16px">La prenotazione è salvata, ma l'avviso al ristorante potrebbe non essere arrivato. Per sicurezza chiama ${esc(R.telefono || "")}.</p>` : ""}
     </div>
     ${bottoneNotifiche() ? `<div style="margin-top:14px">${bottoneNotifiche()}</div>` : ""}
     <div class="row-actions" style="margin-top:14px">
       <button class="btn" id="btn-new">Nuova prenotazione</button>
-      <a class="btn btn-ghost" href="#account" data-go="account">Le mie prenotazioni</a>
-    </div>`;
+      ${b.email ? `<a class="btn btn-ghost" href="#account" data-go="account">Le mie prenotazioni</a>` : `<a class="btn btn-ghost" href="#ordina" data-go="ordina">Ordina a casa</a>`}
+    </div>
+    ${!b.email ? `<p class="hint" style="margin-top:12px">Per annullare o cambiare chiama il ${esc(R.telefono || "")}.</p>` : ""}`;
   $("#btn-new").onclick = () => { lastBooking = null; renderBooking(); };
 }
 
@@ -1413,6 +1526,7 @@ function renderAccount() {
       <article class="block"><h2>Le mie prenotazioni</h2><div id="my-list" class="blist"><p class="muted">Caricamento…</p></div></article>
       <article class="block sconti-box" id="sconti-box" hidden></article>
       <article class="block" id="my-ord-box" hidden><h2>I miei ordini</h2><div id="my-ord" class="blist"></div></article>
+      <a class="btn btn-gold" href="#promo" data-go="promo">🎁 Invita amici e vinci premi</a>
       <article class="block" id="notif-box" hidden></article>
       ${installBlock()}
       <button type="button" class="btn btn-ghost" data-tour>✨ Guarda il tour del sito</button>
@@ -1624,7 +1738,7 @@ async function start() {
   requestAnimationFrame(drawWaves);
   const initial = (location.hash || "").replace("#", "");
   if (INVITO) { go("invito", false); renderLanding(INVITO); }
-  else go(VIEWS.includes(initial) && initial !== "invito" ? initial : "home", false);
+  else go((VIEWS.includes(initial) || initial === "ordina") && initial !== "invito" ? initial : "home", false);
   try {
     backend = DEMO ? demoBackend() : await firebaseBackend(CFG.firebase);
   } catch (e) {
