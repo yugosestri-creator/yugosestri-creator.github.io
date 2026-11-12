@@ -772,3 +772,80 @@ body.tour-open .tabbar { z-index: 80; pointer-events: none; }
 .fed-timbri { display: flex; gap: 8px; margin-top: 8px; }
 .fed-timbri span { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; font-size: 18px; border: 1.5px dashed var(--line); filter: grayscale(1); opacity: .35; }
 .fed-timbri span.on { border: 1.5px solid var(--gold); background: rgba(201,165,90,.15); filter: none; opacity: 1; }
+
+/* ---- Home: due azioni grandi + offerte ---- */
+.azioni-rapide { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.azione { display: grid; justify-items: center; gap: 4px; padding: 20px 10px; border-radius: 18px; text-align: center; text-decoration: none; color: var(--fg);
+  background: var(--surface); border: 1px solid color-mix(in srgb, var(--gold) 45%, var(--line)); transition: transform .15s, border-color .15s; }
+.azione svg { width: 38px; height: 38px; fill: none; stroke: var(--gold-hi); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.azione b { font-family: var(--f-display); font-size: 17px; letter-spacing: .03em; line-height: 1.2; }
+.azione small { color: var(--muted); font-size: 13px; }
+.azione:hover, .azione:focus-visible { border-color: var(--gold); transform: translateY(-2px); }
+.azione:active { transform: scale(.97); }
+.offerte-tit { font-size: 15px; font-weight: 600; text-transform: uppercase; letter-spacing: .16em; color: var(--gold); margin: 0 0 10px; }
+.offerte-scroll { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(250px, 85%); gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 6px; scrollbar-width: none; }
+.offerte-scroll::-webkit-scrollbar { display: none; }
+.offerte-scroll:has(> :only-child) { grid-auto-columns: 100%; }
+.offerta { scroll-snap-align: start; background: var(--surface); border: 1px solid color-mix(in srgb, var(--gold) 40%, var(--line)); border-radius: var(--r); padding: 16px; }
+.offerta h3 { margin: 8px 0 4px; font-family: var(--f-display); font-size: 19px; line-height: 1.25; color: var(--gold-hi); }
+.offerta p { margin: 4px 0 0; font-size: 14px; }
+
+/* ---- Scelte a pulsanti (giorno / ora) ---- */
+.pick-row { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.pick-row::-webkit-scrollbar { display: none; }
+.pick-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(68px, 1fr)); gap: 8px; }
+.pick { flex: 0 0 auto; min-height: 44px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface-2); color: var(--fg);
+  font: 700 15px var(--f-body); cursor: pointer; font-variant-numeric: tabular-nums; transition: background .15s, border-color .15s, transform .1s; }
+.pick:active { transform: scale(.96); }
+.pick[aria-pressed="true"] { background: linear-gradient(135deg, var(--gold-hi), var(--gold)); border-color: var(--gold); color: var(--ink-fg); }
+.pick-gr { margin: 10px 0 6px; font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.pick-gr:first-child { margin-top: 0; }
+#b-data:not([hidden]) { margin-top: 10px; }
+
+/* ---- Segui l'ordine ---- */
+.trk { text-align: center; padding: 6px 0 4px; }
+.trk-anim { display: flex; justify-content: center; }
+.trk-svg { width: 150px; height: 88px; overflow: visible; }
+.trk-num { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
+.trk-tit { margin: 2px 0 0; font-family: var(--f-display); font-size: 22px; line-height: 1.2; color: var(--gold-hi); animation: trk-in .5s ease both; }
+.trk-sub { margin: 4px 0 0; font-size: 14px; color: var(--fg); }
+.trk-no .trk-tit { color: var(--err); }
+.trk-steps { list-style: none; margin: 14px 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; font-size: 12px; color: var(--muted); }
+.trk-steps li { display: grid; justify-items: center; gap: 6px; position: relative; }
+.trk-steps li span { width: 100%; height: 5px; border-radius: 3px; background: var(--line); overflow: hidden; position: relative; }
+.trk-steps li.done span { background: var(--gold); }
+.trk-steps li.now { color: var(--gold-hi); font-weight: 700; }
+.trk-steps li.now span::after { content: ""; position: absolute; inset: 0; width: 40%; background: var(--gold-hi); border-radius: 3px; animation: trk-bar 1.4s ease-in-out infinite; }
+.trk-steps li.done { color: var(--fg); }
+.trk-card .trk-cosa { margin-top: 10px; text-align: center; }
+.trk-card .btn { margin: 10px auto 0; display: flex; width: fit-content; }
+.trk-mini { display: flex; justify-content: center; margin-top: 6px; }
+.trk-mini .trk-svg { width: 110px; height: 64px; }
+.ord-ok .trk-host { margin: 6px 0 10px; }
+@keyframes trk-in { from { opacity: 0; transform: translateY(6px); } }
+@keyframes trk-bar { 0% { transform: translateX(-100%); } 100% { transform: translateX(260%); } }
+.trk-check { stroke-dasharray: 24; stroke-dashoffset: 24; animation: trk-draw .6s .3s ease forwards; }
+@keyframes trk-draw { to { stroke-dashoffset: 0; } }
+.trk-steam { animation: trk-steam 1.8s ease-in-out infinite; opacity: 0; }
+.trk-steam.s2 { animation-delay: .9s; }
+@keyframes trk-steam { 0% { opacity: 0; transform: translateY(6px); } 40% { opacity: .9; } 100% { opacity: 0; transform: translateY(-10px); } }
+.trk-knife { transform-box: fill-box; transform-origin: right center; animation: trk-chop .7s ease-in-out infinite; }
+@keyframes trk-chop { 0%, 100% { transform: translateY(-6px) rotate(-8deg); } 50% { transform: translateY(10px) rotate(0); } }
+.trk-moto { animation: trk-bob .5s ease-in-out infinite alternate; }
+@keyframes trk-bob { to { transform: translateY(-2px); } }
+.trk-road { animation: trk-road .6s linear infinite; }
+@keyframes trk-road { to { transform: translateX(-30px); } }
+.trk-wind { animation: trk-wind .6s linear infinite; }
+@keyframes trk-wind { 0% { opacity: 0; transform: translateX(8px); } 50% { opacity: 1; } 100% { opacity: 0; transform: translateX(-8px); } }
+.trk-bag { transform-box: fill-box; transform-origin: bottom center; animation: trk-jump 1.2s ease-in-out infinite; }
+@keyframes trk-jump { 0%, 60%, 100% { transform: translateY(0) scale(1); } 30% { transform: translateY(-8px) scale(1.03, .97); } }
+.trk-spark { transform-box: fill-box; transform-origin: center; animation: trk-spark 1.6s ease-in-out infinite; }
+.trk-spark.s2 { animation-delay: .8s; }
+@keyframes trk-spark { 0%, 100% { opacity: 0; transform: scale(.4); } 50% { opacity: 1; transform: scale(1); } }
+.trk-sticks { transform-box: view-box; animation: trk-sticks 2.2s ease-in-out infinite; }
+.trk-nigiri { animation: trk-lift 2.2s ease-in-out infinite; }
+@keyframes trk-sticks { 0%, 100% { transform: translate(8px, -8px); } 40%, 60% { transform: translate(0, 0); } }
+@keyframes trk-lift { 0%, 45% { transform: translateY(0); } 70%, 85% { transform: translateY(-10px); } 100% { transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .trk *, .trk-mini * { animation: none !important; stroke-dashoffset: 0 !important; opacity: 1; } }
+.stack > * { min-width: 0; }
+.trk-tit, .trk-sub { overflow-wrap: anywhere; }
