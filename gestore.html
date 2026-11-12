@@ -70,10 +70,33 @@
   .ore { display: grid; grid-template-columns: repeat(24, 1fr); gap: 2px; align-items: end; height: 120px; margin-top: 10px; }
   .ore i { display: block; background: var(--gold); position: relative; }
   .ore-l { display: grid; grid-template-columns: repeat(24, 1fr); gap: 2px; font-size: 10px; color: var(--muted); text-align: center; }
+  /* passati = blu */
+  .card.past { border-left: 5px solid #2f7de1; background: color-mix(in srgb, #2f7de1 7%, var(--surface)); }
+  .tag.blu { background: #e3eefc; color: #1d5fb8; }
+  .righe { list-style: none; margin: 8px 0 0; padding: 8px 10px; background: var(--bg); border-radius: 8px; font-size: 14px; }
+  .righe li { display: flex; gap: 8px; padding: 3px 0; border-bottom: 1px dashed var(--line); }
+  .righe li:last-child { border-bottom: 0; }
+  .righe .q { font-weight: 800; min-width: 28px; }
+  .righe .n { color: var(--muted); min-width: 30px; }
+  .righe .p { margin-left: auto; color: var(--muted); white-space: nowrap; }
+  .nota { margin: 8px 0 0; padding: 8px 10px; border-radius: 8px; background: #fff5e0; color: #6b4e12; font-size: 14px; }
+  .sez { margin: 18px 0 8px; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .cal { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+  .cal .d small { white-space: nowrap; overflow: hidden; max-width: 100%; }
+  a.b { display: inline-flex; align-items: center; min-height: 38px; padding: 0 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--fg); font: 600 14px inherit; text-decoration: none; }
+  .cal .d { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; }
+  .cal .d small { font-size: 10px; font-weight: 600; line-height: 1.1; color: var(--muted); }
+  .cal .d.past { background: #e3eefc; border-color: #b9d3f5; color: #1d5fb8; }
+  .cal .d.past.has::after { background: #2f7de1; }
+  .cal .d.oggi { outline: 2px solid var(--gold); }
+  .cal .d.sel { box-shadow: 0 0 0 3px var(--fg) inset; }
   @media (max-width: 520px) { .stat4 { grid-template-columns: repeat(2, 1fr); } }
   @media (prefers-color-scheme: dark) {
     :root { --bg: #0b1326; --surface: #122144; --fg: #eef0f5; --muted: #a9b2c6; --line: rgba(255,255,255,.14); --gold: #d1a85c; }
     header { background: var(--surface); }
+    .card.past { background: rgba(47,125,225,.12); } .tag.blu { background: rgba(47,125,225,.25); color: #a9cbff; }
+    .cal .d.past { background: rgba(47,125,225,.22); border-color: rgba(47,125,225,.5); color: #cfe0ff; }
+    .nota { background: rgba(168,132,60,.18); color: #f3dca6; }
     .tag.att { background: rgba(168,132,60,.18); } .tag.ok { background: rgba(11,122,59,.22); } .tag.off { background: rgba(176,58,46,.22); }
   }
 </style>
@@ -183,6 +206,8 @@ function fmtDay(s) { const d = new Date(s + "T00:00"); return d.toLocaleDateStri
 const ORARI_PRENOT = (() => { const a = []; for (let m = 12 * 60; m <= 14 * 60 + 30; m += 15) a.push(fmt(m)); for (let m = 19 * 60; m <= 22 * 60 + 30; m += 15) a.push(fmt(m)); return a; function fmt(m) { return String(m / 60 | 0).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0"); } })();
 const ORARI_ORDINE = (() => { const a = []; for (let m = 12 * 60; m <= 14 * 60; m += 15) a.push(fmt(m)); for (let m = 19 * 60; m <= 22 * 60; m += 15) a.push(fmt(m)); return a; function fmt(m) { return String(m / 60 | 0).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0"); } })();
 
+function passato(data, ora) { return !!data && new Date(`${data}T${ora || "23:59"}`).getTime() < Date.now() - 15 * 60000; }
+const euroG = (n) => "€ " + (+n || 0).toFixed(2).replace(".", ",");
 function viewOggi() {
   const oggi = iso(new Date());
   const future = (dati.prenot || []).filter((p) => p.data >= oggi);
@@ -193,17 +218,19 @@ function viewOggi() {
 }
 
 function cardPrenot(p) {
-  const off = p.stato === "annullata_ristorante";
+  const off = p.stato === "annullata_ristorante", old = passato(p.data, p.ora);
   return `
-    <div class="card" data-p="${p.id}">
-      <h3>${esc(p.ora)} · ${esc(p.nome)}
+    <div class="card${old ? " past" : ""}" data-p="${p.id}">
+      <h3>🍽 ${esc(p.ora)} · ${esc(p.nome)}
         ${off ? '<span class="tag off">Annullata</span>' : `<span class="tag ok">${esc(p.persone)} pers.</span>`}
+        ${old && !off ? '<span class="tag blu">Passata</span>' : ""}
       </h3>
-      <p class="meta">${esc(p.telefono || "no telefono")} · ${esc(p.email || "")}</p>
-      ${!off ? `<div class="row">
+      <p class="meta">${esc(p.telefono || "no telefono")}${p.email ? " · " + esc(p.email) : " · senza account"}</p>
+      ${p.note ? `<p class="nota">📝 ${esc(p.note)}</p>` : ""}
+      ${!off && !old ? `<div class="row">
         <button class="b" data-a="cambia">Cambia orario</button>
         <button class="b err" data-a="annulla">Annulla</button>
-        ${p.telefono ? `<a class="b" href="tel:${esc(p.telefono.replace(/\\s+/g,""))}">📞 Chiama</a>` : ""}
+        ${p.telefono ? `<a class="b" href="tel:${esc(p.telefono.replace(/\s+/g,""))}">📞 Chiama</a>` : ""}
       </div>` : ""}
     </div>`;
 }
@@ -228,20 +255,34 @@ function bindOggi() {
   });
 }
 
+const dataOrd = (o) => o.data || String(o.creato || "").slice(0, 10);
 function viewOrdini() {
-  const list = (dati.ordini || []).filter((o) => o.stato !== "annullata_ristorante");
-  if (!list.length) return `<div class="empty">Nessun ordine attivo.</div>`;
-  return list.map(cardOrdine).join("");
+  const tutti = (dati.ordini || []).slice().sort((a, b) => (dataOrd(a) + (a.ora || "")).localeCompare(dataOrd(b) + (b.ora || "")));
+  const prossimi = tutti.filter((o) => o.stato !== "annullata_ristorante" && !passato(dataOrd(o), o.ora));
+  const vecchi = tutti.filter((o) => passato(dataOrd(o), o.ora) || o.stato === "annullata_ristorante").reverse();
+  return `<h3 class="sez">Da preparare (${prossimi.length})</h3>`
+    + (prossimi.length ? prossimi.map(cardOrdine).join("") : `<div class="empty" style="padding:20px">Nessun ordine da preparare.</div>`)
+    + (vecchi.length ? `<h3 class="sez">🔵 Già passati · ultimi 14 giorni (${vecchi.length})</h3>` + vecchi.map(cardOrdine).join("") : "");
+}
+function righeOrdine(o) {
+  let r = []; try { r = JSON.parse(o.righe || "[]"); } catch { r = []; }
+  if (!r.length) return `<p class="meta" style="margin-top:6px">Piatti non salvati (ordine fatto prima dell'aggiornamento): vedi Telegram.</p>`;
+  return `<ul class="righe">${r.map((x) => `<li><span class="q">${esc(x.q)}×</span>${x.n != null ? `<span class="n">n.${esc(x.n)}</span>` : ""}<span>${esc(x.nome)}</span><span class="p">${x.prezzo ? euroG(x.prezzo * x.q) : ""}</span></li>`).join("")}</ul>`;
 }
 function cardOrdine(o) {
+  const d = dataOrd(o), off = o.stato === "annullata_ristorante", old = passato(d, o.ora), casa = o.modo === "consegna";
   return `
-    <div class="card" data-o="${o.id}">
-      <h3>Ordine #${o.id} · ${o.data && o.data !== iso(new Date()) ? `<span class="tag att">${esc(fmtDay(o.data))}</span> ` : ""}${esc(o.ora || "")} · € ${(+o.totale||0).toFixed(2).replace(".", ",")}</h3>
-      <p class="meta">${esc(o.nome || "")} · ${esc(o.telefono || "")} · ${esc(o.email || "")}</p>
+    <div class="card${old || off ? " past" : ""}" data-o="${o.id}">
+      <h3>${casa ? "🛵" : "🥡"} #${o.id} · ${d && d !== iso(new Date()) ? `<span class="tag ${old ? "blu" : "att"}">${esc(fmtDay(d))}</span> ` : ""}${esc(o.ora || "")} · ${euroG(o.totale)}
+        ${off ? '<span class="tag off">Annullato</span>' : old ? '<span class="tag blu">Passato</span>' : ""}</h3>
+      <p class="meta"><b>${o.modo ? (casa ? "Consegna" : "Ritiro") : ""}</b>${casa && (o.indirizzo || o.zona) ? ` · 📍 ${esc(o.indirizzo || "")}${o.zona ? " (" + esc(o.zona) + ")" : ""}` : ""}</p>
+      <p class="meta">${esc(o.nome || "")} · ${esc(o.telefono || "")}${o.email ? " · " + esc(o.email) : " · senza account"}${o.sconto ? ` · 🎉 sconto ${esc(o.sconto)}` : ""}</p>
+      ${righeOrdine(o)}
+      ${o.note ? `<p class="nota">📝 ${esc(o.note)}</p>` : ""}
       <div class="row">
-        <button class="b" data-a="cambia">Cambia orario</button>
-        <button class="b err" data-a="annulla">Annulla</button>
-        ${o.telefono ? `<a class="b" href="tel:${esc(String(o.telefono).replace(/\\s+/g,""))}">📞 Chiama</a>` : ""}
+        ${!old && !off ? `<button class="b" data-a="cambia">Cambia orario</button>
+        <button class="b err" data-a="annulla">Annulla</button>` : ""}
+        ${o.telefono ? `<a class="b" href="tel:${esc(String(o.telefono).replace(/\s+/g,""))}">📞 Chiama</a>` : ""}
       </div>
     </div>`;
 }
@@ -420,13 +461,16 @@ function viewCalendario() {
   const primo = new Date(anno, mese, 1), ultimo = new Date(anno, mese + 1, 0);
   const start = (primo.getDay() + 6) % 7; // lun = 0
   const nomeMese = d.toLocaleDateString("it-IT", { month: "long", year: "numeric" });
-  const giorni = (dati.prenot || []).reduce((a, p) => { a[p.data] = (a[p.data] || 0) + 1; return a; }, {});
+  const giorni = {};
+  (dati.prenot || []).forEach((p) => { if (p.stato === "annullata_ristorante") return; const g = (giorni[p.data] = giorni[p.data] || { p: 0, o: 0 }); g.p++; });
+  (dati.ordini || []).forEach((o) => { if (o.stato === "annullata_ristorante") return; const k = dataOrd(o); const g = (giorni[k] = giorni[k] || { p: 0, o: 0 }); g.o++; });
+  const oggi = iso(new Date());
   const cells = [];
   for (let i = 0; i < start; i++) cells.push(`<div class="d empty"></div>`);
   for (let n = 1; n <= ultimo.getDate(); n++) {
     const k = `${anno}-${String(mese + 1).padStart(2, "0")}-${String(n).padStart(2, "0")}`;
-    const q = giorni[k] || 0;
-    cells.push(`<div class="d${q ? " has" : ""}" data-d="${k}" data-n="${q}">${n}</div>`);
+    const g = giorni[k] || { p: 0, o: 0 }, q = g.p + g.o;
+    cells.push(`<div class="d${q ? " has" : ""}${k < oggi ? " past" : ""}${k === oggi ? " oggi" : ""}${k === viewCalendario.sel ? " sel" : ""}" data-d="${k}" data-n="${q}">${n}${q ? `<small>${g.p ? "🍽" + g.p : ""}${g.p && g.o ? " " : ""}${g.o ? "🛵" + g.o : ""}</small>` : ""}</div>`);
   }
   return `<div class="card">
     <div class="row" style="justify-content:space-between;align-items:center">
@@ -438,6 +482,7 @@ function viewCalendario() {
       ${["L","M","M","G","V","S","D"].map((h) => `<div class="h">${h}</div>`).join("")}
       ${cells.join("")}
     </div>
+    <p class="hint">🍽 prenotazioni · 🛵 ordini · in <b style="color:#2f7de1">blu</b> i giorni e gli ordini già passati.</p>
     <div id="cal-day" style="margin-top:12px"></div>
   </div>`;
 }
@@ -445,11 +490,18 @@ function viewCalendario() {
 function bindCalendario() {
   $("#prev").onclick = () => { const d = viewCalendario.d || new Date(); d.setMonth(d.getMonth() - 1); viewCalendario.d = d; render(); };
   $("#next").onclick = () => { const d = viewCalendario.d || new Date(); d.setMonth(d.getMonth() + 1); viewCalendario.d = d; render(); };
-  document.querySelectorAll(".cal .d.has").forEach((e) => e.onclick = () => {
-    const k = e.dataset.d, list = (dati.prenot || []).filter((p) => p.data === k);
-    $("#cal-day").innerHTML = `<h3 style="text-transform:capitalize">${esc(fmtDay(k))}</h3>` + list.map(cardPrenot).join("");
-    bindOggi();
-  });
+  const apri = (k) => {
+    const pr = (dati.prenot || []).filter((p) => p.data === k).sort((a, b) => (a.ora || "").localeCompare(b.ora || ""));
+    const or = (dati.ordini || []).filter((o) => dataOrd(o) === k).sort((a, b) => (a.ora || "").localeCompare(b.ora || ""));
+    document.querySelectorAll(".cal .d").forEach((x) => x.classList.toggle("sel", x.dataset.d === k));
+    $("#cal-day").innerHTML = `<h3 style="text-transform:capitalize">${esc(fmtDay(k))}</h3>`
+      + (pr.length ? `<h3 class="sez">🍽 Prenotazioni (${pr.length})</h3>` + pr.map(cardPrenot).join("") : "")
+      + (or.length ? `<h3 class="sez">🛵 Ordini (${or.length})</h3>` + or.map(cardOrdine).join("") : "")
+      + (!pr.length && !or.length ? `<p class="meta">Niente in questo giorno.</p>` : "");
+    bindOggi(); bindOrdini();
+  };
+  document.querySelectorAll(".cal .d[data-d]").forEach((e) => e.onclick = () => { viewCalendario.sel = e.dataset.d; apri(e.dataset.d); });
+  if (viewCalendario.sel) apri(viewCalendario.sel);
 }
 
 function render() {
