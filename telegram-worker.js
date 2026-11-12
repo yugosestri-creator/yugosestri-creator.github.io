@@ -135,13 +135,17 @@ const SCHEMA = [
   `UPDATE eventi SET descrizione = 'Seguici su Instagram (@yugosushisestri) o TikTok (@yugo.sestri) e mostralo alla cassa: in 2 persone una bibita in omaggio; in 5 o più persone una bibita, una birra o un vino (birra e vino solo ai maggiorenni, 18+). Prezzi invariati.' WHERE nome = 'Bibita offerta a chi ci segue' AND descrizione LIKE '%in 3 o più%'`,
   // carta fedeltà: quanti ordini ha fatto dal sito e se ha il buono (no / valido / usato)
   `CREATE TABLE IF NOT EXISTS fedelta (uid TEXT PRIMARY KEY, ordini INTEGER NOT NULL DEFAULT 0, buono TEXT NOT NULL DEFAULT 'no', aggiornato TEXT)`,
-  `DELETE FROM fedelta WHERE aggiornato < '2026-11-10T23:00:00Z'`
+  `DELETE FROM fedelta WHERE aggiornato < '2026-11-10T23:00:00Z'`,
+  // ordini e prenotazioni senza account: per evitare abusi contiamo le richieste di ogni connessione
+  `CREATE TABLE IF NOT EXISTS ospiti_log (ip TEXT NOT NULL, quando INTEGER NOT NULL)`
 ];
 const NUOVE_COLONNE = ["ALTER TABLE visite ADD COLUMN anonimi INTEGER NOT NULL DEFAULT 0", "ALTER TABLE visite ADD COLUMN ritorni INTEGER NOT NULL DEFAULT 0", "ALTER TABLE coupon ADD COLUMN tipo TEXT", "ALTER TABLE coupon ADD COLUMN premio TEXT", "ALTER TABLE ordini ADD COLUMN stato TEXT DEFAULT 'inviato'", "ALTER TABLE ordini ADD COLUMN nome TEXT",
   "ALTER TABLE ordini ADD COLUMN telefono TEXT", "ALTER TABLE ordini ADD COLUMN ora TEXT", "ALTER TABLE ordini ADD COLUMN lang TEXT",
   "ALTER TABLE ordini ADD COLUMN oraPrima TEXT", "ALTER TABLE ordini ADD COLUMN nascosto INTEGER",
   "ALTER TABLE prenot ADD COLUMN oraPrima TEXT", "ALTER TABLE ordini ADD COLUMN data TEXT",
-  "ALTER TABLE coupon ADD COLUMN uid TEXT", "ALTER TABLE ordini ADD COLUMN sconto TEXT"];
+  "ALTER TABLE coupon ADD COLUMN uid TEXT", "ALTER TABLE ordini ADD COLUMN sconto TEXT",
+  "ALTER TABLE ordini ADD COLUMN righe TEXT", "ALTER TABLE ordini ADD COLUMN modo TEXT", "ALTER TABLE ordini ADD COLUMN indirizzo TEXT",
+  "ALTER TABLE ordini ADD COLUMN zona TEXT", "ALTER TABLE ordini ADD COLUMN note TEXT", "ALTER TABLE prenot ADD COLUMN note TEXT"];
 let schemaPronto = false;
 async function init(env) {
   if (schemaPronto) return;
@@ -212,6 +216,24 @@ async function segreto(env) {
 
 class Errore extends Error { constructor(msg, status = 400) { super(msg); this.status = status; } }
 
+/* Chi ordina o prenota: con l'account se c'è, altrimenti come ospite riconosciuto dal numero di telefono
+   (così anche gli sconti "primo ordine" e la carta fedeltà funzionano senza registrarsi) */
+async function utenteOOspite(env, body, ip) {
+  if (body.idToken) {
+    const u = await utente(env, body.idToken);
+    if (u && u.verificato) return u;
+  }
+  const cifre = String(body.telefono || "").replace(/\D/g, "").replace(/^0039|^39(?=3\d{8,9}$)/, "");
+  if (cifre.length < 8 || cifre.length > 13) throw new Errore("Serve un numero di telefono valido: ti chiamiamo se c'è un problema.");
+  await init(env);
+  const ora = Date.now();
+  await env.DB.prepare("DELETE FROM ospiti_log WHERE quando < ?").bind(ora - 24 * 3600e3).run();
+  const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM ospiti_log WHERE ip = ? AND quando > ?").bind(ip || "?", ora - 6 * 3600e3).first();
+  if (n && n.n >= 6) throw new Errore("Hai già inviato diverse richieste: per altre chiama il ristorante.", 429);
+  await env.DB.prepare("INSERT INTO ospiti_log (ip, quando) VALUES (?, ?)").bind(ip || "?", ora).run();
+  return { uid: "tel:" + cifre, email: "", verificato: true, ospite: true };
+}
+
 /* ---------------- prenotazioni ---------------- */
 function testoPrenotazione(b, email, tipo) {
   const no = tipo === "annullata";
@@ -222,14 +244,14 @@ function testoPrenotazione(b, email, tipo) {
     no ? "❌ PRENOTAZIONE ANNULLATA – Yugo" : "🍣 NUOVA PRENOTAZIONE – Yugo", "",
     `👤 ${b.nome}`, `👥 ${b.persone} ${b.persone === 1 ? "persona" : "persone"}`,
     `📅 ${GIORNI[g]} ${d} ${MESI[m - 1]}`, `🕗 Arrivo previsto: ${b.ora}`,
-    b.telefono ? `📞 ${b.telefono}` : null, `✉️ ${email}`, b.note ? `📝 ${b.note}` : null, "",
+    b.telefono ? `📞 ${b.telefono}` : null, email ? `✉️ ${email}` : "👤 Prenotazione senza account", b.note ? `📝 ${b.note}` : null, "",
     no ? `⏱ Annullata il ${ora.it}` : `⏱ Richiesta fatta il ${ora.it}`
   ];
   const zh = [
     no ? "❌ 预订已取消 – Yugo" : "🍣 新预订 – Yugo", "",
     `👤 姓名：${b.nome}`, `👥 人数：${b.persone}人`,
     `📅 日期：${m}月${d}日 ${ZH_GIORNI[g]}`, `🕗 预计到达：${b.ora}`,
-    b.telefono ? `📞 电话：${b.telefono}` : null, `✉️ 邮箱：${email}`, b.note ? `📝 备注：${b.note}` : null, "",
+    b.telefono ? `📞 电话：${b.telefono}` : null, email ? `✉️ 邮箱：${email}` : "👤 未注册账号", b.note ? `📝 备注：${b.note}` : null, "",
     no ? `⏱ 取消时间：${ora.zh}` : `⏱ 提交时间：${ora.zh}`
   ];
   return [...it, "", "— — — — — — —", "", ...zh].filter((r) => r !== null).join("\n");
@@ -259,9 +281,12 @@ function testoModifica(r, ordine, nuovaOra) {
   return [...it, "", "— — — — — — —", "", ...zh].filter((x) => x !== null).join("\n");
 }
 
-async function prenotazione(env, body) {
-  const u = await utente(env, body.idToken);
-  if (!u || !u.verificato) { await registra(env, "prenotazione rifiutata", false, !u ? "accesso non valido (token)" : "email non confermata"); throw new Errore("Utente non autorizzato", 401); }
+async function prenotazione(env, body, ip) {
+  let u;
+  if (body.tipo === "annullata") {
+    u = await utente(env, body.idToken);
+    if (!u || !u.verificato) throw new Errore("Utente non autorizzato", 401);
+  } else u = await utenteOOspite(env, body, ip);
   const b = {
     nome: pulisci(body.nome, 80), persone: Math.max(1, Math.min(60, parseInt(body.persone, 10) || 0)),
     data: /^\d{4}-\d{2}-\d{2}$/.test(body.data) ? body.data : null, ora: /^\d{2}:\d{2}$/.test(body.ora) ? body.ora : null,
@@ -276,14 +301,14 @@ async function prenotazione(env, body) {
   } else {
     const [y, m, d] = b.data.split("-").map(Number);
     if (GIORNI_CHIUSI.includes(new Date(Date.UTC(y, m - 1, d)).getUTCDay())) throw new Errore("Il martedì siamo chiusi. Scegli un altro giorno.");
-    const ins = await env.DB.prepare("INSERT INTO prenot (doc, uid, email, nome, telefono, data, ora, persone, creato) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .bind(doc || null, u.uid, u.email, b.nome, b.telefono, b.data, b.ora, b.persone, adessoISO()).run();
+    const ins = await env.DB.prepare("INSERT INTO prenot (doc, uid, email, nome, telefono, data, ora, persone, creato, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .bind(doc || null, u.uid, u.email, b.nome, b.telefono, b.data, b.ora, b.persone, adessoISO(), b.note).run();
     numero = ins.meta && ins.meta.last_row_id;
   }
   let testo = testoPrenotazione(b, u.email, annulla ? "annullata" : "nuova");
   if (numero) testo += `\n\n🔁 Per annullarla / 取消：/annulla P${numero}`;
   if (!(await tg(env, testo))) throw new Errore("Telegram non ha accettato il messaggio", 502);
-  return { ok: true };
+  return { ok: true, numero };
 }
 
 
@@ -425,9 +450,8 @@ async function riassuntoVisite(env, quando) {
   ].filter((r) => r !== null).join("\n"));
 }
 
-async function ordine(env, body) {
-  const u = await utente(env, body.idToken);
-  if (!u || !u.verificato) { await registra(env, "ordine rifiutato", false, !u ? "accesso non valido (token)" : "email non confermata"); throw new Errore("Accedi con un account confermato per ordinare", 401); }
+async function ordine(env, body, ip) {
+  const u = await utenteOOspite(env, body, ip);
   const consegna = body.modo === "consegna";
   if (consegna && CONSEGNA_SOSPESA) throw new Errore("Le consegne a domicilio sono temporaneamente sospese. Puoi ordinare da asporto e ritirare da noi.");
   const righe = (Array.isArray(body.righe) ? body.righe : []).slice(0, 60).map((r) => ({
@@ -472,8 +496,9 @@ async function ordine(env, body) {
   else if (promoScontiAttiva() && !(await giaOrdinato(env, u.uid))) sconto = { tipo: "primo", perc: PROMO_SCONTI.online, it: "Sconto primo ordine", zh: "首单优惠" };
   const meno = sconto ? Math.round(sub * sconto.perc) / 100 : 0;
   const tot = Math.round((sub - meno + costo) * 100) / 100;
-  const ins = await env.DB.prepare("INSERT INTO ordini (uid, email, totale, creato, nome, telefono, ora, lang, data, sconto) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    .bind(u.uid, u.email, tot, adessoISO(), o.nome, o.telefono, o.ora, pulisci(body.lang, 5) || "it", data, sconto ? `${sconto.perc}% ${sconto.tipo}` : null).run();
+  const ins = await env.DB.prepare("INSERT INTO ordini (uid, email, totale, creato, nome, telefono, ora, lang, data, sconto, righe, modo, indirizzo, zona, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(u.uid, u.email, tot, adessoISO(), o.nome, o.telefono, o.ora, pulisci(body.lang, 5) || "it", data, sconto ? `${sconto.perc}% ${sconto.tipo}` : null,
+      JSON.stringify(righe), consegna ? "consegna" : "ritiro", consegna ? o.indirizzo : "", consegna ? o.zona : "", o.note).run();
   const numero = ins.meta && ins.meta.last_row_id;
   await env.DB.prepare(`INSERT OR IGNORE INTO primo_ordine (uid, ordine, creato) VALUES (?, ?, ?)`).bind(u.uid, numero, adessoISO()).run();
 
@@ -490,7 +515,7 @@ async function ordine(env, body) {
     consegna || sconto ? `Piatti ${eur(sub)}${sconto ? ` − ${sconto.it.toLowerCase()} ${sconto.perc}% (${eur(meno)})` : ""}${consegna ? ` + consegna ${eur(costo)}` : ""}` : null,
     sconto ? `🎉 ${sconto.it.toUpperCase()} ${sconto.perc}% GIÀ CALCOLATO` : null,
     `💶 TOTALE ${eur(tot)} – paga alla ${consegna ? "consegna" : "cassa"}`,
-    o.note ? `📝 ${o.note}` : null, `✉️ ${u.email}`, `⏱ Inviato il ${t.it}`
+    o.note ? `📝 ${o.note}` : null, u.email ? `✉️ ${u.email}` : "👤 Ordine senza account", `⏱ Inviato il ${t.it}`
   ];
   const zh = [
     consegna ? `🛵 新订单 ${numero}号 – 外送` : `🥡 新订单 ${numero}号 – 自取`, "",
@@ -513,6 +538,16 @@ async function ordine(env, body) {
   const nuovoBuono = !!(sblocca && sblocca.meta && sblocca.meta.changes === 1);
   if (nuovoBuono && AVVISO_COUPON) await tg(env, `🎁 ${o.nome} (${o.telefono}) ha fatto ${FEDELTA.ordini} ordini dal sito: il suo prossimo ordine avrà il buono fedeltà del ${FEDELTA.perc}% (già calcolato).\n🎁 ${o.nome} 已在网站下单 ${FEDELTA.ordini} 次：下一单自动享受 ${FEDELTA.perc}% 会员优惠。`, CONFIG.CHAT_ORDINI || CONFIG.CHAT_ID);
   return { ok: true, numero, totale: tot, sconto: sconto ? { tipo: sconto.tipo, perc: sconto.perc, meno } : null, nuovoBuono: nuovoBuono ? FEDELTA.perc : 0, servono: FEDELTA.ordini };
+}
+
+/* Stato di un ordine, per la pagina "segui il tuo ordine" (serve numero + telefono) */
+async function statoOrdine(env, body) {
+  await init(env);
+  const id = parseInt(body.numero, 10) || 0;
+  const tel = String(body.telefono || "").replace(/\D/g, "").slice(-8);
+  const o = await env.DB.prepare("SELECT id, telefono, ora, data, modo, stato, totale FROM ordini WHERE id = ?").bind(id).first();
+  if (!o || !tel || String(o.telefono || "").replace(/\D/g, "").slice(-8) !== tel) return { ok: false };
+  return { ok: true, numero: o.id, ora: o.ora, data: o.data, modo: o.modo || "", stato: o.stato || "inviato", totale: o.totale };
 }
 
 /* Prenotazioni che il ristorante ha annullato da Telegram: il sito le mostra al cliente */
@@ -961,10 +996,10 @@ async function gestDati(env, body) {
   await gestVerifica(env, body);
   await init(env);
   const oggi = new Date().toISOString().slice(0, 10);
-  const limite = Date.now() - 24 * 3600 * 1000;
+  const da = new Date(Date.now() - 14 * 864e5).toISOString().slice(0, 10); // anche i giorni passati, per il calendario
   const [prenot, ordini, follower, eventi] = await Promise.all([
-    env.DB.prepare("SELECT id, nome, telefono, data, ora, persone, email, stato, creato FROM prenot WHERE data >= ? AND stato IN ('confermata', 'annullata_ristorante') ORDER BY data, ora LIMIT 200").bind(oggi).all(),
-    env.DB.prepare("SELECT id, nome, telefono, ora, data, totale, email, stato, creato FROM ordini WHERE creato > ? OR data >= ? ORDER BY COALESCE(data, substr(creato, 1, 10)), ora LIMIT 150").bind(new Date(limite).toISOString(), oggi).all(),
+    env.DB.prepare("SELECT id, nome, telefono, data, ora, persone, email, stato, creato, note FROM prenot WHERE data >= ? AND stato IN ('confermata', 'annullata_ristorante') ORDER BY data, ora LIMIT 300").bind(da).all(),
+    env.DB.prepare("SELECT id, nome, telefono, ora, data, totale, email, stato, creato, righe, modo, indirizzo, zona, note, sconto FROM ordini WHERE COALESCE(data, substr(creato, 1, 10)) >= ? ORDER BY COALESCE(data, substr(creato, 1, 10)), ora LIMIT 300").bind(da).all(),
     env.DB.prepare("SELECT f.id, f.codice, f.username, f.piattaforma, f.creato, p.nome AS daChi FROM follow f LEFT JOIN promoter p ON p.codice = f.codice WHERE f.stato = 'attesa' ORDER BY f.id DESC LIMIT 100").all(),
     env.DB.prepare("SELECT id, nome, descrizione, sconto, etichetta, dal, al FROM eventi WHERE eliminato = 0 AND (al IS NULL OR al = '' OR al >= ?) ORDER BY dal, id").bind(oggi).all()
   ]);
@@ -1189,10 +1224,11 @@ export default {
       if (request.method !== "POST") return json({ errore: "Metodo non permesso" }, 405);
 
       const body = await request.json().catch(() => ({}));
-      if (url.pathname === "/" || url.pathname === "/prenotazione") return json(await prenotazione(env, body));
-      await init(env);
       const ip = request.headers.get("CF-Connecting-IP") || "";
-      if (url.pathname === "/ordine") return json(await ordine(env, body));
+      if (url.pathname === "/" || url.pathname === "/prenotazione") return json(await prenotazione(env, body, ip));
+      await init(env);
+      if (url.pathname === "/ordine") return json(await ordine(env, body, ip));
+      if (url.pathname === "/ordine/stato") return json(await statoOrdine(env, body));
       if (url.pathname === "/sconti/me") return json(await scontiMe(env, body));
       if (url.pathname === "/promo/iscrivi") return json(await promoIscrivi(env, body));
       if (url.pathname === "/promo/me") return json(await promoMe(env, body));
