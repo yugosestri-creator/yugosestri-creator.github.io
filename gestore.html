@@ -90,6 +90,20 @@
   .cal .d.past.has::after { background: #2f7de1; }
   .cal .d.oggi { outline: 2px solid var(--gold); }
   .cal .d.sel { box-shadow: 0 0 0 3px var(--fg) inset; }
+  /* Natan */
+  .nt-stato { display: flex; align-items: center; gap: 8px; font-weight: 700; }
+  .nt-stato i { width: 10px; height: 10px; border-radius: 50%; background: #8a94a6; display: inline-block; }
+  .nt-stato.on i { background: #1fa45a; box-shadow: 0 0 0 4px rgba(31,164,90,.2); } .nt-stato.off i { background: var(--err); }
+  .nt-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+  .nt-chips button { min-height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); font: 600 13px inherit; cursor: pointer; }
+  .nt-chips button:hover { border-color: var(--gold); }
+  .nt-log { display: grid; gap: 10px; margin: 10px 0; }
+  #nt-q { font-family: inherit; }
+  .nt-msg { padding: 10px 12px; border-radius: 12px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14.5px; }
+  .nt-io { background: var(--gold); color: #fff; justify-self: end; max-width: 85%; }
+  .nt-bot { background: var(--surface); border: 1px solid var(--line); }
+  .nt-prev { display: grid; justify-items: center; gap: 8px; margin-top: 10px; }
+  .nt-prev iframe { width: 390px; max-width: 100%; height: 560px; border: 8px solid #111; border-radius: 28px; background: #03132D; }
   @media (max-width: 520px) { .stat4 { grid-template-columns: repeat(2, 1fr); } }
   @media (prefers-color-scheme: dark) {
     :root { --bg: #0b1326; --surface: #122144; --fg: #eef0f5; --muted: #a9b2c6; --line: rgba(255,255,255,.14); --gold: #d1a85c; }
@@ -104,6 +118,7 @@
 <body>
 <div id="app"></div>
 <div class="toast" id="toast"></div>
+<script src="config.js?v=44"></script>
 <script>
 const WORKER = "https://yugo-bot.yugosestri.workers.dev";
 const $ = (q) => document.querySelector(q);
@@ -183,10 +198,10 @@ function viewHome() {
         <button class="b" id="logout">Esci</button>
       </div>
       <nav>
-        ${["oggi", "ordini", "coupon", "follower", "eventi", "visite", "calendario"].map((k) => `<button data-t="${k}" class="${k === tab ? "on" : ""}">${{oggi:"📅 Oggi",ordini:"🛵 Ordini",coupon:"🎁 Coupon",follower:"🔔 Follower",eventi:"🎉 Eventi",visite:"📊 Visite",calendario:"🗓 Calendario"}[k]}</button>`).join("")}
+        ${["oggi", "ordini", "coupon", "follower", "eventi", "visite", "calendario", "natan"].map((k) => `<button data-t="${k}" class="${k === tab ? "on" : ""}">${{oggi:"📅 Oggi",ordini:"🛵 Ordini",coupon:"🎁 Coupon",follower:"🔔 Follower",eventi:"🎉 Eventi",visite:"📊 Visite",calendario:"🗓 Calendario",natan:"🤖 Natan"}[k]}</button>`).join("")}
       </nav>
     </header>
-    <main>${{oggi: viewOggi, ordini: viewOrdini, coupon: viewCoupon, follower: viewFollower, eventi: viewEventi, visite: viewVisite, calendario: viewCalendario}[tab]()}</main>`;
+    <main>${{oggi: viewOggi, ordini: viewOrdini, coupon: viewCoupon, follower: viewFollower, eventi: viewEventi, visite: viewVisite, calendario: viewCalendario, natan: viewNatan}[tab]()}</main>`;
 }
 
 function bindHome() {
@@ -197,6 +212,7 @@ function bindHome() {
   if (tab === "coupon") bindCoupon();
   if (tab === "follower") bindFollower();
   if (tab === "eventi") bindEventi();
+  if (tab === "natan") bindNatan();
   if (tab === "visite") document.querySelectorAll("[data-vg]").forEach((r) => r.onclick = () => { viewVisite.sel = r.dataset.vg; render(); });
 }
 
@@ -504,6 +520,147 @@ function bindCalendario() {
   if (viewCalendario.sel) apri(viewCalendario.sel);
 }
 
+/* ---------- 🤖 Natan: il tuo Natan del Mac come consulente del ristorante ----------
+   Funziona solo quando Natan è acceso sul Mac. L'indirizzo del Mac (cambia a ogni avvio) si legge da ponte.json
+   sul sito di Natan. Serve un codice amico creato in Natan (lo scrivi qui una volta, resta solo su questo telefono).
+   A Natan mandiamo solo numeri e informazioni del sito: mai nomi, telefoni o indirizzi dei clienti. */
+const NT_PONTE = "https://kacr268698-pixel.github.io/natan/ponte.json";
+const NT = { url: "", stato: "?", log: store.get("yugo-natan-log", []), lavoro: false, prev: null };
+const NT_IDEE = [
+  "Analizza visite, ordini e prenotazioni e dimmi cosa va bene e cosa no",
+  "Proponi 3 modifiche al sito per farlo usare di più (con anteprima)",
+  "Idee per fare pubblicità questa settimana a Sestri Levante",
+  "Cosa aggiungeresti o toglieresti dal menu?",
+  "Scrivi un post per Instagram e TikTok sull'offerta di adesso",
+  "Proponi un evento o una promo per riempire i giorni più vuoti"
+];
+async function ntTrova() {
+  NT.stato = "cerco"; ntStato();
+  const prova = async (u) => { try { const r = await fetch(u + "/ping", { cache: "no-store" }); const d = await r.json(); return d && d.app === "natan" ? u : ""; } catch { return ""; } };
+  let url = await prova("http://127.0.0.1:8765");   // se il Gestore è aperto sul Mac stesso
+  if (!url) {
+    try { const p = await (await fetch(NT_PONTE + "?t=" + Date.now(), { cache: "no-store" })).json(); if (p.url) url = await prova(String(p.url).replace(/\/$/, "")); } catch { /* niente */ }
+  }
+  NT.url = url; NT.stato = url ? "on" : "off"; ntStato();
+}
+function ntStato() {
+  const el = $("#nt-stato"); if (!el) return;
+  el.className = "nt-stato " + (NT.stato === "on" ? "on" : NT.stato === "off" ? "off" : "");
+  el.innerHTML = `<i></i>${NT.stato === "on" ? "Natan è acceso sul Mac" : NT.stato === "off" ? "Natan è spento: accendi il Mac e apri Natan" : "Cerco Natan…"}`;
+  const b = $("#nt-invia"); if (b) b.disabled = NT.stato !== "on" || NT.lavoro || !store.get("yugo-natan-codice", "");
+}
+/* Tutto quello che Natan deve sapere, in poche righe (massimo ~4000 caratteri) */
+function ntContesto() {
+  const R = (window.YUGO_CONFIG || {}).ristorante || {}, r = [], oggi = iso(new Date());
+  r.push(`RISTORANTE: ${R.nome || "Yugo"} (${R.slogan || ""}), sushi a ${R.citta || "Sestri Levante"}, ${R.indirizzo || ""}. Social: TikTok @${(R.social || {}).tiktok || "-"}, Instagram @${(R.social || {}).instagram || "-"}.`);
+  r.push(`Orari: ${(R.orari || []).map((o) => `${o.giorno.slice(0, 3)} ${o.ore}`).join("; ")}.`);
+  if (R.allYouCanEat) r.push(`All you can eat: cena € ${R.allYouCanEat.prezzo}${R.allYouCanEatPranzo ? `, pranzo € ${R.allYouCanEatPranzo.prezzo} (weekend € ${R.allYouCanEatPranzo.prezzoWeekend || R.allYouCanEatPranzo.prezzo})` : ""}.`);
+  if (R.formule) r.push(`Menu asporto: ${R.formule.map((f) => `${f.nome} € ${f.prezzo} (${f.quando})`).join("; ")}.`);
+  if (R.ordini) r.push(`Consegna: zone ${(R.ordini.zone || []).map((z) => `${z.nome} € ${z.costo}`).join(", ")}; minimo € ${R.ordini.minimo}; anche su Just Eat.`);
+  const cats = (R.menu || []).map((c) => { const p = c.piatti.map((x) => x.prezzo).filter((x) => x != null); return `${c.categoria} (${c.piatti.length} piatti, € ${Math.min(...p)}–${Math.max(...p)})`; });
+  r.push(`Menu: ${cats.join("; ")}.`);
+  r.push("SITO: pagine Home (offerte, social, invita amici), Menu (asporto o al ristorante, filtri, quiz «Non sai cosa prendere?»), Ordina (asporto/consegna senza account, si paga alla consegna), Prenota (nome e telefono, pulsanti giorno e ora), Account (ordini, carta fedeltà, invita amici con codice sconto), assistente Natan a pulsanti. 7 lingue. Si installa come app. Foto dei piatti: quasi nessuna (solo 1).");
+  const ev = (dati.eventi || []).map((e) => `${e.nome} ${e.dal}→${e.al}${e.sconto ? " sconto " + e.sconto : ""}`);
+  r.push(`Eventi/offerte attive: ${ev.length ? ev.join(" | ") : "nessuna"}.`);
+  const V = dati.visite;
+  if (V) {
+    const per = {}; V.giorni.forEach((g) => per[g.giorno] = g);
+    const giorni = []; for (let i = 13; i >= 0; i--) { const d = new Date(V.oggi + "T12:00"); d.setDate(d.getDate() - i); const k = iso(d), g = per[k] || { n: 0, ritorni: 0, prenot: 0, ordini: 0 };
+      giorni.push(`${d.toLocaleDateString("it-IT", { weekday: "short", day: "numeric" })}: ${g.n} visite (${g.ritorni || 0} tornati), ${g.prenot || 0} pren, ${g.ordini || 0} ord`); }
+    r.push(`VISITE AL SITO ultimi 14 giorni: ${giorni.join("; ")}.`);
+    const ore = Array(24).fill(0); V.giorni.forEach((g) => (g.ore || []).forEach((n, h) => ore[h] += n));
+    r.push(`Ore con più visite (30 giorni): ${ore.map((n, h) => [h, n]).filter(([, n]) => n).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([h, n]) => `${h}:00 (${n})`).join(", ")}. Lingue: ${Object.entries(V.lingue || {}).map(([l, n]) => `${l} ${n}`).join(", ") || "-"}.`);
+  }
+  const ord = (dati.ordini || []).filter((o) => o.stato !== "annullata_ristorante");
+  if (ord.length) {
+    const piatti = {}; let tot = 0, cons = 0;
+    ord.forEach((o) => { tot += +o.totale || 0; if (o.modo === "consegna") cons++; try { JSON.parse(o.righe || "[]").forEach((x) => piatti[x.nome] = (piatti[x.nome] || 0) + (+x.q || 1)); } catch { /* ok */ } });
+    r.push(`ORDINI DAL SITO (ultimi 14 giorni e prossimi): ${ord.length} ordini, totale € ${tot.toFixed(0)}, media € ${(tot / ord.length).toFixed(1)}, ${cons} consegne e ${ord.length - cons} ritiri. Piatti più ordinati: ${Object.entries(piatti).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([n, q]) => `${n} ×${q}`).join(", ")}.`);
+  } else r.push("ORDINI DAL SITO: nessuno negli ultimi 14 giorni.");
+  const pr = (dati.prenot || []).filter((p) => p.stato === "confermata");
+  if (pr.length) {
+    const gs = {}; pr.forEach((p) => { const g = new Date(p.data + "T12:00").toLocaleDateString("it-IT", { weekday: "short" }); gs[g] = (gs[g] || 0) + 1; });
+    r.push(`PRENOTAZIONI DAL SITO: ${pr.length} (${pr.filter((p) => p.data >= oggi).length} future), media ${(pr.reduce((a, p) => a + (+p.persone || 0), 0) / pr.length).toFixed(1)} persone. Per giorno: ${Object.entries(gs).map(([g, n]) => `${g} ${n}`).join(", ")}.`);
+  } else r.push("PRENOTAZIONI DAL SITO: nessuna negli ultimi 14 giorni.");
+  return r.join("\n").slice(0, 4300);
+}
+const NT_ISTRUZIONI = `Sei Natan e qui fai il consulente di marketing e di siti web per il ristorante di sushi Yugo, di Kevin. Rispondi in italiano, concreto e ordinato: prima le 3–5 cose più importanti, poi i dettagli. Basati sui numeri qui sotto e dillo quando sono pochi per trarre conclusioni. Proponi idee realistiche per un ristorante piccolo di Sestri Levante con poco budget (Instagram, TikTok, Google Maps, volantini, QR, collaborazioni, eventi). Se proponi una modifica visibile al sito, aggiungi alla fine UN blocco \`\`\`html con solo il pezzo di pagina nuovo (niente script, niente immagini esterne), usando queste classi del sito: card, btn btn-gold, btn, muted, offerte-tit; sfondo blu notte e testo chiaro come nel sito.`;
+
+function viewNatan() {
+  const cod = store.get("yugo-natan-codice", "");
+  const ultima = NT.log.length ? NT.log[NT.log.length - 1] : null;
+  return `
+    <div class="card">
+      <h3>🤖 Natan, il tuo consulente</h3>
+      <p class="nt-stato" id="nt-stato"></p>
+      <p class="hint">Funziona solo quando il Mac è acceso con Natan aperto. Natan legge visite, ordini, prenotazioni, menu e offerte e ti dà idee per il sito e la pubblicità. Gli mandiamo solo numeri: mai nomi, telefoni o indirizzi dei clienti.</p>
+      ${cod ? `<div class="row"><button class="b" id="nt-cod-x">Cambia codice di Natan</button><button class="b" id="nt-riprova">↻ Ricontrolla</button>${NT.log.length ? `<button class="b" id="nt-nuova">🧹 Nuova conversazione</button>` : ""}</div>` : `
+      <form id="nt-cod-f" style="margin-top:10px">
+        <div class="field"><label>Codice di Natan (una volta sola)</label><input type="password" id="nt-cod" autocomplete="off" required placeholder="Incolla qui il codice"></div>
+        <p class="hint">Sul Mac apri Natan → pagina Amici → aggiungi un amico chiamato «Yugo»: Natan copia il messaggio di invito. Incollalo qui così com'è (prendo io il codice dal link). Resta salvato solo su questo telefono; da Natan puoi revocarlo quando vuoi.</p>
+        <button class="b gold" type="submit">Salva</button>
+      </form>`}
+    </div>
+    ${cod ? `
+    <div class="nt-log" id="nt-log">${NT.log.map((m, i) => `<div class="nt-msg ${m.io ? "nt-io" : "nt-bot"}">${esc(m.io ? m.testo : m.testo.replace(/```html[\s\S]*?(```|$)/i, "🎨 (proposta grafica: guarda l'anteprima)"))}${!m.io && /\`\`\`html/i.test(m.testo) ? `<div class="row"><button class="b gold" data-prev="${i}">👁 Anteprima sul telefono</button></div>` : ""}</div>`).join("")}</div>
+    ${NT.prev != null ? `<div class="card nt-prev"><h3>👁 Anteprima (come apparirebbe nel sito)</h3><iframe id="nt-frame" sandbox title="Anteprima"></iframe><p class="hint">È solo un'anteprima: per metterla davvero nel sito passala a Claude.</p><button class="b" id="nt-prev-x">Chiudi anteprima</button></div>` : ""}
+    <div class="card">
+      <div class="nt-chips">${NT_IDEE.map((t) => `<button type="button" data-idea>${esc(t)}</button>`).join("")}</div>
+      <form id="nt-f">
+        <div class="field"><textarea id="nt-q" rows="3" maxlength="1200" placeholder="Chiedi qualcosa a Natan…"></textarea></div>
+        <button class="b gold" id="nt-invia" type="submit" style="width:100%">${NT.lavoro ? "Natan sta pensando…" : "Chiedi a Natan"}</button>
+      </form>
+    </div>` : ""}`;
+}
+function bindNatan() {
+  ntStato(); if (NT.stato === "?" || NT.stato === "off") ntTrova();
+  $("#nt-cod-f")?.addEventListener("submit", (e) => { e.preventDefault(); const raw = $("#nt-cod").value.trim(), v = ((raw.match(/codice=([A-Za-z0-9_-]+)/) || [])[1] || raw).trim(); if (v) { store.set("yugo-natan-codice", v); render(); } });
+  $("#nt-cod-x")?.addEventListener("click", () => { if (confirm("Vuoi cambiare il codice di Natan?")) { store.del("yugo-natan-codice"); render(); } });
+  $("#nt-riprova")?.addEventListener("click", ntTrova);
+  $("#nt-nuova")?.addEventListener("click", () => { NT.log = []; NT.prev = null; store.set("yugo-natan-log", []); render(); });
+  $("#nt-prev-x")?.addEventListener("click", () => { NT.prev = null; render(); });
+  document.querySelectorAll("[data-idea]").forEach((b) => b.onclick = () => { $("#nt-q").value = b.textContent; $("#nt-q").focus(); });
+  document.querySelectorAll("[data-prev]").forEach((b) => b.onclick = () => { NT.prev = +b.dataset.prev; render(); $("#nt-frame")?.scrollIntoView({ behavior: "smooth" }); });
+  $("#nt-f")?.addEventListener("submit", (e) => { e.preventDefault(); ntChiedi($("#nt-q").value); });
+  const fr = $("#nt-frame");
+  if (fr && NT.log[NT.prev]) {
+    const m = NT.log[NT.prev].testo.match(/```html\s*([\s\S]*?)(```|$)/i);
+    const pezzo = (m ? m[1] : "").replace(/<script[\s\S]*?<\/script>/gi, "");
+    const base = location.href.replace(/[^/]*$/, "");
+    fr.srcdoc = `<!doctype html><html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="${base}style.css"><style>body{background:var(--bg);color:var(--fg);padding:16px;margin:0}</style></head><body><main class="view">${pezzo}</main></body></html>`;
+  }
+  const log = $("#nt-log"); if (log && NT.lavoro) log.lastElementChild?.scrollIntoView({ block: "end" });
+}
+async function ntChiedi(domanda) {
+  domanda = String(domanda || "").trim(); const cod = store.get("yugo-natan-codice", "");
+  if (!domanda || NT.lavoro || !cod) return;
+  if (NT.stato !== "on") { toast("Natan è spento: accendi il Mac."); return; }
+  NT.lavoro = true; NT.log.push({ io: true, testo: domanda }, { testo: "…" }); render();
+  const bot = NT.log[NT.log.length - 1];
+  const H = { "Authorization": "Bearer " + cod, "Content-Type": "application/json" };
+  const agg = () => { const el = document.querySelectorAll("#nt-log .nt-msg"); const x = el[el.length - 1]; if (x && tab === "natan") x.textContent = bot.testo.replace(/```html[\s\S]*?(```|$)/i, "🎨 (sto preparando l'anteprima…)"); };
+  try {
+    const testo = `${NT_ISTRUZIONI}\n\nDATI DI YUGO (aggiornati ${new Date().toLocaleString("it-IT")}):\n${ntContesto()}\n\nDOMANDA DI KEVIN: ${domanda}`.slice(0, 5900);
+    const r = await fetch(NT.url + "/chat", { method: "POST", headers: H, body: JSON.stringify({ text: testo, chat: "yugo-gestore", biblioteca: false }) });
+    const d = await r.json().catch(() => ({}));
+    if (r.status === 401) throw new Error("Il codice di Natan non è valido: creane uno nuovo in Natan.");
+    if (!r.ok || !d.job) throw new Error(d.error || "Natan non ha risposto.");
+    const fine = Date.now() + 10 * 60000;
+    while (Date.now() < fine) {
+      await new Promise((ok) => setTimeout(ok, 1500));
+      const j = await (await fetch(NT.url + "/job?id=" + encodeURIComponent(d.job), { headers: { "Authorization": "Bearer " + cod }, cache: "no-store" })).json().catch(() => ({}));
+      if (j.text) { bot.testo = j.text; agg(); }
+      if (j.error) throw new Error(j.error);
+      if (j.done) break;
+    }
+    if (!bot.testo || bot.testo === "…") bot.testo = "Natan non ha risposto in tempo. Riprova.";
+  } catch (e) {
+    bot.testo = "⚠️ " + (e && e.message && !/fetch|network|load/i.test(e.message) ? e.message : "Non riesco a parlare con Natan. Il Mac è acceso?");
+    if (/fetch|network|load/i.test(e && e.message || "")) { NT.stato = "off"; }
+  }
+  NT.lavoro = false; NT.log = NT.log.slice(-20); store.set("yugo-natan-log", NT.log); render();
+}
+
 function render() {
   $("#app").innerHTML = sessione ? viewHome() : viewLogin();
   if (sessione) { bindHome(); if (tab === "calendario") bindCalendario(); } else bindLogin();
@@ -511,7 +668,7 @@ function render() {
 
 if (sessione && sessione.scade && sessione.scade > Date.now()) carica();
 render();
-setInterval(() => { if (sessione && tab !== "eventi") carica(); }, 60000); // ricarica ogni minuto (non mentre scrivi un evento)
+setInterval(() => { if (sessione && tab !== "eventi" && tab !== "natan") carica(); }, 60000); // ricarica ogni minuto (non mentre scrivi un evento)
 </script>
 </body>
 </html>
