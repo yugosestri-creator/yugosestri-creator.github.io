@@ -7,7 +7,7 @@
   const LOCALI = { it: "it-IT", en: "en-GB", fr: "fr-FR", de: "de-DE", es: "es-ES", zh: "zh-CN", ja: "ja-JP" };
   const get = () => { try { return localStorage.getItem("yugo-lingua"); } catch { return null; } };
   const set = (l) => { try { localStorage.setItem("yugo-lingua", l); } catch { /* ok */ } };
-  let lang = get();
+  let lang = /[?&]anteprima=1/.test(location.search) ? "it" : get();   // anteprima dal Gestore: niente scelta lingua
   if (lang && !LOCALI[lang]) lang = null;
   const root = document.documentElement;
 
