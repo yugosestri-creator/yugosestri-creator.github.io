@@ -227,7 +227,7 @@ let EVENTI = null;
    Chi non ha accettato: la visita conta lo stesso, ma in forma anonima (grigio), senza salvare nulla sul telefono. */
 let visitaInSospeso = false;
 function contaVisita(subito) {
-  if (!WORKER || DEMO || /gestore/.test(location.pathname)) return;
+  if (!WORKER || DEMO || /gestore/.test(location.pathname) || ANTEPRIMA) return;
   let consenso = null; try { consenso = localStorage.getItem("yugo-consenso"); } catch { /* ok */ }
   if (!consenso && !subito) { // prima visita: aspetta la scelta sui cookie (o che chiuda la pagina)
     visitaInSospeso = true; return;
@@ -1730,12 +1730,13 @@ window.addEventListener("resize", () => { clearTimeout(drawWaves.t); drawWaves.t
 
 async function start() {
   renderHome();
+  mostraAnteprima();
   renderMenu();
   renderPromo();
   caricaEventi();
   contaVisita();
   avviaNatan();
-  dopoIngresso(() => mostraCookie());
+  dopoIngresso(() => { if (!ANTEPRIMA) mostraCookie(); });
   requestAnimationFrame(drawWaves);
   const initial = (location.hash || "").replace("#", "");
   if (INVITO) { go("invito", false); renderLanding(INVITO); }
@@ -1759,6 +1760,24 @@ async function start() {
     navigator.serviceWorker.register("sw.js").catch(() => {});
   }
 }
+/* ---------- Anteprima dal Gestore: una proposta di Natan mostrata in cima alla home, solo su questo telefono ---------- */
+const ANTEPRIMA = /[?&]anteprima=1/.test(location.search);
+function pulisciHtml(h) {
+  const d = new DOMParser().parseFromString(`<div>${h}</div>`, "text/html");
+  d.querySelectorAll("script,iframe,object,embed,link,meta,style,form,base,frame,frameset").forEach((e) => e.remove());
+  d.querySelectorAll("*").forEach((e) => [...e.attributes].forEach((a) => { if (/^on/i.test(a.name) || /^\s*(javascript|data):/i.test(a.value)) e.removeAttribute(a.name); }));
+  return d.body.firstElementChild.innerHTML;
+}
+function mostraAnteprima() {
+  if (!ANTEPRIMA) return;
+  let h = ""; try { h = localStorage.getItem("yugo-anteprima") || ""; } catch { /* ok */ }
+  const home = $("#view-home"); if (!h || !home) return;
+  const box = document.createElement("div");
+  box.className = "anteprima-box";
+  box.innerHTML = `<p class="anteprima-tag">👁 Anteprima di Natan · solo su questo telefono</p>${pulisciHtml(h)}`;
+  home.prepend(box);
+}
+
 /* ---------- Natan: l'assistente di Yugo ----------
    Niente intelligenza artificiale e niente server: il cliente sceglie una domanda tra i pulsanti
    e Natan risponde con i dati del sito (config.js e offerte del Gestore). Gratis e sempre acceso. */
