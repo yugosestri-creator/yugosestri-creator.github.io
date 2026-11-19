@@ -1193,6 +1193,27 @@ async function pushIscrivi(env, body) {
   return { ok: true };
 }
 
+/* ---------------- PC di Kevin che aiuta Natan (consulente del Gestore) ----------------
+   Il PC fisso ha un indirizzo che cambia a ogni avvio (tunnel trycloudflare): lo scrive qui da solo,
+   con il codice NATAN_PC_KEY (segreto impostato da Kevin su Cloudflare). Il Gestore lo legge da qui. */
+async function natanPc(env, request) {
+  await init(env);
+  if (request.method === "GET") {
+    const r = await env.DB.prepare("SELECT valore FROM chiavi WHERE nome = 'natan_pc'").first();
+    return r ? JSON.parse(r.valore) : { url: "" };
+  }
+  const body = await request.json().catch(() => ({}));
+  if (!env.NATAN_PC_KEY) throw new Errore("Codice del PC non impostato su Cloudflare (NATAN_PC_KEY).", 503);
+  const a = new TextEncoder().encode(String(body.chiave || "")), b = new TextEncoder().encode(String(env.NATAN_PC_KEY));
+  let diff = a.length ^ b.length; for (let i = 0; i < Math.max(a.length, b.length); i++) diff |= (a[i] || 0) ^ (b[i] || 0);
+  if (diff) throw new Errore("Codice sbagliato.", 401);
+  const url = String(body.url || "").trim().replace(/\/$/, "");
+  if (url && !/^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/.test(url)) throw new Errore("Indirizzo non valido.", 400);
+  const v = { url, modello: pulisci(body.modello, 60), agg: adessoISO() };
+  await env.DB.prepare("INSERT INTO chiavi (nome, valore) VALUES ('natan_pc', ?1) ON CONFLICT(nome) DO UPDATE SET valore = ?1").bind(JSON.stringify(v)).run();
+  return { ok: true };
+}
+
 /* ---------------- router ---------------- */
 export default {
   async fetch(request, env) {
@@ -1218,6 +1239,7 @@ export default {
       if (url.pathname === "/diagnosi") return json(await diagnosi(env));
       if (url.pathname === "/otp/stato") return json({ attivo: otpAttivo(env) });
       if (url.pathname === "/eventi") return json(await eventiPubblici(env));
+      if (url.pathname === "/natan-pc") return json(await natanPc(env, request));
       if (url.pathname === "/visita" && request.method === "POST") return json(await visita(env, await request.json().catch(() => ({})), request));
       if (url.pathname === "/push/chiave") return json({ ok: true, chiave: (await vapid(env)).pub });
       if (request.method === "GET") return json({ ok: true, servizio: "Yugo – bot e promo" });
