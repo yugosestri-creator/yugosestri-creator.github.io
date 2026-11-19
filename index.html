@@ -16,8 +16,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Allura&family=Josefin+Sans:wght@300;400;600&family=Mulish:wght@400;600;700&display=swap">
-<link rel="stylesheet" href="style.css?v=43">
-<script src="i18n.js?v=43"></script>
+<link rel="stylesheet" href="style.css?v=44">
+<script src="i18n.js?v=44"></script>
 </head>
 <body>
 <!--APP-START-->
@@ -193,6 +193,22 @@
     <div id="cs-body"></div>
   </div>
 </div>
+<button type="button" id="natan-fab" class="natan-fab" aria-label="Chiedi a Natan, l'assistente di Yugo" hidden>
+  <span class="natan-av" aria-hidden="true">N</span><span class="natan-fab-txt">Chiedi a Natan</span>
+</button>
+<div id="natan" class="sheet natan-sheet" role="dialog" aria-modal="true" aria-labelledby="natan-title" hidden>
+  <div class="sheet-bg" data-natan-close></div>
+  <div class="sheet-card natan-card">
+    <button type="button" class="sheet-x" data-natan-close aria-label="Chiudi">×</button>
+    <div class="natan-head">
+      <span class="natan-av natan-av-lg" aria-hidden="true">N</span>
+      <div><h2 id="natan-title">Natan</h2><p class="muted">L'assistente di Yugo · scegli una domanda</p></div>
+    </div>
+    <div id="natan-log" class="natan-log" aria-live="polite"></div>
+    <div id="natan-sugg" class="natan-sugg"></div>
+    <p class="natan-nota">Per allergie e intolleranze chiedi sempre al personale.</p>
+  </div>
+</div>
 <button type="button" id="cart-bar" class="cart-bar" hidden>
   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l-1.2 12.1a1 1 0 0 1-1 .9H7.2a1 1 0 0 1-1-.9Z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/></svg>
   <span id="cart-bar-txt"></span><span class="cart-bar-go">Vedi ordine →</span>
@@ -206,8 +222,8 @@
 </div>
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 <!--APP-END-->
-<script src="config.js?v=43"></script>
-<script src="anim.js?v=43"></script>
-<script type="module" src="app.js?v=43"></script>
+<script src="config.js?v=44"></script>
+<script src="anim.js?v=44"></script>
+<script type="module" src="app.js?v=44"></script>
 </body>
 </html>
