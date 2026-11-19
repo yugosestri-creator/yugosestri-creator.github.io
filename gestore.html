@@ -551,7 +551,7 @@ function ntStato() {
 }
 /* Tutto quello che Natan deve sapere, in poche righe (massimo ~4000 caratteri) */
 function ntContesto() {
-  const R = (window.YUGO_CONFIG || {}).ristorante || {}, r = [], oggi = iso(new Date());
+  const R = (window.YUGO_CONFIG || {}).ristorante || {}, r = [], fatti = [], oggi = iso(new Date());
   r.push(`RISTORANTE: ${R.nome || "Yugo"} (${R.slogan || ""}), sushi a ${R.citta || "Sestri Levante"}, ${R.indirizzo || ""}. Social: TikTok @${(R.social || {}).tiktok || "-"}, Instagram @${(R.social || {}).instagram || "-"}.`);
   r.push(`Orari: ${(R.orari || []).map((o) => `${o.giorno.slice(0, 3)} ${o.ore}`).join("; ")}.`);
   if (R.allYouCanEat) r.push(`All you can eat: cena € ${R.allYouCanEat.prezzo}${R.allYouCanEatPranzo ? `, pranzo € ${R.allYouCanEatPranzo.prezzo} (weekend € ${R.allYouCanEatPranzo.prezzoWeekend || R.allYouCanEatPranzo.prezzo})` : ""}.`);
@@ -568,6 +568,10 @@ function ntContesto() {
     const giorni = []; for (let i = 13; i >= 0; i--) { const d = new Date(V.oggi + "T12:00"); d.setDate(d.getDate() - i); const k = iso(d), g = per[k] || { n: 0, ritorni: 0, prenot: 0, ordini: 0 };
       giorni.push(`${d.toLocaleDateString("it-IT", { weekday: "short", day: "numeric" })}: ${g.n} visite (${g.ritorni || 0} tornati), ${g.prenot || 0} pren, ${g.ordini || 0} ord`); }
     r.push(`VISITE AL SITO ultimi 14 giorni: ${giorni.join("; ")}.`);
+    const g14 = []; for (let i = 0; i < 14; i++) { const d = new Date(V.oggi + "T12:00"); d.setDate(d.getDate() - i); g14.push(per[iso(d)] || { n: 0, ritorni: 0, prenot: 0, ordini: 0 }); }
+    const tv = g14.reduce((a, g) => a + g.n, 0), tr = g14.reduce((a, g) => a + (g.ritorni || 0), 0), az = g14.reduce((a, g) => a + (g.prenot || 0) + (g.ordini || 0), 0);
+    fatti.push(`In 14 giorni ${tv} visite (media ${(tv / 14).toFixed(1)} al giorno), ${g14.filter((g) => !g.n).length} giorni con zero visite, ${tv ? Math.round(tr / tv * 100) : 0}% sono persone che tornano.`);
+    fatti.push(`Su ${tv} visite, ${az} sono diventate un ordine o una prenotazione (${tv ? (az / tv * 100).toFixed(1) : 0}%).`);
     const ore = Array(24).fill(0); V.giorni.forEach((g) => (g.ore || []).forEach((n, h) => ore[h] += n));
     r.push(`Ore con più visite (30 giorni): ${ore.map((n, h) => [h, n]).filter(([, n]) => n).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([h, n]) => `${h}:00 (${n})`).join(", ")}. Lingue: ${Object.entries(V.lingue || {}).map(([l, n]) => `${l} ${n}`).join(", ") || "-"}.`);
   }
@@ -575,16 +579,25 @@ function ntContesto() {
   if (ord.length) {
     const piatti = {}; let tot = 0, cons = 0;
     ord.forEach((o) => { tot += +o.totale || 0; if (o.modo === "consegna") cons++; try { JSON.parse(o.righe || "[]").forEach((x) => piatti[x.nome] = (piatti[x.nome] || 0) + (+x.q || 1)); } catch { /* ok */ } });
+    fatti.push(`Ordini dal sito: ${ord.length}, scontrino medio € ${(tot / ord.length).toFixed(1)}.`);
     r.push(`ORDINI DAL SITO (ultimi 14 giorni e prossimi): ${ord.length} ordini, totale € ${tot.toFixed(0)}, media € ${(tot / ord.length).toFixed(1)}, ${cons} consegne e ${ord.length - cons} ritiri. Piatti più ordinati: ${Object.entries(piatti).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([n, q]) => `${n} ×${q}`).join(", ")}.`);
-  } else r.push("ORDINI DAL SITO: nessuno negli ultimi 14 giorni.");
+  } else { r.push("ORDINI DAL SITO: nessuno negli ultimi 14 giorni."); fatti.push("Nessun ordine dal sito in 14 giorni."); }
   const pr = (dati.prenot || []).filter((p) => p.stato === "confermata");
   if (pr.length) {
     const gs = {}; pr.forEach((p) => { const g = new Date(p.data + "T12:00").toLocaleDateString("it-IT", { weekday: "short" }); gs[g] = (gs[g] || 0) + 1; });
     r.push(`PRENOTAZIONI DAL SITO: ${pr.length} (${pr.filter((p) => p.data >= oggi).length} future), media ${(pr.reduce((a, p) => a + (+p.persone || 0), 0) / pr.length).toFixed(1)} persone. Per giorno: ${Object.entries(gs).map(([g, n]) => `${g} ${n}`).join(", ")}.`);
-  } else r.push("PRENOTAZIONI DAL SITO: nessuna negli ultimi 14 giorni.");
-  return r.join("\n").slice(0, 4300);
+    fatti.push(`Prenotazioni dal sito: ${pr.length}.`);
+  } else { r.push("PRENOTAZIONI DAL SITO: nessuna negli ultimi 14 giorni."); fatti.push("Nessuna prenotazione dal sito in 14 giorni."); }
+  return ("NUMERI CHIAVE (già calcolati, usali):\n- " + fatti.join("\n- ") + "\n\n" + r.join("\n")).slice(0, 5000);
 }
-const NT_ISTRUZIONI = `Sei Natan e qui fai il consulente di marketing e di siti web per Yugo, il ristorante di sushi di Kevin a Sestri Levante. Kevin ti manda i numeri veri del ristorante e del sito e una domanda: rispondi sempre, usando quei numeri (citali), senza dire che non sei sicuro e senza parlare d'altro. Rispondi in italiano, concreto e ordinato: prima le 3–5 cose più importanti (cosa va bene, cosa no, cosa fare), poi i dettagli. Niente LaTeX. Basati sui numeri qui sotto e dillo quando sono pochi per trarre conclusioni. Proponi idee realistiche per un ristorante piccolo di Sestri Levante con poco budget (Instagram, TikTok, Google Maps, volantini, QR, collaborazioni, eventi). Se proponi una modifica visibile al sito, aggiungi alla fine UN blocco \`\`\`html con solo il pezzo di pagina nuovo (niente script, niente immagini esterne), usando queste classi del sito: card, btn btn-gold, btn, muted, offerte-tit; sfondo blu notte e testo chiaro come nel sito.`;
+const NT_ISTRUZIONI = `Sei Natan e fai il consulente di marketing per Yugo, il ristorante di sushi di Kevin a Sestri Levante. Kevin ti manda i dati veri del ristorante e del sito (visite, ordini, prenotazioni, menu, offerte) e una domanda.
+Regole:
+- Rispondi solo alla DOMANDA DI KEVIN, in italiano semplice e corretto. Non ripetere risposte precedenti.
+- Usa i numeri: ogni punto deve citare un dato (es. «solo 3 visite al giorno», «0 ordini dal sito»). Se i dati sono pochi, dillo.
+- Non inventare cose che non sono nei dati: non vedi la grafica del sito, quindi non parlare di font, colori o logo se Kevin non lo chiede.
+- Consigli concreti e realistici per un piccolo ristorante con poco budget: Instagram, TikTok, profilo Google Maps e recensioni, QR sui tavoli e sugli scontrini, volantini, collaborazioni con hotel e negozi, eventi. Per ogni consiglio scrivi cosa fare, quando e quanto costa più o meno.
+- Per un'analisi usa questo schema: «Cosa va bene» (2–3 punti), «Cosa non va» (2–3 punti), «Cosa fare questa settimana» (3 azioni numerate).
+- Se proponi una modifica visibile al sito, aggiungi alla fine UN blocco \`\`\`html con solo il pezzo di pagina nuovo (niente script, niente immagini), usando le classi del sito: card, btn btn-gold, btn, muted, offerte-tit.`;
 
 function viewNatan() {
   const cod = store.get("yugo-natan-codice", "");
@@ -640,7 +653,7 @@ async function ntChiedi(domanda) {
   const H = { "Authorization": "Bearer " + cod, "Content-Type": "application/json" };
   const agg = () => { const el = document.querySelectorAll("#nt-log .nt-msg"); const x = el[el.length - 1]; if (x && tab === "natan") x.textContent = bot.testo.replace(/```html[\s\S]*?(```|$)/i, "🎨 (sto preparando l'anteprima…)"); };
   try {
-    const storia = NT.log.slice(0, -2).filter((m) => m.testo && !/^⚠️|non sono sicuro di rispondere/.test(m.testo)).slice(-4).map((m) => ({ ruolo: m.io ? "io" : "natan", testo: m.testo }));
+    const storia = NT.log.slice(0, -2).filter((m) => m.testo && !/^⚠️|non sono sicuro di rispondere/.test(m.testo)).slice(-2).map((m) => ({ ruolo: m.io ? "io" : "natan", testo: m.testo.slice(0, 1500) }));
     const testo = `DATI DI YUGO (aggiornati ${new Date().toLocaleString("it-IT")}):\n${ntContesto()}\n\nDOMANDA DI KEVIN: ${domanda}`;
     const r = await fetch(NT.url + "/consulente", { method: "POST", headers: H, body: JSON.stringify({ sistema: NT_ISTRUZIONI, testo, storia }) });
     if (r.status === 404) throw new Error("Il Natan del Mac non ha ancora il «consulente»: chiudi Natan e riaprilo (Natan.command sul Desktop), poi riprova.");
