@@ -849,3 +849,40 @@ body.tour-open .tabbar { z-index: 80; pointer-events: none; }
 @media (prefers-reduced-motion: reduce) { .trk *, .trk-mini * { animation: none !important; stroke-dashoffset: 0 !important; opacity: 1; } }
 .stack > * { min-width: 0; }
 .trk-tit, .trk-sub { overflow-wrap: anywhere; }
+
+/* ---------- Natan, l'assistente AI ---------- */
+.natan-fab { position: fixed; z-index: 34; right: max(14px, env(safe-area-inset-right, 0px)); bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 14px);
+  display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 16px 0 6px; border-radius: 999px; cursor: pointer;
+  border: 1px solid color-mix(in srgb, var(--gold) 55%, transparent); background: color-mix(in srgb, var(--surface) 94%, transparent);
+  color: var(--fg); font: 700 14px var(--f-body); box-shadow: 0 10px 28px rgb(0 0 0 / .4);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); animation: fx-sheet .5s .6s cubic-bezier(.2,.8,.2,1) both; }
+.natan-fab[hidden] { display: none; }
+.natan-fab:active { transform: scale(.97); }
+body:has(#cart-bar:not([hidden])) .natan-fab { bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 78px); }
+.natan-av { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; flex: none;
+  background: radial-gradient(circle at 30% 25%, var(--gold-hi), var(--gold) 60%, #8a6d33); color: var(--ink-fg); font: 800 17px var(--f-display); }
+.natan-av-lg { width: 46px; height: 46px; font-size: 21px; }
+.natan-card { display: flex; flex-direction: column; gap: 12px; height: min(640px, 88dvh); overflow: hidden; }
+.natan-head { display: flex; align-items: center; gap: 12px; padding-right: 44px; }
+.natan-head h2 { font-size: 22px; font-weight: 600; margin: 0; text-transform: none; letter-spacing: .02em; }
+.natan-head p { margin: 2px 0 0; font-size: 13px; }
+.natan-log { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 4px 2px; overscroll-behavior: contain; }
+.natan-msg { max-width: 86%; padding: 10px 14px; border-radius: 16px; line-height: 1.45; font-size: 15px; white-space: normal; overflow-wrap: anywhere; animation: fx-fade-up .3s ease both; }
+.natan-msg p { margin: 0; }
+.natan-bot { align-self: flex-start; background: var(--surface-2); border: 1px solid var(--line); border-bottom-left-radius: 6px; }
+.natan-io { align-self: flex-end; background: linear-gradient(180deg, var(--gold-hi), var(--gold)); color: var(--ink-fg); border-bottom-right-radius: 6px; font-weight: 600; }
+.natan-dots { display: flex; gap: 5px; padding: 14px 16px; }
+.natan-dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); animation: natan-dot 1s ease-in-out infinite; }
+.natan-dots i:nth-child(2) { animation-delay: .15s; } .natan-dots i:nth-child(3) { animation-delay: .3s; }
+@keyframes natan-dot { 0%, 100% { opacity: .3; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-3px); } }
+.natan-sugg { display: flex; flex-wrap: wrap; gap: 8px; max-height: 34dvh; overflow-y: auto; }
+.natan-msg ul { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 4px; }
+.natan-msg p + p { margin-top: 6px; }
+.natan-msg a { color: var(--gold-hi); }
+.natan-pic { font-size: 13px; color: var(--muted); }
+.natan-chip-go { background: linear-gradient(180deg, var(--gold-hi), var(--gold)); color: var(--ink-fg); border-color: transparent; }
+.natan-sugg:empty { display: none; }
+.natan-chip { min-height: 36px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--fg); font: 600 13px var(--f-body); cursor: pointer; }
+.natan-chip:hover, .natan-chip:focus-visible { border-color: var(--gold); color: var(--gold-hi); }
+.natan-nota { margin: 0; font-size: 11.5px; color: var(--muted); text-align: center; }
+@media (prefers-reduced-motion: reduce) { .natan-fab, .natan-msg { animation: none; } .natan-dots i { animation: none; } }
