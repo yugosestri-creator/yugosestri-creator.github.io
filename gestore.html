@@ -102,6 +102,16 @@
   .nt-msg { padding: 10px 12px; border-radius: 12px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14.5px; }
   .nt-io { background: var(--gold); color: #fff; justify-self: end; max-width: 85%; }
   .nt-bot { background: var(--surface); border: 1px solid var(--line); }
+  .nt-modi { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 10px; }
+  .nt-modi button { display: grid; gap: 2px; text-align: left; padding: 8px 10px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); font: inherit; cursor: pointer; }
+  .nt-modi button b { font-size: 13px; } .nt-modi button small { font-size: 11px; color: var(--muted); }
+  .nt-modi button.on { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(169,138,67,.25); }
+  .nt-modi button:disabled { opacity: .45; cursor: not-allowed; }
+  .nt-pareri { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
+  .nt-parere { min-width: 0; padding: 8px; border: 1px solid var(--line); border-radius: 10px; font-size: 13.5px; }
+  .nt-parere > b { display: block; margin-bottom: 4px; font-size: 12px; color: var(--gold); }
+  .nt-nota { margin: 8px 0 0; font-size: 12px; color: var(--muted); }
+  @media (max-width: 420px) { .nt-modi { grid-template-columns: 1fr; } }
   .nt-chi { display: block; font-size: 12px; font-weight: 700; color: var(--gold); margin-bottom: 4px; }
   .nt-bozze { margin-top: 8px; font-size: 13px; color: var(--muted); } .nt-bozze summary { cursor: pointer; font-weight: 600; }
   .nt-prev { display: grid; justify-items: center; gap: 8px; margin-top: 10px; }
@@ -527,7 +537,7 @@ function bindCalendario() {
    sul sito di Natan. Serve un codice amico creato in Natan (lo scrivi qui una volta, resta solo su questo telefono).
    A Natan mandiamo solo numeri e informazioni del sito: mai nomi, telefoni o indirizzi dei clienti. */
 const NT_PONTE = "https://kacr268698-pixel.github.io/natan/ponte.json";
-const NT = { url: "", stato: "?", log: store.get("yugo-natan-log", []), lavoro: false, prev: null };
+const NT = { stato: "?", log: store.get("yugo-natan-log", []), lavoro: false, prev: null, modo: store.get("yugo-natan-modo", "principale"), mac: "", pc: null, grande: null };
 const NT_IDEE = [
   "Analizza visite, ordini e prenotazioni e dimmi cosa va bene e cosa no",
   "Proponi 3 modifiche al sito per farlo usare di più (con anteprima)",
@@ -536,35 +546,35 @@ const NT_IDEE = [
   "Scrivi un post per Instagram e TikTok sull'offerta di adesso",
   "Proponi un evento o una promo per riempire i giorni più vuoti"
 ];
-/* Dove risponde Natan: prima il PC fisso (più potente), se è acceso e hai il suo codice; altrimenti il Mac */
+/* Chi è acceso: 💻 Mac (Natan vero, il «capo»), 🖥 PC fisso (aiutante), 🧠 Natan Grande (un modello diviso tra Mac e PC).
+   Gli indirizzi di PC e Grande cambiano a ogni avvio: li scrivono loro sul server del sito (/natan-pc, /natan-grande). */
 async function ntTrova() {
   NT.stato = "cerco"; ntStato();
-  const prova = async (u, app) => { try { const r = await fetch(u + "/ping", { cache: "no-store" }); const d = await r.json(); return d && d.app === app ? d : null; } catch { return null; } };
-  const [mac, pc] = await Promise.all([
+  const prova = async (u, app) => { try { const r = await fetch(u + "/ping", { cache: "no-store" }); const d = await r.json(); return d && (!app || d.app === app) ? d : null; } catch { return null; } };
+  const dalServer = async (nome) => {
+    try { const p = await (await fetch(WORKER + "/" + nome, { cache: "no-store" })).json(); const u = String(p.url || "").replace(/\/$/, ""); const d = u && await prova(u); if (d) return { url: u, modello: d.modello || p.modello || "" }; } catch { /* niente */ }
+    return null;
+  };
+  const [mac, pc, grande] = await Promise.all([
     (async () => {
       if (await prova("http://127.0.0.1:8765", "natan")) return "http://127.0.0.1:8765";   // se il Gestore è aperto sul Mac stesso
       try { const p = await (await fetch(NT_PONTE + "?t=" + Date.now(), { cache: "no-store" })).json(); const u = String(p.url || "").replace(/\/$/, ""); if (u && await prova(u, "natan")) return u; } catch { /* niente */ }
       return "";
     })(),
-    (async () => {
-      try { const p = await (await fetch(WORKER + "/natan-pc", { cache: "no-store" })).json(); const u = String(p.url || "").replace(/\/$/, ""); const d = u && await prova(u, "natan-pc"); if (d) return { url: u, modello: d.modello || p.modello || "" }; } catch { /* niente */ }
-      return null;
-    })()
+    dalServer("natan-pc"),
+    dalServer("natan-grande")
   ]);
-  NT.mac = mac; NT.pc = pc;
-  const codPc = store.get("yugo-natan-pc-codice", ""), codMac = store.get("yugo-natan-codice", "");
-  if (pc && codPc) { NT.url = pc.url; NT.cod = codPc; NT.dove = "pc"; }
-  else if (mac && codMac) { NT.url = mac; NT.cod = codMac; NT.dove = "mac"; }
-  else { NT.url = ""; NT.cod = ""; NT.dove = ""; }
-  NT.stato = NT.url ? "on" : "off"; ntStato();
+  NT.mac = mac; NT.pc = pc; NT.grande = grande;
+  if (NT.modo === "grande" && !grande) NT.modo = "principale";
+  NT.stato = (mac && store.get("yugo-natan-codice", "")) || ((pc || grande) && store.get("yugo-natan-pc-codice", "")) ? "on" : "off";
+  if (tab === "natan") render(); else ntStato();
 }
 function ntStato() {
   const el = $("#nt-stato"); if (!el) return;
   el.className = "nt-stato " + (NT.stato === "on" ? "on" : NT.stato === "off" ? "off" : "");
-  const pc = NT.pc ? `🖥 PC fisso acceso${NT.pc.modello ? " (" + esc(NT.pc.modello) + ")" : ""}` : "🖥 PC fisso spento";
-  const mac = NT.mac ? "💻 Mac acceso" : "💻 Mac spento";
+  const mod = (x) => x && x.modello ? ` (${esc(x.modello)})` : "";
   el.innerHTML = NT.stato === "cerco" || NT.stato === "?" ? "<i></i>Cerco Natan…"
-    : `<i></i>${NT.stato === "on" ? (NT.pc && NT.mac && store.get("yugo-natan-pc-codice", "") && store.get("yugo-natan-codice", "") ? "🤝 Super Natan: PC e Mac lavorano insieme" : `Risponde ${NT.dove === "pc" ? "il PC fisso" : "il Mac"}`) : "Natan è spento: accendi il PC fisso o il Mac"} <span class="meta" style="font-weight:400">· ${pc} · ${mac}</span>`;
+    : `<i></i>${NT.stato === "on" ? "Natan è pronto" : "Natan è spento: accendi il Mac (o il PC fisso)"} <span class="meta" style="font-weight:400">· ${NT.mac ? "💻 Mac acceso" : "💻 Mac spento"} · ${NT.pc ? "🖥 PC acceso" + mod(NT.pc) : "🖥 PC spento"}${NT.grande ? " · 🧠 Natan Grande pronto" + mod(NT.grande) : ""}</span>`;
   const b = $("#nt-invia"); if (b) b.disabled = NT.stato !== "on" || NT.lavoro;
 }
 /* Tutto quello che Natan deve sapere, in poche righe (massimo ~4000 caratteri) */
@@ -628,14 +638,18 @@ function viewNatan() {
       <form id="nt-cod-f" style="margin-top:10px">
         <div class="field"><label>Codice di Natan del Mac (una volta sola)</label><input type="password" id="nt-cod" autocomplete="off" placeholder="Incolla qui il messaggio di invito di «Yugo»"></div>
         <p class="hint">Sul Mac apri Natan → pagina Amici → aggiungi un amico chiamato «Yugo»: Natan copia il messaggio di invito. Incollalo qui così com'è (prendo io il codice dal link). Resta salvato solo su questo telefono; da Natan puoi revocarlo quando vuoi.</p>
-        <div class="field"><label>Codice del PC fisso (facoltativo)</label><input type="password" id="nt-cod-pc" autocomplete="off" placeholder="Il codice che ti dà il PC fisso"></div>
+        <div class="field"><label>Codice del PC fisso e di Natan Grande (facoltativo)</label><input type="password" id="nt-cod-pc" autocomplete="off" placeholder="Il codice che ti dà il PC fisso"></div>
         <button class="b gold" type="submit">Salva</button>
       </form>`}
     </div>
     ${cod ? `
-    <div class="nt-log" id="nt-log">${NT.log.map((m, i) => `<div class="nt-msg ${m.io ? "nt-io" : "nt-bot"}">${!m.io && m.chi ? `<span class="nt-chi">${{ insieme: "🤝 PC + Mac insieme", pc: "🖥 PC fisso", mac: "💻 Mac" }[m.chi] || ""}</span>` : ""}${esc(m.io ? m.testo : m.testo.replace(/```html[\s\S]*?(```|$)/i, "🎨 (proposta grafica: guarda l'anteprima)"))}${m.bozze && (m.bozze.pc || m.bozze.mac) ? `<details class="nt-bozze"><summary>Vedi le due bozze</summary>${m.bozze.pc ? `<b>🖥 PC</b>\n${esc(m.bozze.pc)}\n\n` : ""}${m.bozze.mac ? `<b>💻 Mac</b>\n${esc(m.bozze.mac)}` : ""}</details>` : ""}${!m.io && /\`\`\`html/i.test(m.testo) ? `<div class="row"><button class="b gold" data-prev="${i}">👁 Anteprima sul telefono</button></div>` : ""}</div>`).join("")}</div>
+    <div class="nt-log" id="nt-log">${NT.log.map((m, i) => ntMsg(m, i)).join("")}</div>
     ${NT.prev != null ? `<div class="card nt-prev"><h3>👁 Anteprima (come apparirebbe nel sito)</h3><iframe id="nt-frame" title="Anteprima"></iframe><p class="hint">È il sito vero con la proposta di Natan in cima alla home (bordo tratteggiato): puoi toccare e provare tutto. La vedi solo tu; per metterla davvero nel sito passala a Claude.</p><div class="row"><a class="b gold" href="index.html?anteprima=1" target="_blank" rel="noopener">↗ Apri a tutto schermo</a><button class="b" id="nt-prev-x">Chiudi anteprima</button></div></div>` : ""}
     <div class="card">
+      <div class="nt-modi" role="radiogroup" aria-label="Come risponde Natan">
+        ${[["principale", "⭐ Soluzione principale", "Mac e PC scrivono, il Mac unisce"], ["pareri", "👥 Vedi i pareri dei due", "Mac e PC uno accanto all'altro"], ["grande", "🧠 Natan Grande", NT.grande ? "Un modello grande su Mac + PC" : "Non ancora pronto"]].map(([k, t, d]) =>
+          `<button type="button" role="radio" aria-checked="${NT.modo === k}" data-modo="${k}" class="${NT.modo === k ? "on" : ""}" ${k === "grande" && !NT.grande ? "disabled" : ""}><b>${t}</b><small>${d}</small></button>`).join("")}
+      </div>
       <div class="nt-chips">${NT_IDEE.map((t) => `<button type="button" data-idea>${esc(t)}</button>`).join("")}</div>
       <form id="nt-f">
         <div class="field"><textarea id="nt-q" rows="3" maxlength="1200" placeholder="Chiedi qualcosa a Natan…"></textarea></div>
@@ -644,33 +658,45 @@ function viewNatan() {
     </div>` : ""}`;
 }
 function bindNatan() {
-  ntStato(); if (NT.stato === "?" || NT.stato === "off") ntTrova();
+  ntStato(); if (NT.stato === "?" || (NT.stato === "off" && Date.now() - (NT.ultimo || 0) > 20000)) { NT.ultimo = Date.now(); ntTrova(); }
   $("#nt-cod-f")?.addEventListener("submit", (e) => { e.preventDefault(); const raw = $("#nt-cod").value.trim(), v = ((raw.match(/codice=([A-Za-z0-9_-]+)/) || [])[1] || raw).trim(), pc = $("#nt-cod-pc").value.trim(); if (v) store.set("yugo-natan-codice", v); if (pc) store.set("yugo-natan-pc-codice", pc); if (v || pc) { NT.stato = "?"; render(); } });
   $("#nt-cod-x")?.addEventListener("click", () => { if (confirm("Vuoi scrivere di nuovo i codici di Natan (Mac e PC)?")) { store.del("yugo-natan-codice"); store.del("yugo-natan-pc-codice"); NT.stato = "?"; render(); } });
-  $("#nt-riprova")?.addEventListener("click", ntTrova);
+  $("#nt-riprova")?.addEventListener("click", () => { NT.ultimo = Date.now(); ntTrova(); });
   $("#nt-nuova")?.addEventListener("click", () => { NT.log = []; NT.prev = null; store.set("yugo-natan-log", []); render(); });
   $("#nt-prev-x")?.addEventListener("click", () => { NT.prev = null; render(); });
   document.querySelectorAll("[data-idea]").forEach((b) => b.onclick = () => { $("#nt-q").value = b.textContent; $("#nt-q").focus(); });
+  document.querySelectorAll("[data-modo]").forEach((b) => b.onclick = () => { if (b.disabled) return; NT.modo = b.dataset.modo; store.set("yugo-natan-modo", NT.modo); render(); });
   document.querySelectorAll("[data-prev]").forEach((b) => b.onclick = () => { NT.prev = +b.dataset.prev; render(); $("#nt-frame")?.scrollIntoView({ behavior: "smooth" }); });
   $("#nt-f")?.addEventListener("submit", (e) => { e.preventDefault(); ntChiedi($("#nt-q").value); });
   const fr = $("#nt-frame");
   if (fr && NT.log[NT.prev]) {
-    const m = NT.log[NT.prev].testo.match(/```html\s*([\s\S]*?)(```|$)/i);
+    const m = ntHtml(NT.log[NT.prev]).match(/```html\s*([\s\S]*?)(```|$)/i);
     const pezzo = (m ? m[1] : "").replace(/<script[\s\S]*?<\/script>/gi, "");
     try { localStorage.setItem("yugo-anteprima", pezzo); } catch { /* ok */ }
     fr.src = "index.html?anteprima=1&t=" + Date.now();
   }
   const log = $("#nt-log"); if (log && NT.lavoro) log.lastElementChild?.scrollIntoView({ block: "end" });
 }
-/* Una richiesta a un Natan (Mac o PC): parte, poi legge il testo mentre lo scrive */
+/* Un messaggio della conversazione */
+const NT_CHI = { mac: "💻 Mac", pc: "🖥 PC fisso", unita: "⭐ Soluzione principale · unita dal Mac", pareri: "👥 I pareri dei due", grande: "🧠 Natan Grande" };
+const ntPulito = (t) => String(t || "").replace(/```html[\s\S]*?(```|$)/i, "🎨 (proposta grafica: guarda l'anteprima)");
+const ntHtml = (m) => [m.testo, m.pareri && m.pareri.mac, m.pareri && m.pareri.pc].find((t) => /```html/i.test(t || "")) || "";
+function ntMsg(m, i) {
+  if (m.io) return `<div class="nt-msg nt-io">${esc(m.testo)}</div>`;
+  const pareri = m.pareri ? `<div class="nt-pareri">${["mac", "pc"].map((k) => `<div class="nt-parere"><b>${NT_CHI[k]}</b><div class="nt-txt" data-live="${k}">${esc(ntPulito(m.pareri[k] || (m.fatto ? "Non ha risposto." : "sta pensando…")))}</div></div>`).join("")}</div>` : "";
+  const bozze = m.bozze && (m.bozze.mac || m.bozze.pc) ? `<details class="nt-bozze"><summary>Mostra le due bozze</summary><div class="nt-pareri">${["mac", "pc"].map((k) => `<div class="nt-parere"><b>${NT_CHI[k]}</b><div class="nt-txt">${esc(ntPulito(m.bozze[k] || "Non ha risposto."))}</div></div>`).join("")}</div></details>` : "";
+  return `<div class="nt-msg nt-bot">${m.chi ? `<span class="nt-chi">${NT_CHI[m.chi] || ""}</span>` : ""}${pareri || `<div class="nt-txt" data-live="main">${esc(ntPulito(m.testo))}</div>`}${m.nota ? `<p class="nt-nota">${esc(m.nota)}</p>` : ""}${bozze}${/```html/i.test(ntHtml(m)) ? `<div class="row"><button class="b gold" data-prev="${i}">👁 Anteprima sul telefono</button></div>` : ""}</div>`;
+}
+/* Una richiesta a un Natan (Mac, PC o Grande): parte, poi legge il testo mentre lo scrive */
 async function ntLavoro(t, corpo, suTesto) {
+  const chi = { pc: "il PC fisso", mac: "il Mac", grande: "Natan Grande" }[t.dove];
   const r = await fetch(t.url + "/consulente", { method: "POST", headers: { "Authorization": "Bearer " + t.cod, "Content-Type": "application/json" }, body: JSON.stringify(corpo) });
   const d = await r.json().catch(() => ({}));
-  const chi = t.dove === "pc" ? "il PC fisso" : "il Mac";
-  if (r.status === 404) throw new Error(t.dove === "pc" ? "Il PC fisso non ha il «consulente»." : "Il Natan del Mac non ha ancora il «consulente»: chiudi Natan e riaprilo, poi riprova.");
+  if (r.status === 404) throw new Error(t.dove === "mac" ? "Il Natan del Mac non ha ancora il «consulente»: chiudi Natan e riaprilo, poi riprova." : `${chi} non ha il «consulente».`);
   if (r.status === 401) throw new Error(`Il codice per ${chi} non è giusto: premi «Cambia codici».`);
+  if (r.status === 429) throw new Error(`${chi} sta ancora rispondendo alla domanda di prima: aspetta e riprova.`);
   if (!r.ok || !d.job) throw new Error(d.error || `${chi} non ha risposto.`);
-  let testo = ""; const fine = Date.now() + 10 * 60000;
+  let testo = ""; const fine = Date.now() + (t.dove === "grande" ? 30 : 12) * 60000;
   while (Date.now() < fine) {
     await new Promise((ok) => setTimeout(ok, 1500));
     const j = await (await fetch(t.url + "/job?id=" + encodeURIComponent(d.job), { headers: { "Authorization": "Bearer " + t.cod }, cache: "no-store" })).json().catch(() => ({}));
@@ -681,9 +707,8 @@ async function ntLavoro(t, corpo, suTesto) {
   if (!testo) throw new Error(`${chi} non ha risposto in tempo.`);
   return testo;
 }
-/* «Super Natan»: se sono accesi sia il PC sia il Mac, scrivono tutti e due una bozza nello stesso momento;
-   poi il PC (il più potente) le confronta e scrive la risposta finale migliore. Se ce n'è uno solo, risponde lui. */
-const NT_UNISCI = `\n\nOra sei il Natan «capo». Due Natan diversi (uno sul Mac, uno sul PC) hanno scritto due bozze di risposta alla stessa domanda. Scrivi TU la risposta finale per Kevin:
+/* Il Mac (Qwen 14B, il più bravo) fa da «capo»: riceve le due bozze e scrive la risposta finale. */
+const NT_UNISCI = `\n\nOra sei il Natan «capo». Due Natan (quello del Mac, cioè tu, e quello del PC fisso, più piccolo) hanno scritto due bozze di risposta alla stessa domanda. Scrivi TU la risposta finale per Kevin:
 - prendi le idee migliori e più concrete di tutte e due le bozze;
 - controlla ogni numero con i DATI DI YUGO e togli quello che è sbagliato, inventato o ripetuto;
 - non dire che ci sono bozze o due Natan: scrivi direttamente la risposta finale, nello schema richiesto;
@@ -692,41 +717,58 @@ async function ntChiedi(domanda) {
   domanda = String(domanda || "").trim();
   if (!domanda || NT.lavoro) return;
   const codPc = store.get("yugo-natan-pc-codice", ""), codMac = store.get("yugo-natan-codice", "");
-  const squadra = [NT.pc && codPc && { dove: "pc", url: NT.pc.url, cod: codPc }, NT.mac && codMac && { dove: "mac", url: NT.mac, cod: codMac }].filter(Boolean);
-  if (!squadra.length) { toast("Natan è spento o manca il codice: accendi il PC fisso o il Mac."); return; }
-  NT.lavoro = true; NT.log.push({ io: true, testo: domanda }, { testo: "…" }); render();
+  const mac = NT.mac && codMac ? { dove: "mac", url: NT.mac, cod: codMac } : null;
+  const pc = NT.pc && codPc ? { dove: "pc", url: NT.pc.url, cod: codPc } : null;
+  const grande = NT.grande && codPc ? { dove: "grande", url: NT.grande.url, cod: codPc } : null;
+  const modo = NT.modo === "grande" && grande ? "grande" : NT.modo === "pareri" ? "pareri" : "principale";
+  if (modo !== "grande" && !mac && !pc) { toast("Natan è spento o manca il codice: accendi il Mac."); return; }
+  NT.lavoro = true; NT.log.push({ io: true, testo: domanda }, { testo: "" }); render();
   const bot = NT.log[NT.log.length - 1];
-  const scrivi = (txt) => { const el = document.querySelectorAll("#nt-log .nt-msg"); const x = el[el.length - 1]; if (x && tab === "natan") x.textContent = txt; };
-  const pulito = (t) => t.replace(/```html[\s\S]*?(```|$)/i, "🎨 (sto preparando l'anteprima…)");
+  const live = (k, txt) => { const x = [...document.querySelectorAll(`#nt-log [data-live="${k}"]`)].pop(); if (x && tab === "natan") x.textContent = ntPulito(txt); };
   try {
     const storia = NT.log.slice(0, -2).filter((m) => m.testo && !/^⚠️|non sono sicuro di rispondere/.test(m.testo)).slice(-2).map((m) => ({ ruolo: m.io ? "io" : "natan", testo: m.testo.slice(0, 1500) }));
     const testo = `DATI DI YUGO (aggiornati ${new Date().toLocaleString("it-IT")}):\n${ntContesto()}\n\nDOMANDA DI KEVIN: ${domanda}`;
-    if (squadra.length === 1) {
-      bot.chi = squadra[0].dove;
-      bot.testo = await ntLavoro(squadra[0], { sistema: NT_ISTRUZIONI, testo, storia }, (t) => { bot.testo = t; scrivi(pulito(t)); });
-    } else {
-      bot.chi = "insieme";
-      const stato = { pc: "sta scrivendo…", mac: "sta scrivendo…" }, parole = { pc: 0, mac: 0 };
-      const mostra = () => scrivi(`🤝 Super Natan al lavoro\n🖥 PC: ${stato.pc}${parole.pc ? ` (${parole.pc} parole)` : ""}\n💻 Mac: ${stato.mac}${parole.mac ? ` (${parole.mac} parole)` : ""}`);
-      mostra();
-      const bozze = await Promise.all(squadra.map((t) => ntLavoro(t, { sistema: NT_ISTRUZIONI, testo, storia }, (x) => { parole[t.dove] = x.split(/\s+/).length; mostra(); })
-        .then((x) => { stato[t.dove] = "fatto ✓"; mostra(); return x; })
-        .catch((e) => { stato[t.dove] = "non ce l'ha fatta"; mostra(); return ""; })));
-      const [bPc, bMac] = bozze;
-      bot.bozze = { pc: bPc, mac: bMac };
-      if (bPc && bMac) {
-        scrivi("🤝 Il PC confronta le due bozze e scrive la risposta migliore…");
-        const unisci = `${testo}\n\nBOZZA 1 (Natan del PC):\n${bPc.slice(0, 4000)}\n\nBOZZA 2 (Natan del Mac):\n${bMac.slice(0, 4000)}`;
-        try { bot.testo = await ntLavoro(squadra[0], { sistema: NT_ISTRUZIONI + NT_UNISCI, testo: unisci, storia: [] }, (t) => { bot.testo = t; scrivi(pulito(t)); }); }
-        catch { bot.testo = bPc; }
-      } else bot.testo = bPc || bMac || "";
-      if (!bot.testo) throw new Error("Né il PC né il Mac sono riusciti a rispondere.");
+    const corpo = { sistema: NT_ISTRUZIONI, testo, storia };
+
+    if (modo === "grande") {
+      bot.chi = "grande"; bot.testo = "sta pensando… (è lento ma ragiona di più)"; render();
+      bot.testo = await ntLavoro(grande, corpo, (t) => { bot.testo = t; live("main", t); });
+
+    } else if (!mac || !pc) {                                   // uno solo acceso: risponde lui, con una piccola nota
+      const solo = mac || pc;
+      bot.chi = solo.dove; bot.nota = mac ? "Solo il Mac: il PC fisso è spento o non risponde." : "Solo il PC fisso: il Mac è spento.";
+      bot.testo = "sta pensando…"; render();
+      bot.testo = await ntLavoro(solo, corpo, (t) => { bot.testo = t; live("main", t); });
+
+    } else if (modo === "pareri") {                             // uno accanto all'altro, senza unirli
+      bot.chi = "pareri"; bot.pareri = { mac: "", pc: "" }; render();
+      const fatti = await Promise.all([mac, pc].map((t) => ntLavoro(t, corpo, (x) => { bot.pareri[t.dove] = x; live(t.dove, x); }).catch((e) => { bot.pareri[t.dove] = "⚠️ " + (e.message || "non ha risposto"); return ""; })));
+      bot.fatto = true;
+      if (!fatti[0] && !fatti[1]) throw new Error("Né il Mac né il PC sono riusciti a rispondere.");
+      bot.testo = fatti[0] || fatti[1];
+
+    } else {                                                    // soluzione principale: due bozze, poi il Mac unisce
+      bot.chi = "unita"; bot.testo = "💻 Mac e 🖥 PC stanno scrivendo le bozze…"; render();
+      const parole = { mac: 0, pc: 0 }, fatto = { mac: "…", pc: "…" };
+      const mostra = () => live("main", `💻 Mac: ${fatto.mac === "…" ? `sta scrivendo (${parole.mac} parole)` : fatto.mac}\n🖥 PC: ${fatto.pc === "…" ? `sta scrivendo (${parole.pc} parole)` : fatto.pc}`);
+      const [bMac, bPc] = await Promise.all([mac, pc].map((t) => ntLavoro(t, corpo, (x) => { parole[t.dove] = x.split(/\s+/).length; mostra(); })
+        .then((x) => { fatto[t.dove] = "fatto ✓"; mostra(); return x; })
+        .catch(() => { fatto[t.dove] = "non ce l'ha fatta"; mostra(); return ""; })));
+      bot.bozze = { mac: bMac, pc: bPc };
+      if (bMac && bPc) {
+        live("main", "💻 Il Mac confronta le due bozze e scrive la risposta migliore…");
+        const unisci = `${testo}\n\nBOZZA 1 (Natan del Mac):\n${bMac.slice(0, 5000)}\n\nBOZZA 2 (Natan del PC fisso):\n${bPc.slice(0, 5000)}`;
+        try { bot.testo = await ntLavoro(mac, { sistema: NT_ISTRUZIONI + NT_UNISCI, testo: unisci, storia: [] }, (t) => { bot.testo = t; live("main", t); }); }
+        catch { bot.testo = bMac; bot.nota = "Il Mac non è riuscito a unire le bozze: questa è la sua."; }
+      } else if (bMac) { bot.testo = bMac; bot.chi = "mac"; bot.nota = "Solo il Mac: il PC fisso non ha risposto."; }
+      else if (bPc) { bot.testo = bPc; bot.chi = "pc"; bot.nota = "Solo il PC fisso: il Mac non ha risposto."; }
+      else throw new Error("Né il Mac né il PC sono riusciti a rispondere.");
     }
   } catch (e) {
-    bot.testo = "⚠️ " + (e && e.message && !/fetch|network|load/i.test(e.message) ? e.message : "Non riesco a parlare con Natan. Il PC o il Mac sono accesi?");
-    if (/fetch|network|load/i.test(e && e.message || "")) { NT.stato = "?"; }
+    bot.testo = "⚠️ " + (e && e.message && !/fetch|network|load/i.test(e.message) ? e.message : "Non riesco a parlare con Natan. Il Mac è acceso?");
+    if (/fetch|network|load/i.test(e && e.message || "")) NT.stato = "?";
   }
-  NT.lavoro = false; NT.log = NT.log.slice(-20); store.set("yugo-natan-log", NT.log); render();
+  bot.fatto = true; NT.lavoro = false; NT.log = NT.log.slice(-20); store.set("yugo-natan-log", NT.log); render();
 }
 
 function render() {
