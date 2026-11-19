@@ -886,3 +886,5 @@ body:has(#cart-bar:not([hidden])) .natan-fab { bottom: calc(var(--tabbar-h) + en
 .natan-chip:hover, .natan-chip:focus-visible { border-color: var(--gold); color: var(--gold-hi); }
 .natan-nota { margin: 0; font-size: 11.5px; color: var(--muted); text-align: center; }
 @media (prefers-reduced-motion: reduce) { .natan-fab, .natan-msg { animation: none; } .natan-dots i { animation: none; } }
+.anteprima-box { margin: 0 0 16px; padding: 12px; border: 2px dashed var(--gold); border-radius: 18px; }
+.anteprima-tag { margin: 0 0 10px; font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--gold-hi); }
