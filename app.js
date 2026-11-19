@@ -1734,6 +1734,7 @@ async function start() {
   renderPromo();
   caricaEventi();
   contaVisita();
+  avviaNatan();
   dopoIngresso(() => mostraCookie());
   requestAnimationFrame(drawWaves);
   const initial = (location.hash || "").replace("#", "");
@@ -1758,4 +1759,117 @@ async function start() {
     navigator.serviceWorker.register("sw.js").catch(() => {});
   }
 }
+/* ---------- Natan: l'assistente di Yugo ----------
+   Niente intelligenza artificiale e niente server: il cliente sceglie una domanda tra i pulsanti
+   e Natan risponde con i dati del sito (config.js e offerte del Gestore). Gratis e sempre acceso. */
+const prezzoN = (n) => typeof n === "number" ? n.toLocaleString("it-IT", { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 }) : String(n ?? "");
+const NATAN_MENU = [
+  ["consiglio", "Cosa mi consigli?"], ["aperto", "Siete aperti adesso?"], ["orari", "Orari"],
+  ["ayce", "Prezzi All You Can Eat"], ["offerte", "Offerte di adesso"], ["consegna", "Consegna e asporto"],
+  ["prenota", "Prenotare un tavolo"], ["veg", "Piatti vegetariani"], ["cotto", "Piatti senza crudo"],
+  ["allergie", "Allergie e intolleranze"], ["dove", "Dove siete?"], ["chiama", "Parlare con il ristorante"]
+];
+let natanLog = [], natanBottoni = null;
+const giornoRoma = () => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Rome", weekday: "short" }).format(new Date()));
+const minuti = (h) => { const [a, b] = h.split(":").map(Number); return a * 60 + b; };
+const tel = () => `<a href="tel:${esc(String(R.telefono || "").replace(/\s/g, ""))}">${esc(R.telefono || "")}</a>`;
+const lista = (righe) => `<ul>${righe.map((r) => `<li>${r}</li>`).join("")}</ul>`;
+const piattiLista = (arr) => lista(arr.slice(0, 10).map((p) => `${p.n != null ? `n. ${p.n} ` : ""}${esc(p.nome)} – € ${euro(p.prezzo)}`));
+
+/* ogni risposta: testo (HTML già sicuro) + pulsanti per continuare */
+function natanRisposta(k) {
+  const altre = [["menu", "Altre domande"]];
+  switch (k) {
+    case "consiglio": return { t: `<p>Rispondi a 5 domande veloci (crudo, carne o pesce, piccante, quanti siete e budget) e ti preparo una proposta di piatti.</p>`,
+      b: [["quiz", "Inizia le 5 domande"], ...altre] };
+    case "aperto": {
+      const g = giornoRoma(), adesso = oraRoma().min, chiuso = (R.giorniChiusi || []).includes(g);
+      const fasce = String((R.orari || [])[(g + 6) % 7]?.ore || "").match(/\d{1,2}:\d{2}\s*–\s*\d{1,2}:\d{2}/g) || [];
+      const ora = fasce.map((f) => f.split(/\s*–\s*/).map(minuti)).find(([a, b]) => adesso >= a && adesso < b);
+      const prossima = fasce.map((f) => f.split(/\s*–\s*/)).find(([a]) => minuti(a) > adesso);
+      let t;
+      if (chiuso) t = "Oggi siamo chiusi (il martedì è il nostro giorno di riposo). Puoi prenotare o ordinare per i prossimi giorni.";
+      else if (ora) t = `Sì, adesso siamo aperti! Chiudiamo alle ${fasce.find((f) => minuti(f.split(/\s*–\s*/)[0]) === ora[0]).split(/\s*–\s*/)[1]}.`;
+      else if (prossima) t = `Adesso siamo chiusi. Oggi riapriamo alle ${prossima[0]}.`;
+      else t = "Per oggi abbiamo chiuso. Domani ti aspettiamo!";
+      return { t: `<p>${t}</p>`, b: [["orari", "Tutti gli orari"], ["prenota", "Prenotare un tavolo"], ...altre] };
+    }
+    case "orari": return { t: `<p>I nostri orari:</p>${lista((R.orari || []).map((o) => `<b>${esc(o.giorno)}</b> ${esc(o.ore)}`))}`,
+      b: [["aperto", "Siete aperti adesso?"], ["consegna", "Consegna e asporto"], ...altre] };
+    case "ayce": {
+      const c = R.allYouCanEat, p = R.allYouCanEatPranzo, r = [];
+      const bimbi = (a) => ((a && a.righe) || []).find((x) => /bambini/i.test(x));
+      if (p) r.push(`<b>Pranzo</b>: € ${euro(p.prezzo)}${p.prezzoWeekend ? ` · <span>sabato, domenica e festivi</span> € ${euro(p.prezzoWeekend)}` : ""}${bimbi(p) ? `<br><small>${esc(bimbi(p))}</small>` : ""}`);
+      if (c) r.push(`<b>Cena</b>: € ${euro(c.prezzo)}${bimbi(c) ? `<br><small>${esc(bimbi(c))}</small>` : ""}`);
+      return { t: `<p>All You Can Eat al ristorante, tutti i giorni tranne il martedì:</p>${lista(r)}<p class="natan-pic">Esclusi coperto (€ 2,00), bevande, dolci e caffè.</p>`,
+        b: [["prenota", "Prenotare un tavolo"], ["offerte", "Offerte di adesso"], ...altre] };
+    }
+    case "offerte": {
+      const l = promoAttive();
+      return { t: l.length ? `<p>Ecco le offerte di adesso:</p>${lista(l.map((p) => `<b>${esc(p.titolo)}</b>${p.descrizione ? ` – ${esc(p.descrizione)}` : ""}${p.sconto ? ` (${esc(p.sconto)})` : ""}${p.al ? ` · fino al ${esc(p.al.split("-").reverse().join("/"))}` : ""}`))}`
+        : `<p>In questo momento non ci sono offerte attive. Seguici su Instagram e TikTok per sapere le prossime!</p>`,
+        b: [["invita", "Sconti invitando amici"], ...altre] };
+    }
+    case "invita": return { t: `<p>Dalla pagina Account puoi invitare i tuoi amici con il tuo codice: più amici vengono, più sconti ricevi.</p>`, b: [["vai-account", "Vai ad Account"], ...altre] };
+    case "consegna": {
+      if (!ORD) return { t: `<p>Per asporto e consegna chiamaci:</p><p>${tel()}</p>`, b: altre };
+      const r = [];
+      r.push(ORD.consegnaSospesa ? "In questo momento le consegne sono sospese: puoi ordinare e passare a ritirare." : `Consegniamo a:<br>${(ORD.zone || []).map((z) => `${esc(z.nome)} € ${euro(z.costo)}`).join("<br>")}`);
+      r.push(`Orari:<br>${(ORD.fasce || []).map((f) => f.join("–")).join(" · ")}`);
+      r.push(`Ordine minimo per la consegna € ${euro(ORD.minimo)}`);
+      r.push("Si paga alla consegna o al ritiro. Non serve un account: bastano nome e telefono.");
+      return { t: lista(r), b: [["vai-ordina", "Ordina adesso"], ["family", "Menu Family F1–F4"], ...altre] };
+    }
+    case "family": return { t: `${lista((R.formule || []).map((f) => `<b>${esc(f.nome)} € ${euro(f.prezzo)}</b> – ${esc(f.quando)}`))}<p class="natan-pic">${(R.regoleFormule || []).slice(0, 3).map(esc).join(" · ")}</p>`,
+      b: [["vai-ordina", "Ordina adesso"], ...altre] };
+    case "prenota": {
+      const sv = (R.servizi || []).map((x) => `<b>${esc(x.nome)}</b> ${x.da}–${x.a}`);
+      return { t: `<p>Si prenota in 30 secondi dal pulsante Prenota: bastano nome e telefono.</p>${lista(sv)}<p>Per gruppi di più di ${R.maxPersone || 12} persone chiamaci: ${tel()}</p>`,
+        b: [["vai-prenota", "Prenota adesso"], ...altre] };
+    }
+    case "veg": { const l = catalogo().filter((p) => p.veg); return { t: l.length ? `<p>Alcuni piatti vegetariani:</p>${piattiLista(l.filter((p) => !/miso|zuppa/i.test(p.nome)))}<p class="natan-pic">Alcuni condimenti possono contenere pesce: chiedi conferma al personale.</p>` : `<p>Chiedi al personale: ti preparano qualcosa di adatto.</p>`, b: [["menu-sito", "Vedi il menu"], ...altre] }; }
+    case "cotto": {
+      const cat = catalogo(), semi = /scottat|flamb|special|misto/i;
+      const sushi = cat.filter((p) => CAT_CRUDO.test(p.cat) && RX.cotto.test(`${p.nome} ${p.desc || ""}`) && !semi.test(`${p.nome} ${p.desc || ""}`)).slice(0, 6);
+      const caldi = cat.filter((p) => /fritti|primi|pollo|manzo|gamberi|griglia|onabe/i.test(p.cat)).slice(0, 6);
+      return { t: `${sushi.length ? `<p>Sushi con ingredienti cotti o fritti:</p>${piattiLista(sushi)}` : ""}${caldi.length ? `<p>Piatti caldi:</p>${piattiLista(caldi)}` : ""}<p class="natan-pic">Se hai dubbi su un piatto chiedi al personale.</p>`,
+        b: [["menu-sito", "Vedi il menu"], ["consiglio", "Cosa mi consigli?"], ...altre] };
+    }
+    case "allergie": return { t: `<p>Per allergie e intolleranze avvisa sempre il personale prima di ordinare, oppure chiamaci:</p><p>${tel()}</p>`, b: altre };
+    case "dove": return { t: `<p>${esc(R.indirizzo || "")}</p><p><a href="https://maps.google.com/?q=${encodeURIComponent("Yugo " + (R.indirizzo || ""))}" target="_blank" rel="noopener">Apri in Google Maps</a></p>`, b: [["chiama", "Parlare con il ristorante"], ...altre] };
+    case "chiama": return { t: `<p>Chiamaci negli orari di apertura:</p><p>${tel()}</p>`, b: altre };
+    default: return { t: `<p>Cosa vuoi sapere?</p>`, b: NATAN_MENU };
+  }
+}
+function natanMostra() {
+  const log = $("#natan-log");
+  log.innerHTML = `<div class="natan-msg natan-bot"><p>Ciao, sono Natan! Scegli una domanda qui sotto.</p></div>` +
+    natanLog.map((m) => `<div class="natan-msg ${m.io ? "natan-io" : "natan-bot"}">${m.html}</div>`).join("");
+  const ult = natanBottoni || (natanLog.length ? natanLog[natanLog.length - 1].b : NATAN_MENU);
+  $("#natan-sugg").innerHTML = (ult || NATAN_MENU).map(([k, l]) => `<button type="button" class="natan-chip${/^vai-|^quiz|^menu-sito/.test(k) ? " natan-chip-go" : ""}" data-k="${k}">${esc(l)}</button>`).join("");
+  requestAnimationFrame(() => { const m = log.lastElementChild; if (m && natanLog.length && !natanBottoni) m.scrollIntoView({ block: "start", behavior: "smooth" }); });
+}
+function apriNatan() { $("#natan").hidden = false; document.documentElement.classList.add("no-scroll"); natanMostra(); }
+function chiudiNatan() { $("#natan").hidden = true; document.documentElement.classList.remove("no-scroll"); }
+function sceltaNatan(k, label) {
+  const vai = { "vai-ordina": "ordina", "vai-prenota": "prenota", "vai-account": "account", "menu-sito": "menu" }[k];
+  if (vai) { chiudiNatan(); go(vai); return; }
+  if (k === "quiz") { chiudiNatan(); apriConsiglio(); return; }
+  if (k === "menu") { natanBottoni = NATAN_MENU; natanMostra(); return; }
+  const r = natanRisposta(k); natanBottoni = null;
+  natanLog.push({ io: true, html: esc(label) }, { html: r.t, b: r.b });
+  natanLog = natanLog.slice(-12);
+  natanMostra();
+}
+function avviaNatan() {
+  const fab = $("#natan-fab"); if (!fab || document.body.classList.contains("embed")) return;
+  fab.hidden = false;
+  fab.addEventListener("click", apriNatan);
+  document.addEventListener("click", (e) => {
+    if (e.target.closest("[data-natan-close]")) chiudiNatan();
+    const c = e.target.closest(".natan-chip[data-k]"); if (c) sceltaNatan(c.dataset.k, c.textContent);
+  });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#natan").hidden) chiudiNatan(); });
+}
+
 start();
