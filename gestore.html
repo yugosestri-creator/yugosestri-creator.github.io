@@ -584,7 +584,7 @@ function ntContesto() {
   } else r.push("PRENOTAZIONI DAL SITO: nessuna negli ultimi 14 giorni.");
   return r.join("\n").slice(0, 4300);
 }
-const NT_ISTRUZIONI = `Sei Natan e qui fai il consulente di marketing e di siti web per il ristorante di sushi Yugo, di Kevin. Rispondi in italiano, concreto e ordinato: prima le 3–5 cose più importanti, poi i dettagli. Basati sui numeri qui sotto e dillo quando sono pochi per trarre conclusioni. Proponi idee realistiche per un ristorante piccolo di Sestri Levante con poco budget (Instagram, TikTok, Google Maps, volantini, QR, collaborazioni, eventi). Se proponi una modifica visibile al sito, aggiungi alla fine UN blocco \`\`\`html con solo il pezzo di pagina nuovo (niente script, niente immagini esterne), usando queste classi del sito: card, btn btn-gold, btn, muted, offerte-tit; sfondo blu notte e testo chiaro come nel sito.`;
+const NT_ISTRUZIONI = `Sei Natan e qui fai il consulente di marketing e di siti web per Yugo, il ristorante di sushi di Kevin a Sestri Levante. Kevin ti manda i numeri veri del ristorante e del sito e una domanda: rispondi sempre, usando quei numeri (citali), senza dire che non sei sicuro e senza parlare d'altro. Rispondi in italiano, concreto e ordinato: prima le 3–5 cose più importanti (cosa va bene, cosa no, cosa fare), poi i dettagli. Niente LaTeX. Basati sui numeri qui sotto e dillo quando sono pochi per trarre conclusioni. Proponi idee realistiche per un ristorante piccolo di Sestri Levante con poco budget (Instagram, TikTok, Google Maps, volantini, QR, collaborazioni, eventi). Se proponi una modifica visibile al sito, aggiungi alla fine UN blocco \`\`\`html con solo il pezzo di pagina nuovo (niente script, niente immagini esterne), usando queste classi del sito: card, btn btn-gold, btn, muted, offerte-tit; sfondo blu notte e testo chiaro come nel sito.`;
 
 function viewNatan() {
   const cod = store.get("yugo-natan-codice", "");
@@ -640,8 +640,10 @@ async function ntChiedi(domanda) {
   const H = { "Authorization": "Bearer " + cod, "Content-Type": "application/json" };
   const agg = () => { const el = document.querySelectorAll("#nt-log .nt-msg"); const x = el[el.length - 1]; if (x && tab === "natan") x.textContent = bot.testo.replace(/```html[\s\S]*?(```|$)/i, "🎨 (sto preparando l'anteprima…)"); };
   try {
-    const testo = `${NT_ISTRUZIONI}\n\nDATI DI YUGO (aggiornati ${new Date().toLocaleString("it-IT")}):\n${ntContesto()}\n\nDOMANDA DI KEVIN: ${domanda}`.slice(0, 5900);
-    const r = await fetch(NT.url + "/chat", { method: "POST", headers: H, body: JSON.stringify({ text: testo, chat: "yugo-gestore", biblioteca: false }) });
+    const storia = NT.log.slice(0, -2).filter((m) => m.testo && !/^⚠️|non sono sicuro di rispondere/.test(m.testo)).slice(-4).map((m) => ({ ruolo: m.io ? "io" : "natan", testo: m.testo }));
+    const testo = `DATI DI YUGO (aggiornati ${new Date().toLocaleString("it-IT")}):\n${ntContesto()}\n\nDOMANDA DI KEVIN: ${domanda}`;
+    const r = await fetch(NT.url + "/consulente", { method: "POST", headers: H, body: JSON.stringify({ sistema: NT_ISTRUZIONI, testo, storia }) });
+    if (r.status === 404) throw new Error("Il Natan del Mac non ha ancora il «consulente»: chiudi Natan e riaprilo (Natan.command sul Desktop), poi riprova.");
     const d = await r.json().catch(() => ({}));
     if (r.status === 401) throw new Error("Il codice di Natan non è valido: creane uno nuovo in Natan.");
     if (!r.ok || !d.job) throw new Error(d.error || "Natan non ha risposto.");
