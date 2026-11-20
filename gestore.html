@@ -624,9 +624,10 @@ Regole:
 - Scrivi in italiano corretto e semplice (controlla le parole prima di scriverle). Rispondi solo alla DOMANDA DI KEVIN e non ripetere risposte precedenti.
 - Usa i numeri: ogni punto deve citare un dato (es. «solo 3 visite al giorno», «0 ordini dal sito»). Se i dati sono pochi, dillo.
 - Non inventare cose che non sono nei dati: non vedi la grafica del sito, quindi non parlare di font, colori o logo se Kevin non lo chiede.
-- Consigli concreti e realistici per un piccolo ristorante con poco budget: Instagram, TikTok, profilo Google Maps e recensioni, QR sui tavoli e sugli scontrini, volantini, collaborazioni con hotel e negozi, eventi. Per ogni consiglio scrivi cosa fare, quando e quanto costa più o meno.
+- Consigli concreti e realistici per un piccolo ristorante con poco budget: Instagram, TikTok, profilo Google Maps e recensioni, QR code (per asporto e consegna: sugli scontrini, sui sacchetti e in vetrina, non sui tavoli; sui tavoli solo per chi mangia al ristorante, per esempio per le recensioni), volantini, collaborazioni con hotel e negozi, eventi. Per ogni consiglio scrivi cosa fare, quando e quanto costa più o meno.
 - Per un'analisi usa questo schema: «Cosa va bene» (2–3 punti), «Cosa non va» (2–3 punti), «Cosa fare questa settimana» (3 azioni numerate).
-- Se proponi una modifica visibile al sito, aggiungi alla fine UN blocco \`\`\`html con solo il pezzo di pagina nuovo (niente script, niente immagini), usando le classi del sito: card, btn btn-gold, btn, muted, offerte-tit.`;
+- Nel testo per Kevin non usare mai nomi tecnici del sito (classi o id come «offerte-tit», «card», «btn-gold»): chiama le parti con nomi normali, per esempio «la sezione Offerte», «il menu», «il pulsante Ordina».
+- Se proponi una modifica visibile al sito, aggiungi alla fine UN blocco \`\`\`html con solo il pezzo di pagina nuovo (niente script, niente immagini); solo dentro quel blocco usa le classi del sito: card, btn btn-gold, btn, muted, offerte-tit.`;
 
 function viewNatan() {
   const codMac = store.get("yugo-natan-codice", ""), codPc = store.get("yugo-natan-pc-codice", ""), cod = codMac || codPc;
@@ -724,14 +725,18 @@ async function ntLavoro(t, corpo, suTesto) {
   return testo;
 }
 /* Il Mac (Qwen 14B, il più bravo) fa da «capo»: riceve le due bozze e scrive la risposta finale. */
-const NT_UNISCI = `\n\nOra sei il Natan «capo». Due Natan (quello del Mac, cioè tu, e quello del PC fisso) hanno scritto due bozze di risposta alla stessa domanda. Scrivi TU la risposta finale per Kevin, corta, in questo formato fisso e niente altro:
+const NT_UNISCI = `\n\nOra sei il Natan «capo». Due Natan (quello del Mac, cioè tu, e quello del PC fisso) hanno scritto due bozze di risposta alla stessa domanda. Scrivi TU la risposta finale per Kevin, in questo formato fisso:
 Cosa va bene:
 - (al massimo 3 punti, ognuno con un dato)
 Cosa non va:
 - (al massimo 3 punti, ognuno con un dato)
 Cosa fare questa settimana:
-1. (al massimo 5 azioni concrete)
-Regole: prendi le idee migliori delle due bozze; controlla ogni numero con i DATI DI YUGO e togli quello che è sbagliato o inventato; non ripetere la stessa idea due volte; niente righe «---», niente titoli in più, niente conclusione; non dire che ci sono bozze. Se una bozza ha un blocco html utile, mettine uno solo alla fine.`;
+1. (al massimo 5 azioni)
+Regole:
+- Non riassumere: tieni tutti i dettagli pratici delle bozze (scadenze, giorni, numeri, costi, testi pronti dei post, dove mettere le cose). La risposta finale deve essere completa almeno quanto la bozza migliore; se un'azione ha un testo pronto da pubblicare, riportalo intero.
+- Prendi le idee migliori di tutte e due le bozze e controlla ogni numero con i DATI DI YUGO: togli quello che è sbagliato o inventato.
+- Se le due bozze dicono cose diverse su un fatto (per esempio un'offerta: «10% di sconto» contro «bibita gratis») e i DATI DI YUGO non chiariscono chi ha ragione, non scegliere in silenzio: alla fine aggiungi una riga «⚠️ Da verificare: …» che spiega la differenza.
+- Non ripetere la stessa idea due volte; niente righe «---», niente titoli in più, niente conclusione; non dire che ci sono bozze. Se una bozza ha un blocco html utile, mettine uno solo alla fine.`;
 async function ntChiedi(domanda) {
   domanda = String(domanda || "").trim();
   if (!domanda || NT.lavoro) return;
@@ -779,7 +784,7 @@ async function ntChiedi(domanda) {
       if (bMac && bPc) {
         live("main", "💻 Il Mac confronta le due bozze e scrive la risposta migliore…");
         const unisci = `${testo}\n\nBOZZA 1 (Natan del Mac):\n${bMac.slice(0, 5000)}\n\nBOZZA 2 (Natan del PC fisso):\n${bPc.slice(0, 5000)}`;
-        try { bot.testo = await ntLavoro(mac, { sistema: NT_ISTRUZIONI + NT_UNISCI, testo: unisci, storia: [], max_token: 800 }, (t) => { bot.testo = t; live("main", t); }); }
+        try { bot.testo = await ntLavoro(mac, { sistema: NT_ISTRUZIONI + NT_UNISCI, testo: unisci, storia: [], max_token: 1500 }, (t) => { bot.testo = t; live("main", t); }); }
         catch { bot.testo = bMac; bot.nota = "Il Mac non è riuscito a unire le bozze: questa è la sua."; }
       } else if (bMac) { bot.testo = bMac; bot.chi = "mac"; bot.nota = "Solo il Mac: il PC fisso non ha risposto."; }
       else if (bPc) { bot.testo = bPc; bot.chi = "pc"; bot.nota = "Solo il PC fisso: il Mac non ha risposto."; }
