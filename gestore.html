@@ -696,7 +696,7 @@ async function ntLavoro(t, corpo, suTesto) {
   if (r.status === 401) throw new Error(`Il codice per ${chi} non è giusto: premi «Cambia codici».`);
   if (r.status === 429) throw new Error(`${chi} sta ancora rispondendo alla domanda di prima: aspetta e riprova.`);
   if (!r.ok || !d.job) throw new Error(d.error || `${chi} non ha risposto.`);
-  let testo = ""; const fine = Date.now() + (t.dove === "grande" ? 30 : 12) * 60000;
+  let testo = ""; const fine = Date.now() + ({ grande: 30, pc: 25 }[t.dove] || 12) * 60000;   // il PC (qwen3:8b su processore) scrive ~2 parole al secondo
   while (Date.now() < fine) {
     await new Promise((ok) => setTimeout(ok, 1500));
     const j = await (await fetch(t.url + "/job?id=" + encodeURIComponent(d.job), { headers: { "Authorization": "Bearer " + t.cod }, cache: "no-store" })).json().catch(() => ({}));
@@ -729,6 +729,8 @@ async function ntChiedi(domanda) {
     const storia = NT.log.slice(0, -2).filter((m) => m.testo && !/^⚠️|non sono sicuro di rispondere/.test(m.testo)).slice(-2).map((m) => ({ ruolo: m.io ? "io" : "natan", testo: m.testo.slice(0, 1500) }));
     const testo = `DATI DI YUGO (aggiornati ${new Date().toLocaleString("it-IT")}):\n${ntContesto()}\n\nDOMANDA DI KEVIN: ${domanda}`;
     const corpo = { sistema: NT_ISTRUZIONI, testo, storia };
+    const corpoPc = { ...corpo, sistema: NT_ISTRUZIONI + "\n- Scrivi una risposta BREVE: al massimo 150 parole, solo i punti più importanti." };   // il PC è lento: bozza corta
+    const per = (t) => t.dove === "pc" ? corpoPc : corpo;
 
     if (modo === "grande") {
       bot.chi = "grande"; bot.testo = "sta pensando… (è lento ma ragiona di più)"; render();
@@ -738,11 +740,11 @@ async function ntChiedi(domanda) {
       const solo = mac || pc;
       bot.chi = solo.dove; bot.nota = mac ? "Solo il Mac: il PC fisso è spento o non risponde." : "Solo il PC fisso: il Mac è spento.";
       bot.testo = "sta pensando…"; render();
-      bot.testo = await ntLavoro(solo, corpo, (t) => { bot.testo = t; live("main", t); });
+      bot.testo = await ntLavoro(solo, per(solo), (t) => { bot.testo = t; live("main", t); });
 
     } else if (modo === "pareri") {                             // uno accanto all'altro, senza unirli
       bot.chi = "pareri"; bot.pareri = { mac: "", pc: "" }; render();
-      const fatti = await Promise.all([mac, pc].map((t) => ntLavoro(t, corpo, (x) => { bot.pareri[t.dove] = x; live(t.dove, x); }).catch((e) => { bot.pareri[t.dove] = "⚠️ " + (e.message || "non ha risposto"); return ""; })));
+      const fatti = await Promise.all([mac, pc].map((t) => ntLavoro(t, per(t), (x) => { bot.pareri[t.dove] = x; live(t.dove, x); }).catch((e) => { bot.pareri[t.dove] = "⚠️ " + (e.message || "non ha risposto"); return ""; })));
       bot.fatto = true;
       if (!fatti[0] && !fatti[1]) throw new Error("Né il Mac né il PC sono riusciti a rispondere.");
       bot.testo = fatti[0] || fatti[1];
@@ -750,8 +752,8 @@ async function ntChiedi(domanda) {
     } else {                                                    // soluzione principale: due bozze, poi il Mac unisce
       bot.chi = "unita"; bot.testo = "💻 Mac e 🖥 PC stanno scrivendo le bozze…"; render();
       const parole = { mac: 0, pc: 0 }, fatto = { mac: "…", pc: "…" };
-      const mostra = () => live("main", `💻 Mac: ${fatto.mac === "…" ? `sta scrivendo (${parole.mac} parole)` : fatto.mac}\n🖥 PC: ${fatto.pc === "…" ? `sta scrivendo (${parole.pc} parole)` : fatto.pc}`);
-      const [bMac, bPc] = await Promise.all([mac, pc].map((t) => ntLavoro(t, corpo, (x) => { parole[t.dove] = x.split(/\s+/).length; mostra(); })
+      const mostra = () => live("main", `💻 Mac: ${fatto.mac === "…" ? `sta scrivendo (${parole.mac} parole)` : fatto.mac}\n🖥 PC: ${fatto.pc === "…" ? `sta scrivendo (${parole.pc} parole, è più lento)` : fatto.pc}`);
+      const [bMac, bPc] = await Promise.all([mac, pc].map((t) => ntLavoro(t, per(t), (x) => { parole[t.dove] = x.split(/\s+/).length; mostra(); })
         .then((x) => { fatto[t.dove] = "fatto ✓"; mostra(); return x; })
         .catch(() => { fatto[t.dove] = "non ce l'ha fatta"; mostra(); return ""; })));
       bot.bozze = { mac: bMac, pc: bPc };
