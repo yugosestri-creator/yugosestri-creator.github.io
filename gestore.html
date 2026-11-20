@@ -620,7 +620,8 @@ function ntContesto() {
 }
 const NT_ISTRUZIONI = `Sei Natan e fai il consulente di marketing per Yugo, il ristorante di sushi di Kevin a Sestri Levante. Kevin ti manda i dati veri del ristorante e del sito (visite, ordini, prenotazioni, menu, offerte) e una domanda.
 Regole:
-- Rispondi solo alla DOMANDA DI KEVIN, in italiano semplice e corretto. Non ripetere risposte precedenti.
+- Usa solo i dati forniti: non inventare piatti, prezzi o numeri. Se un piatto o un dato non è nei DATI DI YUGO, non nominarlo.
+- Scrivi in italiano corretto e semplice (controlla le parole prima di scriverle). Rispondi solo alla DOMANDA DI KEVIN e non ripetere risposte precedenti.
 - Usa i numeri: ogni punto deve citare un dato (es. «solo 3 visite al giorno», «0 ordini dal sito»). Se i dati sono pochi, dillo.
 - Non inventare cose che non sono nei dati: non vedi la grafica del sito, quindi non parlare di font, colori o logo se Kevin non lo chiede.
 - Consigli concreti e realistici per un piccolo ristorante con poco budget: Instagram, TikTok, profilo Google Maps e recensioni, QR sui tavoli e sugli scontrini, volantini, collaborazioni con hotel e negozi, eventi. Per ogni consiglio scrivi cosa fare, quando e quanto costa più o meno.
@@ -687,6 +688,20 @@ function ntMsg(m, i) {
   const bozze = m.bozze && (m.bozze.mac || m.bozze.pc) ? `<details class="nt-bozze"><summary>Mostra le due bozze</summary><div class="nt-pareri">${["mac", "pc"].map((k) => `<div class="nt-parere"><b>${NT_CHI[k]}</b><div class="nt-txt">${esc(ntPulito(m.bozze[k] || "Non ha risposto."))}</div></div>`).join("")}</div></details>` : "";
   return `<div class="nt-msg nt-bot">${m.chi ? `<span class="nt-chi">${NT_CHI[m.chi] || ""}</span>` : ""}${pareri || `<div class="nt-txt" data-live="main">${esc(ntPulito(m.testo))}</div>`}${m.nota ? `<p class="nt-nota">${esc(m.nota)}</p>` : ""}${bozze}${/```html/i.test(ntHtml(m)) ? `<div class="row"><button class="b gold" data-prev="${i}">👁 Anteprima sul telefono</button></div>` : ""}</div>`;
 }
+/* Taglia i loop: righe «---» in fila, righe vuote in eccesso e blocchi che si ripetono */
+function ntTaglia(t) {
+  const righe = String(t || "").replace(/\r/g, "").split("\n"), out = [], viste = new Map();
+  let rip = 0;
+  for (const r of righe) {
+    const k = r.trim().toLowerCase().replace(/^[-*•\d.)\s]+/, "").replace(/\s+/g, " ");
+    if (/^(-{3,}|\*{3,}|_{3,})$/.test(r.trim())) { if (out.length && /^(-{3,}|\*{3,}|_{3,}|)$/.test(out[out.length - 1].trim())) continue; out.push(r); continue; }
+    if (!r.trim() && out.length && !out[out.length - 1].trim()) continue;
+    if (k.length > 12 && viste.has(k)) { if (++rip >= 2) break; continue; }
+    rip = 0; if (k.length > 12) viste.set(k, out.length); out.push(r);
+  }
+  while (out.length && /^(-{3,}|\*{3,}|_{3,}|\s*)$/.test(out[out.length - 1])) out.pop();
+  return out.join("\n").trim();
+}
 /* Una richiesta a un Natan (Mac, PC o Grande): parte, poi legge il testo mentre lo scrive */
 async function ntLavoro(t, corpo, suTesto) {
   const chi = { pc: "il PC fisso", mac: "il Mac", grande: "Natan Grande" }[t.dove];
@@ -700,7 +715,8 @@ async function ntLavoro(t, corpo, suTesto) {
   while (Date.now() < fine) {
     await new Promise((ok) => setTimeout(ok, 1500));
     const j = await (await fetch(t.url + "/job?id=" + encodeURIComponent(d.job), { headers: { "Authorization": "Bearer " + t.cod }, cache: "no-store" })).json().catch(() => ({}));
-    if (j.text) { testo = j.text; suTesto && suTesto(testo); }
+    if (j.modello) t.modello = j.modello;
+    if (j.text) { testo = ntTaglia(j.text); suTesto && suTesto(testo); }
     if (j.error) throw new Error(j.error);
     if (j.done) return testo;
   }
@@ -708,11 +724,14 @@ async function ntLavoro(t, corpo, suTesto) {
   return testo;
 }
 /* Il Mac (Qwen 14B, il più bravo) fa da «capo»: riceve le due bozze e scrive la risposta finale. */
-const NT_UNISCI = `\n\nOra sei il Natan «capo». Due Natan (quello del Mac, cioè tu, e quello del PC fisso, più piccolo) hanno scritto due bozze di risposta alla stessa domanda. Scrivi TU la risposta finale per Kevin:
-- prendi le idee migliori e più concrete di tutte e due le bozze;
-- controlla ogni numero con i DATI DI YUGO e togli quello che è sbagliato, inventato o ripetuto;
-- non dire che ci sono bozze o due Natan: scrivi direttamente la risposta finale, nello schema richiesto;
-- se una bozza ha un blocco html, tieni solo il migliore (uno solo, alla fine).`;
+const NT_UNISCI = `\n\nOra sei il Natan «capo». Due Natan (quello del Mac, cioè tu, e quello del PC fisso) hanno scritto due bozze di risposta alla stessa domanda. Scrivi TU la risposta finale per Kevin, corta, in questo formato fisso e niente altro:
+Cosa va bene:
+- (al massimo 3 punti, ognuno con un dato)
+Cosa non va:
+- (al massimo 3 punti, ognuno con un dato)
+Cosa fare questa settimana:
+1. (al massimo 5 azioni concrete)
+Regole: prendi le idee migliori delle due bozze; controlla ogni numero con i DATI DI YUGO e togli quello che è sbagliato o inventato; non ripetere la stessa idea due volte; niente righe «---», niente titoli in più, niente conclusione; non dire che ci sono bozze. Se una bozza ha un blocco html utile, mettine uno solo alla fine.`;
 async function ntChiedi(domanda) {
   domanda = String(domanda || "").trim();
   if (!domanda || NT.lavoro) return;
@@ -728,7 +747,7 @@ async function ntChiedi(domanda) {
   try {
     const storia = NT.log.slice(0, -2).filter((m) => m.testo && !/^⚠️|non sono sicuro di rispondere/.test(m.testo)).slice(-2).map((m) => ({ ruolo: m.io ? "io" : "natan", testo: m.testo.slice(0, 1500) }));
     const testo = `DATI DI YUGO (aggiornati ${new Date().toLocaleString("it-IT")}):\n${ntContesto()}\n\nDOMANDA DI KEVIN: ${domanda}`;
-    const corpo = { sistema: NT_ISTRUZIONI, testo, storia };
+    const corpo = { sistema: NT_ISTRUZIONI, testo, storia, max_token: 1000 };
     const corpoPc = { ...corpo, sistema: NT_ISTRUZIONI + "\n- Scrivi una risposta BREVE: al massimo 150 parole, solo i punti più importanti." };   // il PC è lento: bozza corta
     const per = (t) => t.dove === "pc" ? corpoPc : corpo;
 
@@ -760,7 +779,7 @@ async function ntChiedi(domanda) {
       if (bMac && bPc) {
         live("main", "💻 Il Mac confronta le due bozze e scrive la risposta migliore…");
         const unisci = `${testo}\n\nBOZZA 1 (Natan del Mac):\n${bMac.slice(0, 5000)}\n\nBOZZA 2 (Natan del PC fisso):\n${bPc.slice(0, 5000)}`;
-        try { bot.testo = await ntLavoro(mac, { sistema: NT_ISTRUZIONI + NT_UNISCI, testo: unisci, storia: [] }, (t) => { bot.testo = t; live("main", t); }); }
+        try { bot.testo = await ntLavoro(mac, { sistema: NT_ISTRUZIONI + NT_UNISCI, testo: unisci, storia: [], max_token: 800 }, (t) => { bot.testo = t; live("main", t); }); }
         catch { bot.testo = bMac; bot.nota = "Il Mac non è riuscito a unire le bozze: questa è la sua."; }
       } else if (bMac) { bot.testo = bMac; bot.chi = "mac"; bot.nota = "Solo il Mac: il PC fisso non ha risposto."; }
       else if (bPc) { bot.testo = bPc; bot.chi = "pc"; bot.nota = "Solo il PC fisso: il Mac non ha risposto."; }
@@ -770,6 +789,8 @@ async function ntChiedi(domanda) {
     bot.testo = "⚠️ " + (e && e.message && !/fetch|network|load/i.test(e.message) ? e.message : "Non riesco a parlare con Natan. Il Mac è acceso?");
     if (/fetch|network|load/i.test(e && e.message || "")) NT.stato = "?";
   }
+  const mod = [mac && mac.modello && `💻 ${mac.modello}`, pc && (pc.modello || (NT.pc && NT.pc.modello)) && bot.chi !== "mac" && `🖥 ${pc.modello || NT.pc.modello}`, grande && modo === "grande" && `🧠 ${grande.modello || (NT.grande && NT.grande.modello) || ""}`].filter(Boolean).join(" · ");
+  if (mod && !String(bot.testo).startsWith("⚠️")) bot.nota = (bot.nota ? bot.nota + " · " : "") + "Modelli: " + mod;
   bot.fatto = true; NT.lavoro = false; NT.log = NT.log.slice(-20); store.set("yugo-natan-log", NT.log); render();
 }
 
