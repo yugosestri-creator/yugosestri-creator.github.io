@@ -548,6 +548,7 @@ async function ordine(env, body, ip) {
     `👤 ${o.nome}`, `📞 ${o.telefono}`,
     consegna ? `📍 ${o.indirizzo} (${o.zona})` : "📍 Ritiro al ristorante",
     kmTesto, kmAvviso,
+    consegna && o.indirizzo ? `🗺 Google Maps: https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=${encodeURIComponent(/liguria|italia/i.test(o.indirizzo) ? o.indirizzo : o.indirizzo + ", Liguria, Italia")}` : null,
     `🕗 ${quando}`, "", ...lista, "",
     consegna || sconto ? `Piatti ${eur(sub)}${sconto ? ` − ${sconto.it.toLowerCase()} ${sconto.perc}% (${eur(meno)})` : ""}${consegna ? ` + consegna ${eur(costo)}` : ""}` : null,
     sconto ? `🎉 ${sconto.it.toUpperCase()} ${sconto.perc}% GIÀ CALCOLATO` : null,
