@@ -98,8 +98,9 @@ window.YUGO_CONFIG = {
         { nome: "Fino a 2,5 km", info: "fino all'autostrada", fino: 2.5, costo: 1 },
         { nome: "Da 2,5 a 4 km", fino: 4, costo: 2.5 },
         { nome: "Da 4 a 8 km", fino: 8, costo: 3.5 },
-        { nome: "Oltre 8 km", costo: 5, noOre: [["12:30", "14:00"], ["19:30", "21:30"]] }
+        { nome: "Da 8 a 15 km", fino: 15, costo: 5, noOre: [["12:30", "14:00"], ["19:30", "21:30"]] }
       ],
+      maxKm: 15,               // oltre 15 km in auto dal ristorante non consegniamo
       // Se la via non è sulla mappa, il costo si prende dal paese (scritto nell'indirizzo o scelto dal cliente).
       // fascia: 0 = fino a 2,5 km · 1 = da 2,5 a 4 km · 2 = da 4 a 8 km · 3 = oltre 8 km. "anche": altri modi di scriverlo.
       paesi: [
