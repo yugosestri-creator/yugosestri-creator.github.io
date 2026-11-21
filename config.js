@@ -100,6 +100,24 @@ window.YUGO_CONFIG = {
         { nome: "Da 4 a 8 km", fino: 8, costo: 3.5 },
         { nome: "Oltre 8 km", costo: 5, noOre: [["12:30", "14:00"], ["19:30", "21:30"]] }
       ],
+      // Se la via non è sulla mappa, il costo si prende dal paese (scritto nell'indirizzo o scelto dal cliente).
+      // fascia: 0 = fino a 2,5 km · 1 = da 2,5 a 4 km · 2 = da 4 a 8 km · 3 = oltre 8 km. "anche": altri modi di scriverlo.
+      paesi: [
+        { nome: "Sestri Levante", fascia: 0, anche: ["sestri"] },
+        { nome: "Riva Trigoso", fascia: 1, anche: ["riva", "trigoso"] },
+        { nome: "Cavi di Lavagna", fascia: 1, anche: ["cavi"] },
+        { nome: "Casarza Ligure", fascia: 2, anche: ["casarza"] },
+        { nome: "Lavagna", fascia: 2 },
+        { nome: "Loto", fascia: 2 },
+        { nome: "Libiola", fascia: 2 },
+        { nome: "Chiavari", fascia: 3 },
+        { nome: "Massasco", fascia: 3 },
+        { nome: "Bargone", fascia: 3 },
+        { nome: "Moneglia", fascia: 3 },
+        { nome: "Castiglione Chiavarese", fascia: 3, anche: ["castiglione"] },
+        { nome: "Cogorno", fascia: 3, anche: ["san salvatore"] },
+        { nome: "Carasco", fascia: 3 }
+      ],
       // Dove si trova il ristorante (per calcolare la distanza dall'indirizzo del cliente)
       posizione: { lat: 44.2723644, lon: 9.3963255 }
     },
