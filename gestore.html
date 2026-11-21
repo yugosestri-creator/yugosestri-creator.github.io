@@ -788,7 +788,7 @@ async function ntChiedi(domanda) {
 
     } else if (!mac || !pc) {                                   // uno solo acceso: risponde lui, con una piccola nota
       const solo = mac || pc;
-      bot.chi = solo.dove; bot.nota = mac ? "Solo il Mac: il PC fisso è spento o non risponde." : "Solo il PC fisso: il Mac è spento.";
+      bot.chi = solo.dove; bot.nota = mac ? "Solo il Mac: il PC fisso è spento o non risponde." : "Solo il PC fisso: il Mac sembra spento. Se hai appena riaperto Natan, aspetta 1 minuto e premi ↻ Ricontrolla.";
       bot.testo = "sta pensando…"; render();
       bot.testo = await ntLavoro(solo, per(solo), (t) => { bot.testo = t; live("main", t); });
 
