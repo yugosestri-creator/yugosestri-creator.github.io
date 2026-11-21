@@ -311,9 +311,15 @@ function cardOrdine(o) {
       <div class="row">
         ${!old && !off ? `<button class="b" data-a="cambia">Cambia orario</button>
         <button class="b err" data-a="annulla">Annulla</button>` : ""}
+        ${casa && o.indirizzo ? `<a class="b gold" href="${esc(linkMappa(o.indirizzo))}" target="_blank" rel="noopener">🗺 Apri in Google Maps</a>` : ""}
         ${o.telefono ? `<a class="b" href="tel:${esc(String(o.telefono).replace(/\s+/g,""))}">📞 Chiama</a>` : ""}
       </div>
     </div>`;
+}
+/* Google Maps con il percorso dal ristorante all'indirizzo del cliente (gratis, senza chiavi) */
+function linkMappa(ind) {
+  const dest = /liguria|italia|\bge\b/i.test(ind) ? ind : ind + ", Liguria, Italia";
+  return "https://www.google.com/maps/dir/?api=1&travelmode=driving&origin=" + encodeURIComponent((R.indirizzo || "Corso Colombo 9, Sestri Levante")) + "&destination=" + encodeURIComponent(dest);
 }
 function bindOrdini() {
   document.querySelectorAll("[data-o]").forEach((c) => {
