@@ -1214,6 +1214,68 @@ async function natanPc(env, request, quale) {   // quale: "natan_pc" (PC fisso) 
   return { ok: true };
 }
 
+/* ---------------- Natan per il Gestore: il server del sito fa da ponte ----------------
+   Chi è entrato nel Gestore (password + codice Telegram) può fare domande a Natan senza altri codici:
+   i codici di Mac e PC stanno solo qui su Cloudflare (segreti NATAN_MAC_CODICE e NATAN_PC_KEY), mai nel telefono. */
+const NATAN_PONTE = "https://kacr268698-pixel.github.io/natan/ponte.json";
+const TUNNEL_OK = /^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/;
+let natanMacCache = { url: "", t: 0 };
+function natanCodiceMac(env) { const v = String(env.NATAN_MAC_CODICE || ""); return ((v.match(/codice=([A-Za-z0-9_-]+)/) || [])[1] || v).trim(); }
+async function natanDove(env, dove, fresco) {
+  if (dove === "mac") {
+    if (fresco || Date.now() - natanMacCache.t > 60000) {
+      const p = await fetch(NATAN_PONTE + "?t=" + Date.now(), { cf: { cacheTtl: 0 } }).then((r) => r.json()).catch(() => ({}));
+      const u = String(p.url || "").replace(/\/$/, "");
+      natanMacCache = { url: TUNNEL_OK.test(u) ? u : "", t: Date.now() };
+    }
+    return { url: natanMacCache.url, cod: natanCodiceMac(env) };
+  }
+  if (dove !== "pc" && dove !== "grande") throw new Errore("Natan sconosciuto.", 400);
+  await init(env);
+  const r = await env.DB.prepare("SELECT valore FROM chiavi WHERE nome = ?").bind(dove === "pc" ? "natan_pc" : "natan_grande").first();
+  const v = r ? JSON.parse(r.valore) : {};
+  return { url: TUNNEL_OK.test(v.url || "") ? v.url : "", cod: String(env.NATAN_PC_KEY || ""), modello: v.modello || "" };
+}
+async function natanStato(env, body) {
+  await gestVerifica(env, body);
+  const out = {};
+  await Promise.all(["mac", "pc", "grande"].map(async (k) => {
+    const d = await natanDove(env, k, true);
+    let on = false, modello = d.modello || "";
+    if (d.url) { try { const r = await fetch(d.url + "/ping", { signal: AbortSignal.timeout(6000) }); const j = await r.json(); on = !!(j && j.ok !== false); if (j.modello) modello = j.modello; } catch { on = false; } }
+    out[k] = { on, modello, codice: !!d.cod };
+  }));
+  return out;
+}
+async function natanChiedi(env, body) {
+  await gestVerifica(env, body);
+  const d = await natanDove(env, body.dove);
+  const chi = { mac: "il Mac", pc: "il PC fisso", grande: "Natan Grande" }[body.dove];
+  if (!d.cod) throw new Errore(body.dove === "mac" ? "Manca il codice del Mac su Cloudflare (NATAN_MAC_CODICE)." : "Manca NATAN_PC_KEY su Cloudflare.", 503);
+  if (!d.url) throw new Errore(`${chi} è spento.`, 503);
+  const corpo = JSON.stringify(body.corpo || {});
+  if (corpo.length > 400000) throw new Errore("Domanda troppo lunga.", 400);
+  let r;
+  try { r = await fetch(d.url + "/consulente", { method: "POST", headers: { "Authorization": "Bearer " + d.cod, "Content-Type": "application/json" }, body: corpo }); }
+  catch { natanMacCache.t = 0; throw new Errore(`Non riesco a raggiungere ${chi}: forse si è appena riavviato o è spento. Riprova tra un minuto.`, 503); }
+  const j = await r.json().catch(() => ({}));
+  if (r.status === 401) throw new Errore(`Il codice di ${chi} salvato su Cloudflare non è giusto.`, 502);
+  if (r.status === 404) throw new Errore(body.dove === "mac" ? "Il Natan del Mac non ha ancora il «consulente»: chiudi Natan e riaprilo." : `${chi} non ha il «consulente».`, 502);
+  if (r.status === 429) throw new Errore(`${chi} sta ancora rispondendo alla domanda di prima: aspetta e riprova.`, 429);
+  if (!r.ok || !j.job) throw new Errore(j.error || `${chi} non ha risposto.`, 502);
+  return { job: j.job };
+}
+async function natanJob(env, body) {
+  await gestVerifica(env, body);
+  const d = await natanDove(env, body.dove);
+  if (!d.url || !d.cod) return { text: "", done: false, error: "" };
+  try {
+    const r = await fetch(d.url + "/job?id=" + encodeURIComponent(String(body.id || "")), { headers: { "Authorization": "Bearer " + d.cod } });
+    const j = await r.json();
+    return { text: j.text || "", done: !!j.done, error: j.error || "", modello: j.modello || d.modello || "" };
+  } catch { natanMacCache.t = 0; return { text: "", done: false, error: "" }; }   // rete momentaneamente giù: il Gestore riprova
+}
+
 /* ---------------- router ---------------- */
 export default {
   async fetch(request, env) {
@@ -1267,6 +1329,9 @@ export default {
       if (url.pathname === "/gestore/login") return json(await gestLogin(env, body, ip));
       if (url.pathname === "/gestore/dati") return json(await gestDati(env, body));
       if (url.pathname === "/gestore/azione") return json(await gestAzione(env, body));
+      if (url.pathname === "/gestore/natan/stato") return json(await natanStato(env, body));
+      if (url.pathname === "/gestore/natan/chiedi") return json(await natanChiedi(env, body));
+      if (url.pathname === "/gestore/natan/job") return json(await natanJob(env, body));
       if (url.pathname === "/gestore/nuovo-codice") { // chiamata manuale per generare subito il primo codice
         if (!env.ADMIN_PASSWORD) throw new Errore("Password gestore non impostata su Cloudflare.", 503);
         if (String(body.password || "") !== env.ADMIN_PASSWORD) throw new Errore("Password sbagliata.", 401);
