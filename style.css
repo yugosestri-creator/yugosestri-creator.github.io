@@ -858,6 +858,9 @@ body.tour-open .tabbar { z-index: 80; pointer-events: none; }
 .trk-chef .chef-nuvola { transform-box: fill-box; transform-origin: 0 100%; animation: chef-pop .5s .3s cubic-bezier(.3,1.6,.5,1) both; }
 @keyframes chef-pop { from { opacity: 0; transform: scale(.3); } }
 .trk-no-az { justify-content: center; margin-top: 12px; }
+.trk-cons { margin: 10px auto 0; max-width: 34ch; padding: 8px 12px; border-radius: 10px; border: 1px dashed var(--line); font-size: 13px; color: var(--muted); }
+.trk-cons.ok { border-style: solid; border-color: rgb(201 165 90 / .55); color: var(--fg); }
+.trk-cons b { color: var(--gold-hi); }
 .trk-no-az .btn { margin: 0 !important; }
 .ord-dist { margin: -4px 0 14px; padding: 10px 12px; border-radius: 12px; border: 1px dashed var(--line); font-size: 13.5px; color: var(--muted); }
 .ord-dist p { margin: 0; }
