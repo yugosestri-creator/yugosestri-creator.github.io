@@ -102,6 +102,7 @@
   .nt-msg { padding: 10px 12px; border-radius: 12px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14.5px; }
   .nt-io { background: var(--gold); color: #fff; justify-self: end; max-width: 85%; }
   .nt-bot { background: var(--surface); border: 1px solid var(--line); }
+  .rec-c { padding: 8px 0; border-top: 1px solid var(--line); } .rec-c p { margin: 0 0 2px; white-space: pre-wrap; }
   .nt-modi { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 10px; }
   .nt-modi button { display: grid; gap: 2px; text-align: left; padding: 8px 10px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); font: inherit; cursor: pointer; }
   .nt-modi button b { font-size: 13px; } .nt-modi button small { font-size: 11px; color: var(--muted); }
@@ -439,6 +440,22 @@ function bindEventi() {
 }
 
 /* Visite: quante volte è stato aperto il sito ogni giorno (ultimi 30 giorni) e a che ora */
+/* ⭐ Recensioni del sito: il mini quiz che compare ai clienti dopo 5 minuti sul sito */
+const REC_DOMANDE = [["facile", "È facile da usare"], ["trovato", "Hanno trovato quello che cercavano"], ["grafica", "Piace com'è fatto"], ["veloce", "È veloce"], ["consiglio", "Lo consiglierebbero"]];
+const REC_FACCE = ["", "😣", "🙁", "😐", "🙂", "😍"];
+function recStat() {
+  const L = (dati.recensioni || []).map((r) => { let x = {}; try { x = JSON.parse(r.risposte || "{}"); } catch { /* ok */ } return { ...r, x }; });
+  const medie = REC_DOMANDE.map(([k, t]) => { const v = L.map((r) => r.x[k]).filter(Boolean); return { k, t, n: v.length, m: v.length ? v.reduce((a, b) => a + b, 0) / v.length : 0 }; });
+  return { L, medie, commenti: L.filter((r) => r.testo) };
+}
+function viewRecensioni() {
+  const { L, medie, commenti } = recStat();
+  if (!L.length) return `<div class="card"><h3>⭐ Recensioni del sito</h3><p class="meta">Ancora nessuna. Il mini quiz compare ai clienti dopo 5 minuti che sono sul sito.</p></div>`;
+  return `<div class="card"><h3>⭐ Recensioni del sito <small class="meta">(${L.length})</small></h3>
+    ${medie.map((d) => `<div class="vg" style="cursor:default"><span>${esc(d.t)}</span><span class="bar"><i style="width:${d.m / 5 * 100}%"></i></span><span><strong>${d.n ? d.m.toFixed(1) : "–"}</strong> ${d.n ? REC_FACCE[Math.round(d.m)] : ""}</span></div>`).join("")}
+    ${commenti.length ? `<h3 style="margin-top:14px">💬 Cosa hanno scritto</h3>${commenti.slice(0, 30).map((r) => `<div class="rec-c"><p>${esc(r.testo)}</p><small class="meta">${esc(new Date(r.creato).toLocaleString("it-IT", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }))} · ${esc((r.lingua || "").toUpperCase())}${Object.keys(r.x).length ? " · " + REC_DOMANDE.filter(([k]) => r.x[k]).map(([k]) => REC_FACCE[r.x[k]]).join("") : ""}</small></div>`).join("")}` : ""}
+  </div>`;
+}
 function viewVisite() {
   const V = dati.visite;
   if (!V) return `<div class="empty">Statistiche non ancora disponibili. Riprova tra poco.</div>`;
@@ -480,6 +497,7 @@ function viewVisite() {
     </div>
     ${lingue.length ? `<div class="card"><h3>🌍 Lingua dei visitatori (30 giorni)</h3>
       ${lingue.map(([l, n]) => `<div class="vg" style="cursor:default"><span>${esc(NOMI[l] || l)}</span><span class="bar"><i style="width:${Math.round(n / totL * 100)}%"></i></span><span><strong>${n}</strong></span></div>`).join("")}</div>` : ""}
+    ${viewRecensioni()}
     <p class="hint">Contiamo ogni volta che qualcuno apre il sito: in giallo la prima volta di un telefono, in blu tutte le volte dopo. Senza nomi e senza IP. I dati delle visite si cancellano da soli dopo 30 giorni; gli ordini da casa dopo 14 giorni.</p>`;
 }
 
@@ -603,6 +621,9 @@ function ntContesto() {
     fatti.push(`Ordini dal sito: ${ord.length}, scontrino medio € ${(tot / ord.length).toFixed(1)}.`);
     r.push(`ORDINI DAL SITO (ultimi 14 giorni e prossimi): ${ord.length} ordini, totale € ${tot.toFixed(0)}, media € ${(tot / ord.length).toFixed(1)}, ${cons} consegne e ${ord.length - cons} ritiri. Piatti più ordinati: ${Object.entries(piatti).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([n, q]) => `${n} ×${q}`).join(", ")}.`);
   } else { r.push("ORDINI DAL SITO: nessuno negli ultimi 14 giorni."); fatti.push("Nessun ordine dal sito in 14 giorni."); }
+  { const { L, medie, commenti } = recStat();
+    if (L.length) { r.push(`RECENSIONI DEL SITO dai clienti (${L.length}, voti da 1 a 5): ${medie.filter((d) => d.n).map((d) => `${d.t} ${d.m.toFixed(1)}`).join("; ")}.${commenti.length ? ` Ultimi commenti: ${commenti.slice(0, 6).map((c) => `«${String(c.testo).slice(0, 160)}»`).join(" ")}` : ""}`); fatti.push(`Recensioni del sito: ${L.length}, voto medio ${(medie.filter((d) => d.n).reduce((a, d) => a + d.m, 0) / Math.max(1, medie.filter((d) => d.n).length)).toFixed(1)} su 5.`); }
+    else r.push("RECENSIONI DEL SITO: ancora nessuna."); }
   const pr = (dati.prenot || []).filter((p) => p.stato === "confermata");
   if (pr.length) {
     const gs = {}; pr.forEach((p) => { const g = new Date(p.data + "T12:00").toLocaleDateString("it-IT", { weekday: "short" }); gs[g] = (gs[g] || 0) + 1; });
