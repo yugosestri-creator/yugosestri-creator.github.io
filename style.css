@@ -846,6 +846,21 @@ body.tour-open .tabbar { z-index: 80; pointer-events: none; }
 .trk-nigiri { animation: trk-lift 2.2s ease-in-out infinite; }
 @keyframes trk-sticks { 0%, 100% { transform: translate(8px, -8px); } 40%, 60% { transform: translate(0, 0); } }
 @keyframes trk-lift { 0%, 45% { transform: translateY(0); } 70%, 85% { transform: translateY(-10px); } 100% { transform: translateY(0); } }
+/* Ordine annullato: lo chef che non vuole lavorare */
+.trk-chef { width: 190px; height: 119px; }
+.trk-chef .chef-testa { transform-box: fill-box; transform-origin: 50% 85%; animation: chef-no 2.4s ease-in-out infinite; }
+@keyframes chef-no { 0%, 40%, 100% { transform: rotate(0); } 50% { transform: rotate(-9deg); } 60% { transform: rotate(8deg); } 70% { transform: rotate(-7deg); } 80% { transform: rotate(5deg); } }
+.trk-chef .chef-braccia { animation: chef-sbuffa 2.4s ease-in-out infinite; }
+@keyframes chef-sbuffa { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1.5px); } }
+.trk-chef .chef-sbuffo path { transform-box: fill-box; transform-origin: center; animation: chef-fumo 2.4s ease-out infinite; opacity: 0; }
+.trk-chef .chef-sbuffo path + path { animation-delay: .25s; }
+@keyframes chef-fumo { 0%, 30% { opacity: 0; transform: translateY(4px) scale(.5); } 45% { opacity: .95; } 75%, 100% { opacity: 0; transform: translateY(-10px) scale(1.15); } }
+.trk-chef .chef-nuvola { transform-box: fill-box; transform-origin: 0 100%; animation: chef-pop .5s .3s cubic-bezier(.3,1.6,.5,1) both; }
+@keyframes chef-pop { from { opacity: 0; transform: scale(.3); } }
+.trk-no-az { justify-content: center; margin-top: 12px; }
+.trk-no-az .btn { margin: 0 !important; }
+.ord-dist { margin-top: -4px; }
+.ord-dist .btn { margin: 0; }
 @media (prefers-reduced-motion: reduce) { .trk *, .trk-mini * { animation: none !important; stroke-dashoffset: 0 !important; opacity: 1; } }
 .stack > * { min-width: 0; }
 .trk-tit, .trk-sub { overflow-wrap: anywhere; }
