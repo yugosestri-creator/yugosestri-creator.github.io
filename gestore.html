@@ -598,8 +598,9 @@ function ntContesto() {
   if (R.ordini) r.push(`Consegna: zone ${(R.ordini.zone || []).map((z) => `${z.nome} € ${z.costo}`).join(", ")}; minimo € ${R.ordini.minimo}; anche su Just Eat.`);
   const cats = (R.menu || []).map((c) => { const p = c.piatti.map((x) => x.prezzo).filter((x) => x != null); return `${c.categoria} (${c.piatti.length} piatti, € ${Math.min(...p)}–${Math.max(...p)})`; });
   r.push(`Menu: ${cats.join("; ")}.`);
-  r.push("SITO: pagine Home (offerte, social, invita amici), Menu (asporto o al ristorante, filtri, quiz «Non sai cosa prendere?»), Ordina (asporto/consegna senza account, si paga alla consegna), Prenota (nome e telefono, pulsanti giorno e ora), Account (ordini, carta fedeltà, invita amici con codice sconto), assistente Natan a pulsanti. 7 lingue. Foto dei piatti: quasi nessuna (solo 1). Indirizzo del sito: yugosestri-creator.github.io (NON esiste yugo.it né altri domini). NON esiste un'app da scaricare negli store: il sito si può solo «aggiungere alla schermata Home» del telefono. Il quiz «Non sai cosa prendere?» e Natan a pulsanti ci sono già: non proporli come novità. ESISTE già lo sconto del 10% sul primo ordine fatto dal sito (calcolato in automatico) e il buono fedeltà per chi ha già ordinato: sono veri, non dire che sono inventati. Dopo l'ordine il cliente vede uno scontrino riepilogativo con tutti i piatti e il totale.");
-  const ev = (dati.eventi || []).map((e) => `${e.nome}${e.descrizione ? " (" + String(e.descrizione).slice(0, 160) + ")" : ""} dal ${e.dal} al ${e.al}${e.sconto ? ", sconto " + e.sconto : ""}`);
+  r.push(`SITO: pagine Home (offerte, social, invita amici), Menu (asporto o al ristorante, filtri, quiz «Non sai cosa prendere?»), Ordina (asporto/consegna senza account, si paga alla consegna), Prenota (nome e telefono, pulsanti giorno e ora), Account (ordini, carta fedeltà, invita amici con codice sconto), assistente Natan a pulsanti. 7 lingue. Foto dei piatti: quasi nessuna (solo 1). Indirizzo ESATTO del sito: https://yugosestri-creator.github.io (scrivilo sempre così, senza «www»; NON esiste yugo.it né altri domini). NON esiste un'app da scaricare negli store: il sito si può solo «aggiungere alla schermata Home» del telefono. Il quiz «Non sai cosa prendere?» e Natan a pulsanti ci sono già: non proporli come novità. ESISTE già lo sconto del 10% sul primo ordine fatto dal sito (calcolato in automatico; sul sito è pubblicizzato dall'11 al 22 novembre 2026${oggi >= "2026-11-19" && oggi <= "2026-11-22" ? ": SCADE A BREVE" : ""}) e il buono fedeltà per chi ha già ordinato: sono veri, non dire che sono inventati. Dopo l'ordine il cliente vede uno scontrino riepilogativo con tutti i piatti e il totale.`);
+  const scad = (al) => { if (!/^\d{4}-\d{2}-\d{2}$/.test(al || "")) return ""; const g = Math.round((new Date(al + "T12:00:00") - new Date(oggi + "T12:00:00")) / 864e5); return g < 0 ? " (GIÀ SCADUTA)" : g === 0 ? " (SCADE OGGI)" : g === 1 ? " (SCADE DOMANI)" : g <= 3 ? ` (SCADE TRA ${g} GIORNI)` : ` (scade tra ${g} giorni)`; };
+  const ev = (dati.eventi || []).map((e) => `${e.nome}${e.descrizione ? " (" + String(e.descrizione).slice(0, 160) + ")" : ""} dal ${e.dal} al ${e.al}${scad(e.al)}${e.sconto ? ", sconto " + e.sconto : ""}`);
   r.push(`OFFERTE ATTIVE (sono le UNICHE: non esistono altri sconti oltre a queste; se ne proponi una nuova, scrivi chiaramente che è un'idea nuova da attivare): ${ev.length ? ev.join(" | ") : "nessuna"}.`);
   const V = dati.visite;
   if (V) {
@@ -634,9 +635,12 @@ function ntContesto() {
 }
 const NT_ISTRUZIONI = `Sei Natan e fai il consulente di marketing per Yugo, il ristorante di sushi di Kevin a Sestri Levante. Kevin ti manda i dati veri del ristorante e del sito (visite, ordini, prenotazioni, menu, offerte) e una domanda.
 Regole:
-- Non inventare canali che non esistono (per esempio un'app da scaricare, un altro sito, WhatsApp, un numero diverso). I canali veri sono solo: il sito yugosestri-creator.github.io (pulsanti Ordina e Prenota), il telefono del ristorante, Just Eat, Instagram, TikTok e Facebook.
+- Non inventare canali che non esistono (per esempio un'app da scaricare, un altro sito, WhatsApp, un numero diverso). I canali veri sono solo: il sito https://yugosestri-creator.github.io (pulsanti Ordina e Prenota; è l'UNICO indirizzo: scrivilo esattamente così, senza «www», e non scriverne altri), il telefono del ristorante, Just Eat, Instagram, TikTok e Facebook.
 - Usa solo i dati forniti: non inventare piatti, prezzi, offerte, domini, app o numeri. Per i giorni usa i nomi già scritti nei dati (non calcolare tu il giorno della settimana). Un post normale su Instagram o TikTok costa 0 €; solo le sponsorizzate costano.
 - Usa solo i dati forniti: non inventare piatti, prezzi o numeri. Se un piatto o un dato non è nei DATI DI YUGO, non nominarlo.
+- Guarda la DATA DI OGGI: se un'offerta scade entro 3 giorni (nei dati c'è scritto «SCADE OGGI», «SCADE DOMANI» o «SCADE TRA … GIORNI»), dillo chiaramente all'inizio della risposta, con il giorno esatto in cui finisce.
+- QR code: consiglia solo QR STATICI, gratuiti e che non scadono mai. Non consigliare mai qr-code-generator.com né altri servizi di QR «dinamici» (dopo la prova gratuita il QR smette di funzionare o diventa a pagamento).
+- Recensioni: i clienti vanno mandati a lasciare la recensione su Google Maps (il profilo Google di Yugo), non sul sito.
 - Scrivi in italiano corretto e semplice (controlla le parole prima di scriverle). Rispondi solo alla DOMANDA DI KEVIN e non ripetere risposte precedenti.
 - Usa i numeri: ogni punto deve citare un dato (es. «solo 3 visite al giorno», «0 ordini dal sito»). Se i dati sono pochi, dillo.
 - Non inventare cose che non sono nei dati: non vedi la grafica del sito, quindi non parlare di font, colori o logo se Kevin non lo chiede.
@@ -687,7 +691,7 @@ function bindNatan() {
 }
 /* Un messaggio della conversazione */
 const NT_CHI = { mac: "💻 Mac", pc: "🖥 PC fisso", unita: "⭐ Soluzione principale · unita dal Mac", pareri: "👥 I pareri dei due", grande: "🧠 Natan Grande" };
-const ntPulito = (t) => String(t || "").replace(/```html[\s\S]*?(```|$)/i, "🎨 (proposta grafica: guarda l'anteprima)");
+const ntPulito = (t) => String(t || "").replace(/(https?:\/\/)?www\.yugosestri-creator\.github\.io/gi, "https://yugosestri-creator.github.io").replace(/```html[\s\S]*?(```|$)/i, "🎨 (proposta grafica: guarda l'anteprima)");
 const ntHtml = (m) => [m.testo, m.pareri && m.pareri.mac, m.pareri && m.pareri.pc].find((t) => /```html/i.test(t || "")) || "";
 function ntMsg(m, i) {
   if (m.io) return `<div class="nt-msg nt-io">${esc(m.testo)}</div>`;
@@ -757,7 +761,8 @@ Cosa fare questa settimana:
 1. (al massimo 5 azioni)
 Regole:
 - Non riassumere: tieni tutti i dettagli pratici delle bozze (scadenze, giorni, numeri, costi, testi pronti dei post, dove mettere le cose). La risposta finale deve essere completa almeno quanto la bozza migliore; se un'azione ha un testo pronto da pubblicare, riportalo intero.
-- Prendi le idee migliori di tutte e due le bozze e controlla ogni numero con i DATI DI YUGO: togli quello che è sbagliato o inventato.
+- Prendi le idee migliori di tutte e due le bozze e controlla ogni numero con i DATI DI YUGO: scarta tutto ciò che non compare nei DATI DI YUGO (servizi, numeri, offerte, indirizzi).
+- Se un'offerta scade entro 3 giorni, dillo nella prima riga. Indirizzo del sito: solo https://yugosestri-creator.github.io. QR solo statici (mai qr-code-generator.com). Recensioni su Google Maps, non sul sito.
 - Se le due bozze dicono cose diverse su un fatto (per esempio un'offerta: «10% di sconto» contro «bibita gratis») e i DATI DI YUGO non chiariscono chi ha ragione, non scegliere in silenzio: alla fine aggiungi una riga «⚠️ Da verificare: …» che spiega la differenza.
 - Non ripetere la stessa idea due volte; niente righe «---», niente titoli in più, niente conclusione; non dire che ci sono bozze. Se una bozza ha un blocco html utile, mettine uno solo alla fine.`;
 async function ntChiedi(domanda) {
@@ -779,7 +784,7 @@ async function ntChiedi(domanda) {
     const testo = `DATI DI YUGO (aggiornati ${new Date().toLocaleString("it-IT")}):\n${ntContesto()}\n\nDOMANDA DI KEVIN: ${domanda}`;
     const sistema = ntOggi() + NT_ISTRUZIONI;
     const corpo = { sistema, testo, storia, max_token: 4000 };
-    const corpoPc = { ...corpo, sistema: sistema + "\n- Scrivi una risposta BREVE: al massimo 150 parole, solo i punti più importanti." };   // il PC è lento: bozza corta
+    const corpoPc = { ...corpo, sistema: sistema + "\n- Usa SOLO i dati forniti nei DATI DI YUGO. Se un dato, un servizio o un numero non c'è, non nominarlo.\n- Scrivi una risposta BREVE: al massimo 150 parole, solo i punti più importanti." };   // il PC è lento: bozza corta
     const per = (t) => t.dove === "pc" ? corpoPc : corpo;
 
     if (modo === "grande") {
