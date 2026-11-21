@@ -1274,7 +1274,7 @@ async function natanChiedi(env, body) {
   const d = await natanDove(env, body.dove);
   const chi = { mac: "il Mac", pc: "il PC fisso", grande: "Natan Grande" }[body.dove];
   if (!d.cod) throw new Errore(body.dove === "mac" ? "Manca il codice del Mac su Cloudflare (NATAN_MAC_CODICE)." : "Manca NATAN_PC_KEY su Cloudflare.", 503);
-  if (!d.url) throw new Errore(`${chi} è spento.`, 503);
+  if (!d.url) throw new Errore(`${chi} è spento.`, 503);   // l'indirizzo si rilegge a ogni richiesta (cambia a ogni riavvio)
   const corpo = JSON.stringify(body.corpo || {});
   if (corpo.length > 400000) throw new Errore("Domanda troppo lunga.", 400);
   let r;
@@ -1293,9 +1293,10 @@ async function natanJob(env, body) {
   if (!d.url || !d.cod) return { text: "", done: false, error: "" };
   try {
     const r = await fetch(d.url + "/job?id=" + encodeURIComponent(String(body.id || "")), { headers: { "Authorization": "Bearer " + d.cod } });
+    if (r.status === 404) return { text: "", done: true, error: `${{ mac: "Il Mac", pc: "Il PC fisso", grande: "Natan Grande" }[body.dove] || "Natan"} si è riavviato mentre rispondeva: riprova.` };
     const j = await r.json();
     return { text: j.text || "", done: !!j.done, error: j.error || "", modello: j.modello || d.modello || "" };
-  } catch { natanMacCache.t = 0; return { text: "", done: false, error: "" }; }   // rete momentaneamente giù: il Gestore riprova
+  } catch { natanMacCache.t = 0; return { text: "", done: false, error: "", rete: true }; }   // rete momentaneamente giù: il Gestore riprova
 }
 
 /* ---------------- router ---------------- */
