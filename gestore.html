@@ -536,7 +536,7 @@ function bindCalendario() {
    Funziona solo quando Natan è acceso sul Mac. L'indirizzo del Mac (cambia a ogni avvio) si legge da ponte.json
    sul sito di Natan. Serve un codice amico creato in Natan (lo scrivi qui una volta, resta solo su questo telefono).
    A Natan mandiamo solo numeri e informazioni del sito: mai nomi, telefoni o indirizzi dei clienti. */
-const NT_PONTE = "https://kacr268698-pixel.github.io/natan/ponte.json";
+try { localStorage.removeItem("yugo-natan-codice"); localStorage.removeItem("yugo-natan-pc-codice"); } catch { /* ok */ }   // i codici ora stanno solo su Cloudflare
 const NT = { stato: "?", log: store.get("yugo-natan-log", []), lavoro: false, prev: null, modo: store.get("yugo-natan-modo", "principale"), mac: "", pc: null, grande: null };
 const NT_IDEE = [
   "Analizza visite, ordini e prenotazioni e dimmi cosa va bene e cosa no",
@@ -547,26 +547,16 @@ const NT_IDEE = [
   "Proponi un evento o una promo per riempire i giorni più vuoti"
 ];
 /* Chi è acceso: 💻 Mac (Natan vero, il «capo»), 🖥 PC fisso (aiutante), 🧠 Natan Grande (un modello diviso tra Mac e PC).
-   Gli indirizzi di PC e Grande cambiano a ogni avvio: li scrivono loro sul server del sito (/natan-pc, /natan-grande). */
+   Il telefono parla solo con il server del sito: basta essere entrati nel Gestore, i codici di Natan stanno su Cloudflare. */
 async function ntTrova() {
   NT.stato = "cerco"; ntStato();
-  const prova = async (u, app) => { try { const r = await fetch(u + "/ping", { cache: "no-store" }); const d = await r.json(); return d && (!app || d.app === app) ? d : null; } catch { return null; } };
-  const dalServer = async (nome) => {
-    try { const p = await (await fetch(WORKER + "/" + nome, { cache: "no-store" })).json(); const u = String(p.url || "").replace(/\/$/, ""); const d = u && await prova(u); if (d) return { url: u, modello: d.modello || p.modello || "" }; } catch { /* niente */ }
-    return null;
-  };
-  const [mac, pc, grande] = await Promise.all([
-    (async () => {
-      if (await prova("http://127.0.0.1:8765", "natan")) return "http://127.0.0.1:8765";   // se il Gestore è aperto sul Mac stesso
-      try { const p = await (await fetch(NT_PONTE + "?t=" + Date.now(), { cache: "no-store" })).json(); const u = String(p.url || "").replace(/\/$/, ""); if (u && await prova(u, "natan")) return u; } catch { /* niente */ }
-      return "";
-    })(),
-    dalServer("natan-pc"),
-    dalServer("natan-grande")
-  ]);
-  NT.mac = mac; NT.pc = pc; NT.grande = grande;
-  if (NT.modo === "grande" && !grande) NT.modo = "principale";
-  NT.stato = (mac && store.get("yugo-natan-codice", "")) || ((pc || grande) && store.get("yugo-natan-pc-codice", "")) ? "on" : "off";
+  try {
+    const d = await api("/gestore/natan/stato", { token: sessione.token });
+    NT.mac = d.mac && d.mac.on ? d.mac : null; NT.pc = d.pc && d.pc.on ? d.pc : null; NT.grande = d.grande && d.grande.on ? d.grande : null;
+    NT.manca = d.mac && !d.mac.codice ? "Manca il codice del Mac su Cloudflare (NATAN_MAC_CODICE)." : "";
+  } catch (e) { NT.mac = NT.pc = NT.grande = null; if (e.status === 401) { logout(); return; } }
+  if (NT.modo === "grande" && !NT.grande) NT.modo = "principale";
+  NT.stato = NT.mac || NT.pc || NT.grande ? "on" : "off";
   if (tab === "natan") render(); else ntStato();
 }
 function ntStato() {
@@ -574,7 +564,7 @@ function ntStato() {
   el.className = "nt-stato " + (NT.stato === "on" ? "on" : NT.stato === "off" ? "off" : "");
   const mod = (x) => x && x.modello ? ` (${esc(x.modello)})` : "";
   el.innerHTML = NT.stato === "cerco" || NT.stato === "?" ? "<i></i>Cerco Natan…"
-    : `<i></i>${NT.stato === "on" ? "Natan è pronto" : "Natan è spento: accendi il Mac (o il PC fisso)"} <span class="meta" style="font-weight:400">· ${NT.mac ? "💻 Mac acceso" : "💻 Mac spento"} · ${NT.pc ? "🖥 PC acceso" + mod(NT.pc) : "🖥 PC spento"}${NT.grande ? " · 🧠 Natan Grande pronto" + mod(NT.grande) : ""}</span>`;
+    : `<i></i>${NT.stato === "on" ? "Natan è pronto" : "Natan è spento: accendi il Mac (o il PC fisso)"} <span class="meta" style="font-weight:400">· ${NT.mac ? "💻 Mac acceso" + mod(NT.mac) : "💻 Mac spento"} · ${NT.pc ? "🖥 PC acceso" + mod(NT.pc) : "🖥 PC spento"}${NT.grande ? " · 🧠 Natan Grande pronto" + mod(NT.grande) : ""}</span>${NT.manca ? `<br><span class="meta">⚠️ ${esc(NT.manca)}</span>` : ""}`;
   const b = $("#nt-invia"); if (b) b.disabled = NT.stato !== "on" || NT.lavoro;
 }
 /* Tutto quello che Natan deve sapere, in poche righe (massimo ~4000 caratteri) */
@@ -630,21 +620,13 @@ Regole:
 - Se proponi una modifica visibile al sito, aggiungi alla fine UN blocco \`\`\`html con solo il pezzo di pagina nuovo (niente script, niente immagini); solo dentro quel blocco usa le classi del sito: card, btn btn-gold, btn, muted, offerte-tit.`;
 
 function viewNatan() {
-  const codMac = store.get("yugo-natan-codice", ""), codPc = store.get("yugo-natan-pc-codice", ""), cod = codMac || codPc;
   return `
     <div class="card">
       <h3>🤖 Natan, il tuo consulente</h3>
       <p class="nt-stato" id="nt-stato"></p>
-      <p class="hint">Funziona solo quando il Mac è acceso con Natan aperto. Natan legge visite, ordini, prenotazioni, menu e offerte e ti dà idee per il sito e la pubblicità. Gli mandiamo solo numeri: mai nomi, telefoni o indirizzi dei clienti.</p>
-      ${cod ? `<div class="row"><button class="b" id="nt-cod-x">Cambia codici</button><button class="b" id="nt-riprova">↻ Ricontrolla</button>${NT.log.length ? `<button class="b" id="nt-nuova">🧹 Nuova conversazione</button>` : ""}</div>` : `
-      <form id="nt-cod-f" style="margin-top:10px">
-        <div class="field"><label>Codice di Natan del Mac (una volta sola)</label><input type="password" id="nt-cod" autocomplete="off" placeholder="Incolla qui il messaggio di invito di «Yugo»"></div>
-        <p class="hint">Sul Mac apri Natan → pagina Amici → aggiungi un amico chiamato «Yugo»: Natan copia il messaggio di invito. Incollalo qui così com'è (prendo io il codice dal link). Resta salvato solo su questo telefono; da Natan puoi revocarlo quando vuoi.</p>
-        <div class="field"><label>Codice del PC fisso e di Natan Grande (facoltativo)</label><input type="password" id="nt-cod-pc" autocomplete="off" placeholder="Il codice che ti dà il PC fisso"></div>
-        <button class="b gold" type="submit">Salva</button>
-      </form>`}
+      <p class="hint">Funziona quando il Mac è acceso con Natan aperto (il PC fisso aiuta se è acceso). Natan legge visite, ordini, prenotazioni, menu e offerte e ti dà idee per il sito e la pubblicità. Gli mandiamo solo numeri: mai nomi, telefoni o indirizzi dei clienti.</p>
+      <div class="row"><button class="b" id="nt-riprova">↻ Ricontrolla</button>${NT.log.length ? `<button class="b" id="nt-nuova">🧹 Nuova conversazione</button>` : ""}</div>
     </div>
-    ${cod ? `
     <div class="nt-log" id="nt-log">${NT.log.map((m, i) => ntMsg(m, i)).join("")}</div>
     ${NT.prev != null ? `<div class="card nt-prev"><h3>👁 Anteprima (come apparirebbe nel sito)</h3><iframe id="nt-frame" title="Anteprima"></iframe><p class="hint">È il sito vero con la proposta di Natan in cima alla home (bordo tratteggiato): puoi toccare e provare tutto. La vedi solo tu; per metterla davvero nel sito passala a Claude.</p><div class="row"><a class="b gold" href="index.html?anteprima=1" target="_blank" rel="noopener">↗ Apri a tutto schermo</a><button class="b" id="nt-prev-x">Chiudi anteprima</button></div></div>` : ""}
     <div class="card">
@@ -657,12 +639,10 @@ function viewNatan() {
         <div class="field"><textarea id="nt-q" rows="3" maxlength="1200" placeholder="Chiedi qualcosa a Natan…"></textarea></div>
         <button class="b gold" id="nt-invia" type="submit" style="width:100%">${NT.lavoro ? "Natan sta pensando…" : "Chiedi a Natan"}</button>
       </form>
-    </div>` : ""}`;
+    </div>`;
 }
 function bindNatan() {
   ntStato(); if (NT.stato === "?" || (NT.stato === "off" && Date.now() - (NT.ultimo || 0) > 20000)) { NT.ultimo = Date.now(); ntTrova(); }
-  $("#nt-cod-f")?.addEventListener("submit", (e) => { e.preventDefault(); const raw = $("#nt-cod").value.trim(), v = ((raw.match(/codice=([A-Za-z0-9_-]+)/) || [])[1] || raw).trim(), pc = $("#nt-cod-pc").value.trim(); if (v) store.set("yugo-natan-codice", v); if (pc) store.set("yugo-natan-pc-codice", pc); if (v || pc) { NT.stato = "?"; render(); } });
-  $("#nt-cod-x")?.addEventListener("click", () => { if (confirm("Vuoi scrivere di nuovo i codici di Natan (Mac e PC)?")) { store.del("yugo-natan-codice"); store.del("yugo-natan-pc-codice"); NT.stato = "?"; render(); } });
   $("#nt-riprova")?.addEventListener("click", () => { NT.ultimo = Date.now(); ntTrova(); });
   $("#nt-nuova")?.addEventListener("click", () => { NT.log = []; NT.prev = null; store.set("yugo-natan-log", []); render(); });
   $("#nt-prev-x")?.addEventListener("click", () => { NT.prev = null; render(); });
@@ -706,18 +686,13 @@ function ntTaglia(t) {
 /* Una richiesta a un Natan (Mac, PC o Grande): parte, poi legge il testo mentre lo scrive */
 async function ntLavoro(t, corpo, suTesto) {
   const chi = { pc: "il PC fisso", mac: "il Mac", grande: "Natan Grande" }[t.dove];
-  let r;
-  try { r = await fetch(t.url + "/consulente", { method: "POST", headers: { "Authorization": "Bearer " + t.cod, "Content-Type": "application/json" }, body: JSON.stringify(corpo) }); }
-  catch { throw new Error(`Non riesco a raggiungere ${chi}: forse si è appena riavviato o è spento. Riprova tra un minuto.`); }
-  const d = await r.json().catch(() => ({}));
-  if (r.status === 404) throw new Error(t.dove === "mac" ? "Il Natan del Mac non ha ancora il «consulente»: chiudi Natan e riaprilo, poi riprova." : `${chi} non ha il «consulente».`);
-  if (r.status === 401) throw new Error(`Il codice per ${chi} non è giusto: premi «Cambia codici».`);
-  if (r.status === 429) throw new Error(`${chi} sta ancora rispondendo alla domanda di prima: aspetta e riprova.`);
-  if (!r.ok || !d.job) throw new Error(d.error || `${chi} non ha risposto.`);
-  let testo = ""; const fine = Date.now() + ({ grande: 30, pc: 25 }[t.dove] || 12) * 60000;   // il PC (qwen3:8b su processore) scrive ~2 parole al secondo
+  let d;
+  try { d = await api("/gestore/natan/chiedi", { token: sessione.token, dove: t.dove, corpo }); }
+  catch (e) { if (e.status === 401) { logout(); throw new Error("Accesso al Gestore scaduto: rientra."); } throw new Error(/fetch|network|load/i.test(e.message) ? "Connessione assente: riprova tra poco." : e.message); }
+  let testo = ""; const fine = Date.now() + ({ grande: 30, pc: 25 }[t.dove] || 12) * 60000;
   while (Date.now() < fine) {
-    await new Promise((ok) => setTimeout(ok, 1500));
-    const j = await (await fetch(t.url + "/job?id=" + encodeURIComponent(d.job), { headers: { "Authorization": "Bearer " + t.cod }, cache: "no-store" })).json().catch(() => ({}));
+    await new Promise((ok) => setTimeout(ok, 2000));
+    const j = await api("/gestore/natan/job", { token: sessione.token, dove: t.dove, id: d.job }).catch(() => ({}));
     if (j.modello) t.modello = j.modello;
     if (j.text) { testo = ntTaglia(j.text); suTesto && suTesto(testo); }
     if (j.error) throw new Error(j.error);
@@ -745,12 +720,11 @@ async function ntChiedi(domanda) {
   // gli indirizzi di Mac e PC cambiano a ogni riavvio: li ricontrollo subito prima di chiedere (così niente «Failed to fetch»)
   const b0 = $("#nt-invia"); if (b0) { b0.disabled = true; b0.textContent = "Controllo chi è acceso…"; }
   await ntTrova();
-  const codPc = store.get("yugo-natan-pc-codice", ""), codMac = store.get("yugo-natan-codice", "");
-  const mac = NT.mac && codMac ? { dove: "mac", url: NT.mac, cod: codMac } : null;
-  const pc = NT.pc && codPc ? { dove: "pc", url: NT.pc.url, cod: codPc } : null;
-  const grande = NT.grande && codPc ? { dove: "grande", url: NT.grande.url, cod: codPc } : null;
+  const mac = NT.mac ? { dove: "mac", modello: NT.mac.modello } : null;
+  const pc = NT.pc ? { dove: "pc", modello: NT.pc.modello } : null;
+  const grande = NT.grande ? { dove: "grande", modello: NT.grande.modello } : null;
   const modo = NT.modo === "grande" && grande ? "grande" : NT.modo === "pareri" ? "pareri" : "principale";
-  if (modo !== "grande" && !mac && !pc) { toast("Natan è spento o manca il codice: accendi il Mac."); const q = $("#nt-q"); if (q) q.value = domanda; return; }
+  if (modo !== "grande" && !mac && !pc) { toast(NT.manca || "Natan è spento: accendi il Mac."); const q = $("#nt-q"); if (q) q.value = domanda; return; }
   NT.lavoro = true; NT.log.push({ io: true, testo: domanda }, { testo: "" }); render();
   const bot = NT.log[NT.log.length - 1];
   const live = (k, txt) => { const x = [...document.querySelectorAll(`#nt-log [data-live="${k}"]`)].pop(); if (x && tab === "natan") x.textContent = ntPulito(txt); };
