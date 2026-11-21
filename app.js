@@ -906,12 +906,18 @@ function viaParole(t) {       // le parole che identificano la via ("via arturo 
 /* Suggerimenti mentre il cliente scrive: solo vie vere della zona (come su Google Maps, ma gratis) */
 async function suggerisciVie(testo) {
   const P = ORD.posizione; if (!P || norm(testo).length < 3) return [];
-  const j = await fetch(`https://photon.komoot.io/api/?limit=8&lang=it&lat=${P.lat}&lon=${P.lon}&bbox=9.15,44.12,9.70,44.42&q=` + encodeURIComponent(testo)).then((r) => r.json());
+  const url = (q) => `https://photon.komoot.io/api/?limit=12&lang=default&lat=${P.lat}&lon=${P.lon}&bbox=9.15,44.12,9.70,44.42&q=` + encodeURIComponent(q);
   const num = (String(testo).match(/\b(\d+[a-z]?)\b/i) || [])[1] || "";
+  const soloVia = String(testo).split(",")[0].replace(/\s+\d+\s*[a-z]?(\/\w+)?\s*$/i, "").trim();
+  // cerchiamo sia con il numero sia solo la via (così troviamo il tratto vicino a noi, non quello di Camogli)
+  const risposte = await Promise.all([url(testo), ...(soloVia && soloVia !== String(testo).trim() ? [url(soloVia)] : [])].map((u) => fetch(u).then((r) => r.json()).catch(() => ({}))));
+  const parole = viaParole(testo), dist2 = (f) => (f.geometry.coordinates[1] - P.lat) ** 2 + ((f.geometry.coordinates[0] - P.lon) * 0.72) ** 2;
+  const tutte = risposte.flatMap((j) => j.features || []).filter((f) => dist2(f) < 0.03).sort((a, b) => dist2(a) - dist2(b));   // entro ~20 km, le più vicine prima
   const visti = new Set(), out = [];
-  for (const f of j.features || []) {
+  for (const f of tutte) {
     const q = f.properties || {}, via = q.street || (["street", "road"].includes(q.osm_value) || q.type === "street" ? q.name : "");
     if (!via) continue;
+    if (parole.length && !parole.every((w) => norm(via).includes(w))) continue;   // solo vie con il nome scritto dal cliente
     const paese = [...new Set([q.district || q.locality, q.city || q.town || q.village].filter(Boolean))].join(", ");
     const civ = q.housenumber || num;
     const etichetta = [civ ? `${via} ${civ}` : via, paese].filter(Boolean).join(", ");
@@ -956,7 +962,7 @@ async function calcolaDistanza(ind) {
   if (!punto) try {
     const parole = viaParole(ind);
     if (parole.length) {
-      const j = await fetch(`https://photon.komoot.io/api/?limit=5&lang=it&lat=${P.lat}&lon=${P.lon}&bbox=9.15,44.12,9.70,44.42&q=` + encodeURIComponent(ind)).then((r) => r.json());
+      const j = await fetch(`https://photon.komoot.io/api/?limit=5&lang=default&lat=${P.lat}&lon=${P.lon}&bbox=9.15,44.12,9.70,44.42&q=` + encodeURIComponent(ind)).then((r) => r.json());
       const f = (j.features || []).find((x) => { const n = norm([x.properties.street, x.properties.name].join(" ")); return parole.every((w) => n.includes(w)); });
       if (f) { const q = f.properties; punto = { lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0], comune: q.city || q.town || q.village || q.locality || "", dove: [[q.street || q.name, q.housenumber].filter(Boolean).join(" "), q.city || q.town || q.village || q.locality || ""].filter(Boolean).join(", ") }; }
     }
