@@ -100,7 +100,11 @@ window.YUGO_CONFIG = {
         { nome: "Da 4 a 8 km", fino: 8, costo: 3.5 },
         { nome: "Da 8 a 15 km", fino: 15, costo: 5, noOre: [["12:30", "14:00"], ["19:30", "21:30"]] }
       ],
-      maxKm: 15,               // oltre 15 km in auto dal ristorante non consegniamo
+      maxKm: 15,
+      // Vie che sulla mappa gratuita non ci sono: aggiungile qui (nome, paese e posizione del paese o della via)
+      vieExtra: [
+        { via: "Via Arturo Rossi", paese: "Castiglione Chiavarese", lat: 44.27409, lon: 9.51468 }
+      ],               // oltre 15 km in auto dal ristorante non consegniamo
       // Se la via non è sulla mappa, il costo si prende dal paese (scritto nell'indirizzo o scelto dal cliente).
       // fascia: 0 = fino a 2,5 km · 1 = da 2,5 a 4 km · 2 = da 4 a 8 km · 3 = oltre 8 km. "anche": altri modi di scriverlo.
       paesi: [
