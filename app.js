@@ -678,7 +678,8 @@ const standalone = () => window.navigator.standalone || window.matchMedia("(disp
 const b64ToU8 = (s) => Uint8Array.from(atob((s + "===".slice((s.length + 3) % 4)).replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
 async function attivaNotifiche(prova) {
   if (!pushOk()) throw new Error(isIOS() && !standalone() ? "Su iPhone aggiungi prima Yugo alla schermata Home, poi apri l'app e attiva le notifiche." : "Questo telefono non supporta le notifiche.");
-  if (!user) throw new Error("Accedi per attivare le notifiche.");
+  const ord = store.get("yugo-ultimo-ordine", null);
+  if (!user && !(ord && ord.numero && ord.telefono)) throw new Error("Accedi per attivare le notifiche.");
   const perm = await Notification.requestPermission();
   if (perm !== "granted") throw new Error("Notifiche non permesse: puoi attivarle dalle impostazioni del telefono.");
   const reg = await navigator.serviceWorker.ready;
@@ -687,7 +688,8 @@ async function attivaNotifiche(prova) {
     const { chiave } = await fetch(WORKER + "/push/chiave").then((r) => r.json());
     sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToU8(chiave) });
   }
-  await api("/push/iscrivi", { idToken: await backend.token(), sub: sub.toJSON(), prova: !!prova });
+  if (user) await api("/push/iscrivi", { idToken: await backend.token(), sub: sub.toJSON(), prova: !!prova });
+  else await api("/push/ordine", { numero: ord.numero, telefono: ord.telefono, sub: sub.toJSON(), prova: !!prova });   // ospite: legata al suo ordine
   return true;
 }
 async function notificheAttive() {
@@ -884,6 +886,26 @@ function fasceGiorno(data) {
 }
 
 let ordDati = store.get("yugo-ordine-dati", { modo: "consegna", zona: 0, indirizzo: "", ora: "", note: "" });
+/* Consegna: il costo dipende dai km in auto dal ristorante (fasce in config.js → ordini.zone) */
+const zonaDaKm = (km) => { const z = ORD.zone || []; const i = z.findIndex((x) => x.fino != null && km <= x.fino); return i < 0 ? z.length - 1 : i; };
+const oraDiPunta = (z, t) => ((z && z.noOre) || []).some(([a, b]) => t >= a && t < b);
+const nomeZona = (z) => `${z.nome}${z.info ? ` (${z.info})` : ""} · € ${euro(z.costo)}`;
+let DIST = store.get("yugo-dist", {});
+async function calcolaDistanza(ind) {
+  const k = String(ind || "").trim().toLowerCase().replace(/\s+/g, " ");
+  if (k.length < 5 || !ORD.posizione) return null;
+  if (DIST[k]) return DIST[k];
+  const P = ORD.posizione;
+  const g = (await fetch("https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=it&viewbox=9.15,44.42,9.70,44.12&bounded=1&q=" + encodeURIComponent(ind)).then((r) => r.json()))[0];
+  if (!g) return { niente: true };
+  const r = await fetch(`https://router.project-osrm.org/route/v1/driving/${P.lon},${P.lat};${g.lon},${g.lat}?overview=false`).then((x) => x.json());
+  const m = r && r.routes && r.routes[0] && r.routes[0].distance;
+  if (m == null) return { niente: true };
+  const out = { km: Math.round(m / 100) / 10, dove: String(g.display_name || "").split(",").slice(0, 3).map((x) => x.trim()).join(", ") };
+  const chiavi = Object.keys(DIST); if (chiavi.length > 30) delete DIST[chiavi[0]];
+  DIST[k] = out; store.set("yugo-dist", DIST);
+  return out;
+}
 /* Sconto sugli ordini dal sito (consegna o ritiro): lo decide il bot, qui lo mostriamo */
 let SCONTI = null, scontiQuando = 0;
 function caricaSconti(forza) {
@@ -919,7 +941,8 @@ const ANIM_TRK = {
   viaggio: `<svg viewBox="0 0 120 70" class="trk-svg" aria-hidden="true"><g class="trk-road" stroke="#C9A55A" stroke-width="2.4" stroke-linecap="round"><path d="M4 64h16M34 64h16M64 64h16M94 64h16M124 64h16"/></g><g class="trk-moto"><path d="M10 34h10M6 42h12M12 50h8" class="trk-wind" stroke="#B9B2A3" stroke-width="2" stroke-linecap="round"/><circle cx="40" cy="54" r="7" fill="#14202E"/><circle cx="40" cy="54" r="2.6" fill="#B9B2A3"/><circle cx="82" cy="54" r="7" fill="#14202E"/><circle cx="82" cy="54" r="2.6" fill="#B9B2A3"/><path d="M36 49h34l6-13h6l-5 18H40Z" fill="#D94A38"/><path d="M80 36l-4-12h-5" stroke="#374151" stroke-width="3" fill="none" stroke-linecap="round"/><rect x="34" y="26" width="22" height="18" rx="3" fill="#C9A55A"/><path d="M40 35h10" stroke="#03132D" stroke-width="2" stroke-linecap="round"/><circle cx="64" cy="24" r="6" fill="#F1C9A5"/><path d="M57 22a7 7 0 0 1 14 0Z" fill="#03132D"/><path d="M60 31h9l2 12h-9Z" fill="#1E3A8A"/></g></svg>`,
   pronto: `<svg viewBox="0 0 120 70" class="trk-svg" aria-hidden="true"><g class="trk-bag"><path d="M42 26h36l-3 38H45Z" fill="#C9A55A"/><path d="M51 26v-5a9 9 0 0 1 18 0v5" fill="none" stroke="#8A6D2F" stroke-width="3"/><text x="60" y="50" text-anchor="middle" font-size="11" font-weight="700" fill="#03132D" font-family="Josefin Sans, sans-serif">YUGO</text></g><path class="trk-spark" d="M92 18l2 5 5 2-5 2-2 5-2-5-5-2 5-2Z" fill="#F3D58A"/><path class="trk-spark s2" d="M26 30l1.5 4 4 1.5-4 1.5-1.5 4-1.5-4-4-1.5 4-1.5Z" fill="#F3D58A"/></svg>`,
   fine: `<svg viewBox="0 0 120 70" class="trk-svg" aria-hidden="true"><ellipse cx="60" cy="58" rx="30" ry="5" fill="#0B1F45" opacity=".18"/><g class="trk-nigiri"><rect x="40" y="40" width="40" height="15" rx="7" fill="#fff"/><path d="M38 41c6-10 38-10 44 0-8 4-36 4-44 0Z" fill="#F28C6B"/><path d="M48 36l3 7M58 35l2 8M68 36l1 7" stroke="#FBD3C3" stroke-width="1.6"/></g><g class="trk-sticks" stroke="#8A6D2F" stroke-width="3" stroke-linecap="round"><path d="M96 6 66 38"/><path d="M104 12 72 41"/></g></svg>`,
-  annullato: `<svg viewBox="0 0 120 70" class="trk-svg" aria-hidden="true"><circle cx="60" cy="36" r="22" fill="#B42318"/><path d="M51 27l18 18M69 27 51 45" stroke="#fff" stroke-width="4" stroke-linecap="round"/></svg>`
+  // lo chef che oggi non ne vuole sapere: braccia incrociate, scuote la testa e sbuffa
+  annullato: `<svg viewBox="0 0 160 100" class="trk-svg trk-chef" aria-hidden="true"><ellipse cx="80" cy="95" rx="54" ry="4" fill="#0B1F45" opacity=".15"/><g class="chef-tavolo"><rect x="8" y="86" width="40" height="7" rx="2.5" fill="#9A6A3A"/><path d="M14 84h18l-2.5 3H14Z" fill="#D7DEE8"/><rect x="31" y="83" width="10" height="4.5" rx="1.2" fill="#3B2A1A"/></g><path d="M50 95c0-23 12-35 30-35s30 12 30 35Z" fill="#fff" stroke="#D5D0C6" stroke-width="1.5"/><path d="M71 60l9 7 9-7" fill="#D94A38"/><circle cx="80" cy="73" r="1.6" fill="#C9A55A"/><circle cx="80" cy="81" r="1.6" fill="#C9A55A"/><g class="chef-braccia"><rect x="55" y="72" width="44" height="11" rx="5.5" fill="#fff" stroke="#CFC9BD" stroke-width="1.5" transform="rotate(-7 77 77)"/><rect x="61" y="74" width="44" height="11" rx="5.5" fill="#fff" stroke="#CFC9BD" stroke-width="1.5" transform="rotate(7 83 79)"/><circle cx="58" cy="79" r="4.2" fill="#F1C9A5"/><circle cx="102" cy="80" r="4.2" fill="#F1C9A5"/></g><g class="chef-testa"><circle cx="80" cy="46" r="14" fill="#F1C9A5"/><circle cx="70" cy="22" r="7.5" fill="#fff" stroke="#D5D0C6" stroke-width="1.2"/><circle cx="80" cy="18" r="9" fill="#fff" stroke="#D5D0C6" stroke-width="1.2"/><circle cx="90" cy="22" r="7.5" fill="#fff" stroke="#D5D0C6" stroke-width="1.2"/><rect x="67" y="24" width="26" height="10" rx="2" fill="#fff" stroke="#D5D0C6" stroke-width="1.2"/><path d="M71 40.5l6 2.5M89 40.5l-6 2.5" stroke="#3B2A1A" stroke-width="2.2" stroke-linecap="round"/><path d="M72.5 47h5M82.5 47h5" stroke="#3B2A1A" stroke-width="2.2" stroke-linecap="round"/><path d="M75.5 55.5q4.5-4 9 0" fill="none" stroke="#3B2A1A" stroke-width="2" stroke-linecap="round"/><circle cx="70.5" cy="51" r="2.6" fill="#E8836B" opacity=".45"/><circle cx="89.5" cy="51" r="2.6" fill="#E8836B" opacity=".45"/></g><g class="chef-sbuffo"><path d="M56 32c-5 0-6-6-1-7 0-4 6-4 6 0 4 0 4 6 0 7Z" fill="#E6E1D7"/><path d="M104 32c5 0 6-6 1-7 0-4-6-4-6 0-4 0-4 6 0 7Z" fill="#E6E1D7"/></g><g class="chef-nuvola"><path d="M114 8h36a6 6 0 0 1 6 6v16a6 6 0 0 1-6 6h-24l-9 8 2-8h-5a6 6 0 0 1-6-6V14a6 6 0 0 1 6-6Z" fill="#fff" stroke="#D5D0C6" stroke-width="1.4"/><rect x="122" y="21" width="20" height="8" rx="4" fill="#F7F2E8" stroke="#D5D0C6"/><path d="M121 22c3-6 19-6 22 0-4 2-18 2-22 0Z" fill="#F28C6B"/><path d="M119 32 145 12" stroke="#B42318" stroke-width="3.2" stroke-linecap="round"/></g></svg>`
 };
 function slotMs(o) { const t = parseISO(o.data); const [h, m] = String(o.ora || "0:0").split(":").map(Number); t.setHours(h, m, 0, 0); return t.getTime(); }
 function faseOrdine(o) {
@@ -940,13 +963,14 @@ function trackerHTML(o) {
     casa ? ["viaggio", "Il tuo ordine è in viaggio", "Il rider sta arrivando da te. Tieni il telefono vicino!"] : ["pronto", "È pronto: ti aspettiamo!", `Passa a ritirarlo in ${R.indirizzo || "ristorante"}.`],
     ["fine", "Buon appetito!", "Grazie per aver scelto Yugo. A presto!"]
   ];
-  const [anim, tit, sub] = f < 0 ? ["annullato", "Ordine annullato dal ristorante", `Per informazioni chiama il ${R.telefono || ""}.`] : testi[f];
+  const [anim, tit, sub] = f < 0 ? ["annullato", "Ordine annullato dal ristorante", "Ci dispiace! Lo chef oggi non riesce a prepararlo per quell'orario. Puoi rifarlo con un altro orario oppure chiamarci."] : testi[f];
   const passi = ["Ricevuto", "In preparazione", casa ? "In viaggio" : "Pronto"];
   return `<div class="trk${f < 0 ? " trk-no" : ""}" data-fase="${f}">
     <div class="trk-anim">${ANIM_TRK[anim]}</div>
     <p class="trk-num">Ordine n. ${esc(o.numero)} · ${casa ? "consegna" : "ritiro"} alle ${esc(o.ora)}</p>
     <h3 class="trk-tit">${esc(tit)}</h3>
     <p class="trk-sub">${esc(sub)}</p>
+    ${f < 0 ? `<div class="trk-azioni trk-no-az">${o.righe ? `<button type="button" class="btn btn-gold btn-sm" data-riordina>🔁 Riordina con un altro orario</button>` : ""}<a class="btn btn-ghost btn-sm" href="tel:${esc((R.telefono || "").replace(/[^\d+]/g, ""))}">📞 Chiama il ristorante</a></div>` : ""}
     ${f >= 0 ? `<ol class="trk-steps">${passi.map((p, i) => `<li class="${i < f || f === 3 ? "done" : i === f ? "now" : ""}"><span></span>${esc(p)}</li>`).join("")}</ol>` : ""}
   </div>`;
 }
@@ -1005,7 +1029,7 @@ function disegnaTracker() {
     home.hidden = !o;
     home.innerHTML = o ? `<article class="block trk-card"><h2>Il tuo ordine</h2>${trackerHTML(o)}
       ${o.cosa && o.cosa.length ? `<p class="hint trk-cosa">${o.cosa.map(esc).join(" · ")}</p>` : ""}
-      <div class="trk-azioni">${o.righe ? `<button type="button" class="btn btn-ghost btn-sm" data-scontrino>🧾 Scontrino</button>` : ""}<a class="btn btn-ghost btn-sm" href="tel:${esc((R.telefono || "").replace(/[^\d+]/g, ""))}">Chiama il ristorante</a></div></article>` : "";
+      <div class="trk-azioni">${o.righe ? `<button type="button" class="btn btn-ghost btn-sm" data-scontrino>🧾 Scontrino</button>` : ""}${o.stato === "annullata_ristorante" ? "" : `<a class="btn btn-ghost btn-sm" href="tel:${esc((R.telefono || "").replace(/[^\d+]/g, ""))}">Chiama il ristorante</a>`}</div></article>` : "";
     const bs = home.querySelector("[data-scontrino]"); if (bs) bs.onclick = () => apriScontrino(o);
   }
   document.querySelectorAll("#ord-body .trk-host").forEach((h) => { if (o) h.innerHTML = trackerHTML(o); });
@@ -1017,9 +1041,44 @@ function aggiornaStatoOrdine() {
   api("/ordine/stato", { numero: o.numero, telefono: o.telefono }).then((r) => {
     if (!r || !r.ok) return;
     const n = { ...o, stato: r.stato, ora: r.ora || o.ora, data: r.data || o.data };
-    if (n.stato !== o.stato || n.ora !== o.ora || n.data !== o.data) { store.set("yugo-ultimo-ordine", n); disegnaTracker(); }
+    if (n.stato !== o.stato || n.ora !== o.ora || n.data !== o.data) {
+      store.set("yugo-ultimo-ordine", n); disegnaTracker();
+      if (n.stato === "annullata_ristorante") avvisoAnnullato(n);
+    }
   }).catch(() => {});
 }
+/* Ordine annullato: avviso sul telefono (se le notifiche sono permesse) e vibrazione */
+function avvisoAnnullato(o) {
+  try { navigator.vibrate && navigator.vibrate([200, 100, 200]); } catch { /* ok */ }
+  if (!document.hidden) { toast("Il ristorante ha annullato l'ordine: puoi rifarlo con un altro orario."); return; }
+  if (!("Notification" in window) || Notification.permission !== "granted" || !navigator.serviceWorker) return;
+  navigator.serviceWorker.ready.then((reg) => reg.showNotification("Ordine annullato", {
+    body: `Il ristorante ha annullato l'ordine n. ${o.numero}. Tocca per rifarlo con un altro orario.`, icon: "icon-192.png", badge: "icon-192.png",
+    tag: "ordine-" + o.numero, vibrate: [200, 100, 200], data: { url: "./#home" } })).catch(() => {});
+}
+/* Rifà l'ordine annullato: rimette i piatti nel carrello e chiede solo un nuovo orario */
+function riordina() {
+  const o = store.get("yugo-ultimo-ordine", null);
+  if (!o || !o.righe || !ORD) return;
+  const fi = o.famiglia ? FORMULE.findIndex((f) => f.nome === o.famiglia) : -1;
+  FAM = fi >= 0 ? fi : null; store.set("yugo-family", FAM);
+  carrello = {};
+  for (const r of o.righe) {
+    if (FAM != null && r.n == null && r.nome === o.famiglia) continue;      // la riga del menu Family
+    carrello[chiave(r)] = { n: r.n ?? null, nome: r.nome, prezzo: FAM != null ? 0 : Number(r.prezzo) || 0, q: Number(r.q) || 1 };
+  }
+  salvaCarrello();
+  const bib = String(o.note || "").match(/^Bibite: ([^.]*)\.\s*/);
+  const zi = (ORD.zone || []).findIndex((z) => z.nome === o.zona);
+  Object.assign(ordDati, { modo: o.modo === "consegna" && !ORD.consegnaSospesa ? "consegna" : "ritiro", ora: "", note: String(o.note || "").replace(/^Bibite: [^.]*\.\s*/, ""),
+    telefono: o.telefono || ordDati.telefono, indirizzo: o.indirizzo || ordDati.indirizzo || "", ...(bib ? { bibita: bib[1] } : {}), ...(zi >= 0 ? { zona: zi } : {}) });
+  store.set("yugo-ordine-dati", { ...ordDati, note: "" });
+  go("ordina"); disegnaFamily(); aggiornaBarra(); ridisegnaQta(); apriCarrello();
+  const note = $("#o-note"); if (note) note.value = ordDati.note || "";
+  setTimeout(() => { const x = $("#o-ore") || $("#ord-body .notice"); if (x) x.scrollIntoView({ behavior: "smooth", block: "center" }); }, 350);
+  toast("Ti abbiamo rimesso tutto nel carrello: scegli un nuovo orario e invia.");
+}
+document.addEventListener("click", (e) => { if (e.target.closest("[data-riordina]")) { const s = $("#carrello"); if (s && !s.hidden) chiudiCarrello(); riordina(); } });
 setInterval(() => {
   const o = ultimoOrdine(), t = document.querySelector(".trk");
   if (!o) { if ($("#home-ordine") && !$("#home-ordine").hidden) disegnaTracker(); return; }
@@ -1038,13 +1097,17 @@ function disegnaCarrello() {
   }
   if (SOSPESA) ordDati.modo = "ritiro";
   const d = ordDati, consegna = d.modo === "consegna", zone = ORD.zone || [];
+  const distOk = consegna && d.dist && d.dist.km != null && d.dist.ind === (d.indirizzo || "").trim();
+  if (distOk && !d.manuale) d.zona = zonaDaKm(d.dist.km);
+  if (!zone[d.zona]) d.zona = 0;
   const zona = zone[d.zona] || zone[0], costo = consegna && zona ? zona.costo : 0;
   const F = famAtt(), mancano = F ? Math.max(0, F.piatti - pezzi()) : 0;
   const sub = F ? F.prezzo : subtotale(), perc = percSconto(), meno = perc ? Math.round(sub * perc) / 100 : 0;
   const tot = Math.round((sub - meno + costo) * 100) / 100;
   const giorni = giorniOrdine();
   if (!giorni.includes(d.data) || !fasceGiorno(d.data).slots.length) d.data = giorni.find((g) => fasceGiorno(g).slots.length) || "";
-  const { slots } = d.data ? fasceGiorno(d.data) : { slots: [] }, chiusoOggi = false;
+  const tutti = d.data ? fasceGiorno(d.data).slots : [], punta = consegna && zona && zona.noOre && zona.noOre.length;
+  const slots = punta ? tutti.filter((t) => !oraDiPunta(zona, t)) : tutti, chiusoOggi = false, soloPunta = punta && tutti.length && !slots.length;
   if (!slots.includes(d.ora)) d.ora = slots[0] || "";
   const chiuso = !slots.length;
   const sottoMinimo = consegna && sub < (ORD.minimo || 0);
@@ -1060,12 +1123,17 @@ function disegnaCarrello() {
       <button role="tab" type="button" data-modo-ord="consegna" aria-selected="${consegna}">🛵 Consegna</button>
       <button role="tab" type="button" data-modo-ord="ritiro" aria-selected="${!consegna}">🥡 Ritiro</button>
     </div>`}
-    ${consegna ? `<div class="field"><label for="o-zona">Zona</label><select class="input" id="o-zona">${zone.map((z, i) => `<option value="${i}" ${i === d.zona ? "selected" : ""}>${esc(z.nome)} · consegna € ${euro(z.costo)}</option>`).join("")}</select></div>
-      <div class="field"><label for="o-ind">Indirizzo</label><input class="input" id="o-ind" autocomplete="street-address" placeholder="Via, numero civico, citofono" value="${esc(d.indirizzo || "")}"></div>`
+    ${consegna ? `<div class="field"><label for="o-ind">Indirizzo</label><input class="input" id="o-ind" autocomplete="street-address" placeholder="Via, numero civico, paese, citofono" value="${esc(d.indirizzo || "")}"></div>
+      <p class="hint ord-dist" id="o-dist" aria-live="polite">${distOk ? `📍 <span class="notranslate">${esc(d.dist.dove)}</span> · <span>circa ${String(d.dist.km).replace(".", ",")} km in auto</span>`
+        : d.dist && d.dist.niente && d.dist.ind === (d.indirizzo || "").trim() ? "Non trovo questo indirizzo: controlla via e paese, oppure scegli la distanza qui sotto."
+        : ORD.posizione ? `<button type="button" class="btn btn-ghost btn-sm" id="o-calc">📍 Calcola la distanza</button>` : ""}</p>
+      <div class="field"><label for="o-zona">Distanza dal ristorante</label><select class="input" id="o-zona">${zone.map((z, i) => `<option value="${i}" ${i === d.zona ? "selected" : ""}>${esc(nomeZona(z))}</option>`).join("")}</select></div>
+      ${punta ? `<p class="hint">${esc(`Oltre ${String(zone[zone.length - 2] ? zone[zone.length - 2].fino : "").replace(".", ",")} km consegniamo solo fuori dalle ore di punta: ${zona.noOre.map(([a, b]) => `non dalle ${a} alle ${b}`).join(" e ")}.`)}</p>` : ""}`
       : `<p class="hint">Ritiri da noi in ${esc(R.indirizzo || "")}.</p>`}
     ${giorni.length > 1 ? `<div class="field"><span class="label">Giorno</span><div class="pick-row" id="o-giorni">${giorni.filter((g) => fasceGiorno(g).slots.length).map((g) => `<button type="button" class="pick" data-g="${g}" aria-pressed="${g === d.data}">${esc(chipGiorno(g))}</button>`).join("")}</div></div>` : ""}
     <div class="field"><span class="label">${consegna ? "A che ora lo vuoi" : "A che ora passi"}</span>
       ${chiusoOggi ? `<p class="notice">Oggi siamo chiusi: gli ordini riaprono domani.</p>`
+        : soloPunta ? `<p class="notice">Per questa distanza oggi non ci sono più orari fuori dalle ore di punta: scegli un altro giorno o il ritiro.</p>`
         : chiuso ? `<p class="notice">Per oggi gli ordini sono chiusi. Si ordina dalle ${esc((ORD.fasce || []).map(([a, b]) => a + " alle " + b).join(" e dalle "))}.</p>`
         : `<div id="o-ore">${[["Pranzo", slots.filter((t) => t < "17:00")], ["Cena", slots.filter((t) => t >= "17:00")]].filter(([, l]) => l.length).map(([n, l]) => `<p class="pick-gr">${n}</p><div class="pick-grid">${l.map((t) => `<button type="button" class="pick" data-t="${t}" aria-pressed="${t === d.ora}">${t}</button>`).join("")}</div>`).join("")}</div>`}</div>
     <div class="field"><label for="o-nome">Nome</label><input class="input" id="o-nome" autocomplete="name" value="${esc(d.nome || (user && user.nome) || "")}"></div>
@@ -1097,7 +1165,22 @@ function disegnaCarrello() {
     store.set("yugo-ordine-dati", { ...d, note: "" });
   };
   body.querySelectorAll("[data-modo-ord]").forEach((b) => b.onclick = () => { leggi(); d.modo = b.dataset.modoOrd; disegnaCarrello(); });
-  if ($("#o-zona")) $("#o-zona").onchange = () => { leggi(); disegnaCarrello(); };
+  if ($("#o-zona")) $("#o-zona").onchange = () => { leggi(); d.manuale = true; disegnaCarrello(); };
+  const ridisegna = () => {   // ridisegna senza far perdere il campo in cui il cliente sta scrivendo
+    const a = document.activeElement, id = a && a.id && body.contains(a) ? a.id : "", sel = id && a.selectionStart != null ? [a.selectionStart, a.selectionEnd] : null;
+    leggi(); disegnaCarrello();
+    const b = id && document.getElementById(id); if (b) { b.focus({ preventScroll: true }); if (sel && b.setSelectionRange) try { b.setSelectionRange(...sel); } catch { /* ok */ } }
+  };
+  const calcola = async () => {
+    const ind = (d.indirizzo || "").trim(); if (ind.length < 5) return;
+    if ($("#o-dist")) $("#o-dist").textContent = "Calcolo la distanza…";
+    let r = null; try { r = await calcolaDistanza(ind); } catch { r = null; }
+    if ((d.indirizzo || "").trim() !== ind) return;            // nel frattempo ha cambiato indirizzo
+    d.dist = r ? { ...r, ind } : null;
+    if (!$("#carrello").hidden && !$("#ord-body .ord-ok")) ridisegna();
+  };
+  if ($("#o-ind")) $("#o-ind").onchange = () => { leggi(); if (d.dist && d.dist.ind !== d.indirizzo.trim()) { d.dist = null; d.manuale = false; } calcola(); };
+  if ($("#o-calc")) $("#o-calc").onclick = () => { leggi(); calcola(); };
   if ($("#o-giorni")) $("#o-giorni").onclick = (e) => { const b = e.target.closest("[data-g]"); if (!b) return; leggi(); d.data = b.dataset.g; d.ora = ""; disegnaCarrello(); };
   if ($("#o-ore")) $("#o-ore").onclick = (e) => { const b = e.target.closest("[data-t]"); if (!b) return; d.ora = b.dataset.t; $$("#o-ore .pick").forEach((x) => x.setAttribute("aria-pressed", String(x === b))); };
   body.querySelector(".ord-list").onclick = (e) => {
@@ -1123,6 +1206,7 @@ function disegnaCarrello() {
     btn.disabled = true; btn.textContent = "Invio…";
     try {
       const ordine = { modo: d.modo, zona: consegna ? zona.nome : "", indirizzo: consegna ? d.indirizzo : "", ora: d.ora, data: d.data,
+        ...(consegna && d.dist && d.dist.km != null && d.dist.ind === d.indirizzo.trim() ? { km: d.dist.km, trovato: d.dist.dove } : {}),
         nome: d.nome, telefono: d.telefono,
         note: (F && F.bibite ? `Bibite: ${(d.bibita || "").trim()}. ` : "") + d.note,
         righe: (F ? [{ n: null, nome: F.nome, prezzo: F.prezzo, q: 1 }] : []).concat(righeCarrello().map(({ n, nome, prezzo, q }) => ({ n, nome, prezzo: F ? 0 : prezzo, q }))) };
@@ -1136,6 +1220,7 @@ function disegnaCarrello() {
         righe: ordine.righe, famiglia: F ? F.nome : "", sub, consegna: consegna ? costo : 0, zona: consegna ? zona.nome : "", indirizzo: consegna ? d.indirizzo : "",
         sconto: res.sconto ? { nome: nomeSconto(), perc: res.sconto.perc, meno: res.sconto.meno } : perc ? { nome: nomeSconto(), perc, meno } : null, note: ordine.note || "" };
       store.set("yugo-ultimo-ordine", traccia);
+      if (pushOk() && Notification.permission === "granted") attivaNotifiche(false).catch(() => {});   // già permesse: le colleghiamo anche a questo ordine
       body.innerHTML = `<div class="ord-ok">
         <p class="cs-kicker">Ordine n. ${esc(res.numero)} inviato</p><h2 id="ord-title">Grazie ${esc(d.nome.split(" ")[0])}!</h2>
         ${scontrinoHTML(traccia, true)}
@@ -1965,7 +2050,7 @@ function natanRisposta(k) {
     case "consegna": {
       if (!ORD) return { t: `<p>Per asporto e consegna chiamaci:</p><p>${tel()}</p>`, b: altre };
       const r = [];
-      r.push(ORD.consegnaSospesa ? "In questo momento le consegne sono sospese: puoi ordinare e passare a ritirare." : `Consegniamo a:<br>${(ORD.zone || []).map((z) => `${esc(z.nome)} € ${euro(z.costo)}`).join("<br>")}`);
+      r.push(ORD.consegnaSospesa ? "In questo momento le consegne sono sospese: puoi ordinare e passare a ritirare." : `Costo della consegna, in base alla distanza in auto dal ristorante:<br>${(ORD.zone || []).map((z) => esc(nomeZona(z))).join("<br>")}${(ORD.zone || []).some((z) => z.noOre) ? `<br>${esc(`Oltre 8 km consegniamo solo fuori dalle ore di punta: non dalle 12:30 alle 14:00 e non dalle 19:30 alle 21:30.`)}` : ""}<br>Quando scrivi l'indirizzo nell'ordine, la distanza la calcoliamo noi.`);
       r.push(`Orari:<br>${(ORD.fasce || []).map((f) => f.join("–")).join(" · ")}`);
       r.push(`Ordine minimo per la consegna € ${euro(ORD.minimo)}`);
       r.push("Si paga alla consegna o al ritiro. Non serve un account: bastano nome e telefono.");
