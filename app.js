@@ -903,6 +903,30 @@ function viaParole(t) {       // le parole che identificano la via ("via arturo 
   const via = norm(String(t).split(",")[0]), paesi = new Set(PAESI().flatMap((p) => [p.nome, ...(p.anche || [])].flatMap((x) => norm(x).split(" "))));
   return via.split(" ").filter((w) => w.length >= 3 && !/^\d/.test(w) && !paesi.has(w) && !["via", "viale", "piazza", "corso", "salita", "vico", "localita", "loc", "largo", "strada", "della", "delle", "dei", "del"].includes(w));
 }
+/* Suggerimenti mentre il cliente scrive: solo vie vere della zona (come su Google Maps, ma gratis) */
+async function suggerisciVie(testo) {
+  const P = ORD.posizione; if (!P || norm(testo).length < 3) return [];
+  const j = await fetch(`https://photon.komoot.io/api/?limit=8&lang=it&lat=${P.lat}&lon=${P.lon}&bbox=9.15,44.12,9.70,44.42&q=` + encodeURIComponent(testo)).then((r) => r.json());
+  const num = (String(testo).match(/\b(\d+[a-z]?)\b/i) || [])[1] || "";
+  const visti = new Set(), out = [];
+  for (const f of j.features || []) {
+    const q = f.properties || {}, via = q.street || (["street", "road"].includes(q.osm_value) || q.type === "street" ? q.name : "");
+    if (!via) continue;
+    const paese = [...new Set([q.district || q.locality, q.city || q.town || q.village].filter(Boolean))].join(", ");
+    const civ = q.housenumber || num;
+    const etichetta = [civ ? `${via} ${civ}` : via, paese].filter(Boolean).join(", ");
+    const k = norm(etichetta); if (visti.has(k)) continue; visti.add(k);
+    out.push({ etichetta, via, paese, lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0] });
+    if (out.length >= 5) break;
+  }
+  return out;
+}
+async function distanzaDaPunto(s) {
+  const P = ORD.posizione;
+  const r = await fetch(`https://router.project-osrm.org/route/v1/driving/${P.lon},${P.lat};${s.lon},${s.lat}?overview=false`).then((x) => x.json());
+  const m = r && r.routes && r.routes[0] && r.routes[0].distance;
+  return m == null ? null : { km: Math.round(m / 100) / 10, dove: s.etichetta, comune: s.paese, ok: true };
+}
 async function calcolaDistanza(ind) {
   const k = String(ind || "").trim().toLowerCase().replace(/\s+/g, " ");
   if (k.length < 5 || !ORD.posizione) return null;
@@ -1171,7 +1195,7 @@ function disegnaCarrello() {
       <button role="tab" type="button" data-modo-ord="consegna" aria-selected="${consegna}">🛵 Consegna</button>
       <button role="tab" type="button" data-modo-ord="ritiro" aria-selected="${!consegna}">🥡 Ritiro</button>
     </div>`}
-    ${consegna ? `<div class="field"><label for="o-ind">Indirizzo</label><input class="input" id="o-ind" autocomplete="street-address" placeholder="Via e numero civico, citofono" value="${esc(d.indirizzo || "")}"></div>
+    ${consegna ? `<div class="field od-campo"><label for="o-ind">Indirizzo</label><input class="input" id="o-ind" autocomplete="off" placeholder="Via e numero civico, citofono" value="${esc(d.indirizzo || "")}"><div class="od-sugg notranslate" id="o-sugg" role="listbox" hidden></div></div>
       <div class="ord-dist${distOk ? " ok" : distNo || distChiedi || distTroppo ? " no" : ""}" id="o-dist" aria-live="polite">${distTroppo
           ? `<p class="od-domanda">😔 <span>Sei a circa ${String(distQui.km).replace(".", ",")} km: consegniamo fino a ${maxKm} km dal ristorante.</span></p>
             <div class="od-sino"><button type="button" class="btn btn-gold btn-sm" data-modo-ord="ritiro">🥡 Passo a ritirarlo</button><button type="button" class="btn btn-ghost btn-sm" data-paese-cambia>Sono in un altro paese</button></div>`
@@ -1239,11 +1263,36 @@ function disegnaCarrello() {
     d.dist = r ? { ...r, ind } : null;
     if (!$("#carrello").hidden && !$("#ord-body .ord-ok")) ridisegna();
   };
-  let pausa = 0;
+  let pausa = 0, pausaSugg = 0, sugg = [], scelto = false;
+  const boxSugg = $("#o-sugg");
+  const chiudiSugg = () => { if (boxSugg) { boxSugg.hidden = true; boxSugg.innerHTML = ""; } };
   if ($("#o-ind")) {
-    $("#o-ind").oninput = () => { clearTimeout(pausa); pausa = setTimeout(() => { leggi(); calcola(); }, 1100); };   // calcola da solo quando smette di scrivere
-    $("#o-ind").onchange = () => { clearTimeout(pausa); leggi(); calcola(); };
+    $("#o-ind").oninput = () => {
+      clearTimeout(pausa); clearTimeout(pausaSugg); scelto = false;
+      const t = $("#o-ind").value;
+      pausaSugg = setTimeout(async () => {      // le vie vere che iniziano così, mentre scrive
+        try { sugg = await suggerisciVie(t); } catch { sugg = []; }
+        if (!boxSugg || $("#o-ind").value !== t || scelto) return;
+        boxSugg.innerHTML = sugg.map((x, i) => `<button type="button" class="od-s" data-s="${i}">📍 <b>${esc(x.via)}${/\d/.test(x.etichetta.split(",")[0].replace(x.via, "")) ? " " + esc(x.etichetta.split(",")[0].replace(x.via, "").trim()) : ""}</b><small>${esc(x.paese)}</small></button>`).join("");
+        boxSugg.hidden = !sugg.length;
+      }, 350);
+      pausa = setTimeout(() => { if (!scelto) { leggi(); calcola(); } }, 2500);   // se non sceglie un suggerimento, calcola lo stesso
+    };
+    $("#o-ind").onchange = () => { setTimeout(() => { if (!scelto) { clearTimeout(pausa); leggi(); calcola(); } }, 250); };
   }
+  if (boxSugg) boxSugg.onpointerdown = async (e) => {   // tocca una via: indirizzo esatto, niente domande
+    const b = e.target.closest("[data-s]"); if (!b) return;
+    e.preventDefault(); scelto = true; clearTimeout(pausa); clearTimeout(pausaSugg);
+    const x = sugg[+b.dataset.s]; if (!x) return;
+    $("#o-ind").value = x.etichetta; chiudiSugg(); leggi();
+    const ind = x.etichetta.trim(); distInCorso = ind;
+    if ($("#o-dist")) $("#o-dist").innerHTML = "<p>Calcolo il costo della consegna…</p>";
+    let r = null; try { r = await distanzaDaPunto(x); } catch { r = null; }
+    distInCorso = "";
+    if ((d.indirizzo || "").trim() !== ind) return;
+    d.dist = r ? { ...r, ind } : { ind, errore: true };
+    disegnaCarrello();
+  };
   if (consegna && !distQui && indT.length >= 5) calcola();
   const boxDist = $("#o-dist");
   if (boxDist) boxDist.onclick = (e) => {
