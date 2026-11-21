@@ -888,3 +888,26 @@ body:has(#cart-bar:not([hidden])) .natan-fab { bottom: calc(var(--tabbar-h) + en
 @media (prefers-reduced-motion: reduce) { .natan-fab, .natan-msg { animation: none; } .natan-dots i { animation: none; } }
 .anteprima-box { margin: 0 0 16px; padding: 12px; border: 2px dashed var(--gold); border-radius: 18px; }
 .anteprima-tag { margin: 0 0 10px; font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--gold-hi); }
+
+/* ---------- Recensione del sito ---------- */
+.rec-card { padding-top: 22px; }
+.rec-centro { display: grid; justify-items: center; text-align: center; gap: 6px; }
+.rec-centro h2, .rec-dom { margin: 4px 0 0; font-size: 22px; text-transform: none; letter-spacing: .01em; text-align: center; }
+.rec-centro p { margin: 0; }
+.rec-sushi { width: 130px; height: auto; animation: rec-salta 2.4s ease-in-out infinite; }
+.rec-sushi.triste { animation: rec-trema 1.2s ease-in-out infinite; }
+.rec-lacrima { animation: rec-goccia 1.4s ease-in infinite; } .rec-lacrima.l2 { animation-delay: .7s; }
+@keyframes rec-salta { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+@keyframes rec-trema { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-2deg); } 75% { transform: rotate(2deg); } }
+@keyframes rec-goccia { 0% { transform: translateY(0); opacity: 1; } 100% { transform: translateY(16px); opacity: 0; } }
+.rec-azioni { display: grid; gap: 10px; margin-top: 18px; }
+.rec-azioni .btn { width: 100%; justify-content: center; }
+.rec-no { background: none; border: 0; color: var(--muted); font: 600 14px var(--f-body); text-decoration: underline; cursor: pointer; padding: 10px; justify-self: center; }
+.rec-passi { display: flex; justify-content: center; gap: 6px; margin-bottom: 8px; }
+.rec-passi i { width: 26px; height: 5px; border-radius: 3px; background: var(--line); } .rec-passi i.ok { background: var(--gold); } .rec-passi i.on { background: var(--gold-hi); }
+.rec-facce { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin: 18px 0 6px; }
+.rec-facce button { display: grid; justify-items: center; gap: 4px; padding: 10px 2px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface-2); color: var(--fg); cursor: pointer; font: inherit; }
+.rec-facce button span { font-size: 30px; line-height: 1; } .rec-facce button small { font-size: 11px; color: var(--muted); }
+.rec-facce button:hover, .rec-facce button.on { border-color: var(--gold); transform: translateY(-2px); }
+.rec-testo { width: 100%; margin-top: 12px; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface-2); color: var(--fg); font: 16px var(--f-body); resize: vertical; }
+@media (prefers-reduced-motion: reduce) { .rec-sushi, .rec-lacrima { animation: none; } }
