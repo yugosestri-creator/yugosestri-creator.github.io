@@ -911,3 +911,37 @@ body:has(#cart-bar:not([hidden])) .natan-fab { bottom: calc(var(--tabbar-h) + en
 .rec-facce button:hover, .rec-facce button.on { border-color: var(--gold); transform: translateY(-2px); }
 .rec-testo { width: 100%; margin-top: 12px; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface-2); color: var(--fg); font: 16px var(--f-body); resize: vertical; }
 @media (prefers-reduced-motion: reduce) { .rec-sushi, .rec-lacrima { animation: none; } }
+
+/* ---------- Scontrino dell'ordine ---------- */
+.scontrino { margin: 18px auto 20px; max-width: 340px; filter: drop-shadow(0 14px 22px rgb(0 0 0 / .35)); }
+.sc-carta { --zz: 10px; position: relative; padding: 22px 20px 26px; background: #fbf9f4; color: #26221d; font: 13.5px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  -webkit-mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) bottom / var(--zz) 51% repeat-x, conic-gradient(from 135deg at top, #0000, #000 1deg 89deg, #0000 90deg) top / var(--zz) 51% repeat-x;
+          mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) bottom / var(--zz) 51% repeat-x, conic-gradient(from 135deg at top, #0000, #000 1deg 89deg, #0000 90deg) top / var(--zz) 51% repeat-x;
+  background-image: repeating-linear-gradient(0deg, rgb(0 0 0 / .018) 0 1px, transparent 1px 3px); }
+.scontrino.stampa .sc-carta { animation: sc-stampa 1.6s cubic-bezier(.3,.7,.2,1) both; transform-origin: top; }
+@keyframes sc-stampa { 0% { clip-path: inset(0 0 100% 0); transform: translateY(-14px); } 100% { clip-path: inset(0 0 0 0); transform: translateY(0); } }
+.sc-testa { display: grid; justify-items: center; text-align: center; gap: 2px; }
+.sc-testa b { font: 700 26px/1 var(--f-display); letter-spacing: .32em; padding-left: .32em; color: #1d1a16; }
+.sc-testa span { font: 400 20px/1 var(--f-script); color: #8a6d33; }
+.sc-testa small { margin-top: 6px; font-size: 11.5px; color: #5c554b; }
+.sc-sep { margin: 12px 0; border-top: 1.5px dashed #b9b1a3; }
+.sc-info { display: flex; justify-content: space-between; gap: 10px; font-size: 12.5px; color: #3d372f; }
+.sc-info + .sc-info { margin-top: 3px; }
+.sc-ind span { text-align: left; }
+.sc-riga { display: grid; grid-template-columns: 2.4em 1fr auto; gap: 6px; align-items: baseline; padding: 2px 0; }
+.sc-riga small { color: #8b8274; font-size: 11px; }
+.sc-q { color: #6b6357; }
+.sc-pr { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sc-som { color: #4a443b; font-size: 12.5px; }
+.sc-sconto { color: #2f7d4a; font-weight: 700; }
+.sc-totale { display: flex; justify-content: space-between; align-items: baseline; margin-top: 10px; padding: 10px 0 4px; border-top: 2px solid #26221d; font-weight: 800; letter-spacing: .08em; }
+.sc-totale b { font-size: 22px; letter-spacing: 0; font-variant-numeric: tabular-nums; }
+.sc-paga { margin: 4px 0 0; text-align: center; font-size: 12px; color: #5c554b; }
+.sc-note { margin: 8px 0 0; font-size: 11.5px; color: #5c554b; overflow-wrap: anywhere; }
+.sc-barre { display: flex; justify-content: center; align-items: stretch; gap: 1px; height: 38px; margin: 4px 0 6px; }
+.sc-barre i { display: block; background: #1d1a16; } .sc-barre i.v { background: transparent; }
+.sc-grazie { margin: 6px 0 0; text-align: center; font-weight: 700; }
+.sc-legale { margin: 4px 0 0; text-align: center; font-size: 10.5px; color: #8b8274; }
+.sc-card { padding-top: 34px; }
+.trk-azioni { display: flex; flex-wrap: wrap; gap: 8px; }
+@media (prefers-reduced-motion: reduce) { .scontrino.stampa .sc-carta { animation: none; } }
