@@ -490,7 +490,7 @@ async function ordine(env, body, ip) {
     nome: pulisci(body.nome, 80), telefono: pulisci(body.telefono, 30), note: pulisci(body.note, 400),
     indirizzo: pulisci(body.indirizzo, 160), zona: pulisci(body.zona, 40), ora: /^\d{2}:\d{2}$/.test(body.ora) ? body.ora : "",
     km: Number.isFinite(Number(body.km)) && body.km !== null && body.km !== "" && Number(body.km) >= 0 && Number(body.km) < 200 ? Math.round(Number(body.km) * 10) / 10 : null,
-    trovato: pulisci(body.trovato, 120)
+    trovato: pulisci(body.trovato, 120), paese: pulisci(body.paese, 60)
   };
   if (!o.nome || o.telefono.replace(/\D/g, "").length < 8) throw new Errore("Servono nome e telefono");
   if (!o.ora) throw new Errore("Scegli l'orario");
@@ -518,7 +518,8 @@ async function ordine(env, body, ip) {
   }
   // distanza calcolata dal sito: se la fascia scelta è più economica, lo segnaliamo al ristorante
   const fasciaKm = consegna && o.km != null ? ZONA_KM.find(([k]) => o.km <= k)[1] : null;
-  const kmTesto = fasciaKm ? `🛣 circa ${String(o.km).replace(".", ",")} km in auto${o.trovato ? ` (${o.trovato})` : ""}` : null;
+  const kmTesto = fasciaKm ? `🛣 circa ${String(o.km).replace(".", ",")} km in auto${o.trovato ? ` (${o.trovato})` : ""}`
+    : consegna && o.paese ? `🛣 Via non trovata sulla mappa: costo calcolato dal paese «${o.paese}». Controlla l'indirizzo.` : null;
   const kmAvviso = fasciaKm && ZONE[fasciaKm] > ZONE[o.zona] ? `⚠️ Il cliente ha scelto «${o.zona}» ma la distanza calcolata è nella fascia «${fasciaKm}» (${eur(ZONE[fasciaKm])}): controlla l'indirizzo.` : null;
   const recenti = await env.DB.prepare("SELECT COUNT(*) AS n FROM ordini WHERE uid = ? AND creato > ?")
     .bind(u.uid, new Date(Date.now() - 12 * 3600e3).toISOString()).first();
@@ -557,7 +558,7 @@ async function ordine(env, body, ip) {
     consegna ? `🛵 新订单 ${numero}号 – 外送` : `🥡 新订单 ${numero}号 – 自取`, "",
     `👤 姓名：${o.nome}`, `📞 电话：${o.telefono}`,
     consegna ? `📍 地址：${o.indirizzo}（${o.zona}）` : "📍 到店自取",
-    fasciaKm ? `🛣 约 ${o.km} 公里${kmAvviso ? `（⚠️ 应为「${fasciaKm}」${eur(ZONE[fasciaKm])}，请核对地址）` : ""}` : null,
+    fasciaKm ? `🛣 约 ${o.km} 公里${kmAvviso ? `（⚠️ 应为「${fasciaKm}」${eur(ZONE[fasciaKm])}，请核对地址）` : ""}` : consegna && o.paese ? `🛣 地图上找不到这条街：按城镇「${o.paese}」计算配送费，请核对地址。` : null,
     `🕗 时间：${quandoZh}`, "", ...lista, "",
     consegna || sconto ? `菜品 ${eur(sub)}${sconto ? ` − ${sconto.zh} ${sconto.perc}%（${eur(meno)}）` : ""}${consegna ? ` + 配送费 ${eur(costo)}` : ""}` : null,
     sconto ? `🎉 ${sconto.zh} ${sconto.perc}%（已计算在内）` : null,
