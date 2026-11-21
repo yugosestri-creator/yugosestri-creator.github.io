@@ -869,6 +869,10 @@ body.tour-open .tabbar { z-index: 80; pointer-events: none; }
 .ord-dist .od-paesi { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .ord-dist .od-paesi .pick { padding: 7px 11px; font-size: 13px; }
 .ord-dist .od-nota { margin-top: 8px; font-size: 12px; color: var(--muted); }
+.ord-dist .od-domanda { font-size: 15px; color: var(--fg); }
+.ord-dist .od-domanda b { color: var(--gold-hi); }
+.ord-dist .od-sino { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.ord-dist .od-sino .btn { margin: 0; }
 .ord-dist .od-cambia { background: none; border: 0; padding: 0; color: var(--gold-hi); font: inherit; text-decoration: underline; cursor: pointer; }
 @media (prefers-reduced-motion: reduce) { .trk *, .trk-mini * { animation: none !important; stroke-dashoffset: 0 !important; opacity: 1; } }
 .stack > * { min-width: 0; }
