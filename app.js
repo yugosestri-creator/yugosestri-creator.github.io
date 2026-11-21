@@ -1736,6 +1736,7 @@ async function start() {
   caricaEventi();
   contaVisita();
   avviaNatan();
+  avviaRecensione();
   dopoIngresso(() => { if (!ANTEPRIMA) mostraCookie(); });
   requestAnimationFrame(drawWaves);
   const initial = (location.hash || "").replace("#", "");
@@ -1760,6 +1761,88 @@ async function start() {
     navigator.serviceWorker.register("sw.js").catch(() => {});
   }
 }
+/* ---------- Recensione del sito ----------
+   Dopo 5 minuti sul sito (con la pagina aperta e niente finestre in mezzo) chiediamo un parere:
+   5 domande a tocco con le faccine, oppure un commento libero, oppure «No, grazie» (e il sushi piange un po').
+   Si chiede una volta sola; chi dice di no lo rivediamo tra 60 giorni. Anonima: niente nomi né telefoni. */
+const REC_CHIAVE = "yugo-recensione", REC_DOPO = 5 * 60 * 1000;
+const REC_DOMANDE = [["facile", "È facile usare il sito?"], ["trovato", "Hai trovato quello che cercavi?"], ["grafica", "Ti piace com'è fatto?"], ["veloce", "Il sito è veloce?"], ["consiglio", "Lo consiglieresti a un amico?"]];
+const REC_FACCE = [["😣", "Per niente"], ["🙁", "Poco"], ["😐", "Così così"], ["🙂", "Sì"], ["😍", "Tantissimo"]];
+function sushiSvg(triste) {
+  return `<svg class="rec-sushi${triste ? " triste" : ""}" viewBox="0 0 120 100" aria-hidden="true">
+    <ellipse cx="60" cy="90" rx="40" ry="5" fill="rgb(0 0 0 / .25)"/>
+    <rect x="18" y="46" width="84" height="40" rx="18" fill="#f7f3ea" stroke="#e2dccd" stroke-width="2"/>
+    <circle cx="34" cy="66" r="2" fill="#e2dccd"/><circle cx="80" cy="74" r="2" fill="#e2dccd"/><circle cx="58" cy="78" r="2" fill="#e2dccd"/>
+    <path d="M12 52 Q14 30 40 30 L84 28 Q110 28 108 50 Q104 58 60 58 Q16 60 12 52 Z" fill="#f2884b"/>
+    <path d="M30 34 Q40 44 34 56 M50 31 Q60 43 54 57 M70 30 Q80 42 74 57 M90 31 Q99 40 94 54" stroke="#ffd2b0" stroke-width="4" fill="none" stroke-linecap="round"/>
+    <g class="rec-viso">
+      ${triste ? `<path d="M41 66 q5 -4 10 0 M69 66 q5 -4 10 0" stroke="#3a2a22" stroke-width="3" fill="none" stroke-linecap="round"/>
+        <path d="M52 80 q8 -7 16 0" stroke="#3a2a22" stroke-width="3" fill="none" stroke-linecap="round"/>
+        <path class="rec-lacrima" d="M44 70 q-3 6 0 9 q3 -3 0 -9 Z" fill="#6ec3ff"/><path class="rec-lacrima l2" d="M76 70 q-3 6 0 9 q3 -3 0 -9 Z" fill="#6ec3ff"/>`
+      : `<circle cx="46" cy="67" r="4" fill="#3a2a22"/><circle cx="74" cy="67" r="4" fill="#3a2a22"/><circle cx="47.5" cy="65.5" r="1.3" fill="#fff"/><circle cx="75.5" cy="65.5" r="1.3" fill="#fff"/>
+        <path d="M52 74 q8 8 16 0" stroke="#3a2a22" stroke-width="3" fill="none" stroke-linecap="round"/>
+        <ellipse cx="36" cy="75" rx="5" ry="3" fill="#ffb3b3" opacity=".7"/><ellipse cx="84" cy="75" rx="5" ry="3" fill="#ffb3b3" opacity=".7"/>`}
+    </g></svg>`;
+}
+function recLeggi() { try { return JSON.parse(localStorage.getItem(REC_CHIAVE) || "null"); } catch { return null; } }
+function recSalva(stato) { try { localStorage.setItem(REC_CHIAVE, JSON.stringify({ stato, t: Date.now() })); } catch { /* ok */ } }
+function avviaRecensione() {
+  if (ANTEPRIMA || document.body.classList.contains("embed") || !WORKER) return;
+  const r = recLeggi();
+  if (r && (r.stato === "fatta" || (r.stato === "no" && Date.now() - r.t < 60 * 864e5))) return;
+  let inizio = 0; try { inizio = +sessionStorage.getItem("yugo-arrivo") || 0; if (!inizio) { inizio = Date.now(); sessionStorage.setItem("yugo-arrivo", String(inizio)); } } catch { inizio = Date.now(); }
+  const t = setInterval(() => {
+    if (Date.now() - inizio < REC_DOPO || document.visibilityState !== "visible") return;
+    if (document.querySelector(".sheet:not([hidden]), dialog[open], #lang-pick, .cookie-bar:not([hidden])")) return;   // non disturbare chi sta ordinando o prenotando
+    if (/^#?(ordina|prenota)$/.test(location.hash) && document.querySelector("#cart-bar:not([hidden])")) return;
+    clearInterval(t); apriRecensione();
+  }, 15000);
+}
+function apriRecensione() {
+  const el = document.createElement("div");
+  el.className = "sheet rec-sheet"; el.setAttribute("role", "dialog"); el.setAttribute("aria-modal", "true"); el.setAttribute("aria-label", "Recensione del sito");
+  const risposte = {}; let passo = 0;
+  const chiudi = () => { el.remove(); document.documentElement.classList.remove("no-scroll"); };
+  const invia = async (testo) => {
+    recSalva("fatta");
+    mostra(`<div class="rec-centro">${sushiSvg(false)}<h2>Grazie! 🍣</h2><p class="muted">Il tuo parere ci aiuta a migliorare il sito.</p></div>`);
+    setTimeout(chiudi, 2200);
+    try { await fetch(WORKER + "/recensione", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ risposte, testo: testo || "", lingua: (window.YUGO_I18N && window.YUGO_I18N.lang) || "it" }) }); } catch { /* pazienza */ }
+  };
+  const mostra = (html) => { el.querySelector(".rec-corpo").innerHTML = html; };
+  const inizio = () => mostra(`<div class="rec-centro">${sushiSvg(false)}<h2>Ti piace il sito di Yugo?</h2><p class="muted">Ci aiuti a migliorarlo? Bastano 20 secondi, ed è anonimo.</p></div>
+      <div class="rec-azioni"><button type="button" class="btn btn-gold" data-rec="quiz">⭐ Rispondi a 5 domande</button>
+      <button type="button" class="btn btn-ghost" data-rec="scrivi">✍️ Scrivi cosa ne pensi</button>
+      <button type="button" class="rec-no" data-rec="no">No, grazie</button></div>`);
+  const domanda = () => {
+    const [k, t] = REC_DOMANDE[passo];
+    mostra(`<div class="rec-passi">${REC_DOMANDE.map((_, i) => `<i class="${i < passo ? "ok" : i === passo ? "on" : ""}"></i>`).join("")}</div>
+      <h2 class="rec-dom">${esc(t)}</h2>
+      <div class="rec-facce">${REC_FACCE.map(([f, l], i) => `<button type="button" data-voto="${i + 1}" aria-label="${esc(l)}"><span>${f}</span><small>${esc(l)}</small></button>`).join("")}</div>
+      <button type="button" class="rec-no" data-rec="salta">Salta questa domanda</button>`);
+  };
+  const scrivi = (dopoQuiz) => mostra(`<h2>${dopoQuiz ? "Vuoi aggiungere qualcosa?" : "Cosa ti è sembrato il sito?"}</h2>
+      <textarea class="rec-testo" rows="4" maxlength="800" placeholder="${dopoQuiz ? "Facoltativo: cosa ti è piaciuto, cosa cambieresti…" : "Scrivi qui cosa ti è piaciuto e cosa cambieresti…"}"></textarea>
+      <div class="rec-azioni"><button type="button" class="btn btn-gold" data-rec="invia">Invia</button></div>`);
+  const triste = () => mostra(`<div class="rec-centro">${sushiSvg(true)}<h2>Sei sicuro? 🥺</h2><p class="muted">Il sushi ci resta un po' male…</p></div>
+      <div class="rec-azioni"><button type="button" class="btn btn-gold" data-rec="ok">Va bene, ti aiuto</button><button type="button" class="rec-no" data-rec="sicuro">Sì, sono sicuro</button></div>`);
+  el.innerHTML = `<div class="sheet-bg"></div><div class="sheet-card rec-card"><button type="button" class="sheet-x" data-rec="x" aria-label="Chiudi">×</button><div class="rec-corpo"></div></div>`;
+  el.addEventListener("click", (e) => {
+    const v = e.target.closest("[data-voto]");
+    if (v) { risposte[REC_DOMANDE[passo][0]] = +v.dataset.voto; v.classList.add("on"); setTimeout(() => { passo++; passo < REC_DOMANDE.length ? domanda() : scrivi(true); }, 250); return; }
+    const b = e.target.closest("[data-rec]"); const a = b ? b.dataset.rec : e.target.classList.contains("sheet-bg") ? "x" : "";
+    if (a === "quiz") { passo = 0; domanda(); }
+    else if (a === "salta") { passo++; passo < REC_DOMANDE.length ? domanda() : scrivi(true); }
+    else if (a === "scrivi") scrivi(false);
+    else if (a === "invia") { const t = (el.querySelector(".rec-testo") || {}).value || ""; if (!Object.keys(risposte).length && !t.trim()) { toast("Scrivi qualcosa o rispondi a una domanda."); return; } invia(t.trim()); }
+    else if (a === "no" || a === "x") triste();
+    else if (a === "ok") inizio();
+    else if (a === "sicuro") { recSalva("no"); mostra(`<div class="rec-centro"><h2>Va bene, grazie lo stesso! 🍣</h2></div>`); setTimeout(chiudi, 1400); }
+  });
+  document.body.appendChild(el); document.documentElement.classList.add("no-scroll");
+  inizio();
+}
+
 /* ---------- Anteprima dal Gestore: una proposta di Natan mostrata in cima alla home, solo su questo telefono ---------- */
 const ANTEPRIMA = /[?&]anteprima=1/.test(location.search);
 function pulisciHtml(h) {
