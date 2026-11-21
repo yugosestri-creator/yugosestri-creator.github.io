@@ -1260,7 +1260,10 @@ function disegnaCarrello() {
     if (F && F.bibite && !(d.bibita || "").trim()) return fail("Scrivi quale bibita vuoi.");
     btn.disabled = true; btn.textContent = "Invio…";
     try {
-      const ordine = { modo: d.modo, zona: consegna ? zona.nome : "", indirizzo: consegna ? d.indirizzo : "", ora: d.ora, data: d.data,
+      // se il cliente non ha scritto il paese, lo aggiungiamo noi (serve al rider e a Google Maps)
+      const paeseInd = distQui ? (distQui.paese || String(distQui.dove || "").split(",").slice(1).join(",").trim()) : "";
+      const indirizzoPieno = consegna && paeseInd && !norm(d.indirizzo).includes(norm(paeseInd)) ? `${d.indirizzo.trim()}, ${paeseInd}` : d.indirizzo;
+      const ordine = { modo: d.modo, zona: consegna ? zona.nome : "", indirizzo: consegna ? indirizzoPieno : "", ora: d.ora, data: d.data,
         ...(consegna && d.dist && d.dist.km != null && d.dist.ind === d.indirizzo.trim() ? { km: d.dist.km, trovato: d.dist.dove } : {}),
         ...(consegna && d.dist && d.dist.paese && d.dist.ind === d.indirizzo.trim() ? { paese: d.dist.paese } : {}),
         nome: d.nome, telefono: d.telefono,
@@ -1273,7 +1276,7 @@ function disegnaCarrello() {
       const traccia = { numero: res.numero, telefono: d.telefono, data: d.data || isoDate(new Date()), ora: d.ora, modo: d.modo, nome: d.nome.split(" ")[0], creato: Date.now(),
         cosa: ordine.righe.map((r) => `${r.q}× ${r.nome}`).slice(0, 6), totale: res.totale != null ? res.totale : tot,
         // per lo scontrino
-        righe: ordine.righe, famiglia: F ? F.nome : "", sub, consegna: consegna ? costo : 0, zona: consegna ? zona.nome : "", indirizzo: consegna ? d.indirizzo : "",
+        righe: ordine.righe, famiglia: F ? F.nome : "", sub, consegna: consegna ? costo : 0, zona: consegna ? zona.nome : "", indirizzo: consegna ? ordine.indirizzo : "",
         sconto: res.sconto ? { nome: nomeSconto(), perc: res.sconto.perc, meno: res.sconto.meno } : perc ? { nome: nomeSconto(), perc, meno } : null, note: ordine.note || "" };
       store.set("yugo-ultimo-ordine", traccia);
       if (pushOk() && Notification.permission === "granted") attivaNotifiche(false).catch(() => {});   // già permesse: le colleghiamo anche a questo ordine
