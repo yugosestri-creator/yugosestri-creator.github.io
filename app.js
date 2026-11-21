@@ -1140,7 +1140,8 @@ function disegnaCarrello() {
   const d = ordDati, consegna = d.modo === "consegna", zone = ORD.zone || [];
   // il costo della consegna lo calcola il sito dall'indirizzo (km in auto); a mano solo se il calcolo non funziona
   const indT = (d.indirizzo || "").trim(), distQui = consegna && d.dist && d.dist.ind === indT ? d.dist : null;
-  const distKm = !!(distQui && distQui.km != null), distPaese = !!(distQui && distQui.paese && zone[distQui.fascia]);
+  const maxKm = ORD.maxKm || Infinity, distTroppo = !!(distQui && distQui.km != null && distQui.km > maxKm);
+  const distKm = !!(distQui && distQui.km != null) && !distTroppo, distPaese = !!(distQui && distQui.paese && zone[distQui.fascia]);
   // il cliente ha scritto solo la via: gli chiediamo se il comune trovato è giusto (sì / no)
   const distChiedi = distKm && !distQui.ok && !!distQui.comune && !norm(indT).includes(norm(distQui.comune));
   const distOk = (distKm && !distChiedi) || distPaese, distNo = !distOk && !!(distQui && (distQui.niente || distQui.errore)) || (consegna && !ORD.posizione && indT.length >= 5);
@@ -1171,7 +1172,10 @@ function disegnaCarrello() {
       <button role="tab" type="button" data-modo-ord="ritiro" aria-selected="${!consegna}">🥡 Ritiro</button>
     </div>`}
     ${consegna ? `<div class="field"><label for="o-ind">Indirizzo</label><input class="input" id="o-ind" autocomplete="street-address" placeholder="Via e numero civico, citofono" value="${esc(d.indirizzo || "")}"></div>
-      <div class="ord-dist${distOk ? " ok" : distNo || distChiedi ? " no" : ""}" id="o-dist" aria-live="polite">${distChiedi
+      <div class="ord-dist${distOk ? " ok" : distNo || distChiedi || distTroppo ? " no" : ""}" id="o-dist" aria-live="polite">${distTroppo
+          ? `<p class="od-domanda">😔 <span>Sei a circa ${String(distQui.km).replace(".", ",")} km: consegniamo fino a ${maxKm} km dal ristorante.</span></p>
+            <div class="od-sino"><button type="button" class="btn btn-gold btn-sm" data-modo-ord="ritiro">🥡 Passo a ritirarlo</button><button type="button" class="btn btn-ghost btn-sm" data-paese-cambia>Sono in un altro paese</button></div>`
+        : distChiedi
           ? `<p class="od-domanda"><span>La via è a</span> <b class="notranslate">${esc(distQui.comune)}</b>?</p>
             <div class="od-sino"><button type="button" class="btn btn-gold btn-sm" data-comune-si>Sì, è giusto</button><button type="button" class="btn btn-ghost btn-sm" data-paese-cambia>No, è un altro paese</button></div>`
         : distOk
@@ -1272,7 +1276,7 @@ function disegnaCarrello() {
     if (d.telefono.replace(/\D/g, "").length < 8) return fail("Serve un numero di telefono: ti chiamiamo se c'è un problema.");
     if (!d.ora) return fail("Scegli l'ora.");
     if (consegna && d.indirizzo.trim().length < 5) return fail("Scrivi l'indirizzo di consegna.");
-    if (!costoNoto) return fail(distChiedi ? "Conferma il paese qui sopra, sotto l'indirizzo." : distNo ? "Scegli il tuo paese qui sopra, sotto l'indirizzo." : "Un attimo: stiamo calcolando il costo della consegna.");
+    if (!costoNoto) return fail(distTroppo ? `Consegniamo fino a ${maxKm} km dal ristorante: puoi scegliere il ritiro.` : distChiedi ? "Conferma il paese qui sopra, sotto l'indirizzo." : distNo ? "Scegli il tuo paese qui sopra, sotto l'indirizzo." : "Un attimo: stiamo calcolando il costo della consegna.");
     if (F && F.bibite && !(d.bibita || "").trim()) return fail("Scrivi quale bibita vuoi.");
     btn.disabled = true; btn.textContent = "Invio…";
     try {
@@ -2125,7 +2129,7 @@ function natanRisposta(k) {
     case "consegna": {
       if (!ORD) return { t: `<p>Per asporto e consegna chiamaci:</p><p>${tel()}</p>`, b: altre };
       const r = [];
-      r.push(ORD.consegnaSospesa ? "In questo momento le consegne sono sospese: puoi ordinare e passare a ritirare." : `Costo della consegna, in base alla distanza in auto dal ristorante:<br>${(ORD.zone || []).map((z) => esc(nomeZona(z))).join("<br>")}${(ORD.zone || []).some((z) => z.noOre) ? `<br>${esc(`Oltre 8 km consegniamo solo fuori dalle ore di punta: non dalle 12:30 alle 14:00 e non dalle 19:30 alle 21:30.`)}` : ""}<br>Quando scrivi l'indirizzo nell'ordine, la distanza la calcoliamo noi.`);
+      r.push(ORD.consegnaSospesa ? "In questo momento le consegne sono sospese: puoi ordinare e passare a ritirare." : `Costo della consegna, in base alla distanza in auto dal ristorante:<br>${(ORD.zone || []).map((z) => esc(nomeZona(z))).join("<br>")}${(ORD.zone || []).some((z) => z.noOre) ? `<br>${esc(`Oltre 8 km consegniamo solo fuori dalle ore di punta: non dalle 12:30 alle 14:00 e non dalle 19:30 alle 21:30.`)}` : ""}${ORD.maxKm ? `<br>${esc(`Consegniamo fino a ${ORD.maxKm} km dal ristorante.`)}` : ""}<br>Quando scrivi l'indirizzo nell'ordine, la distanza la calcoliamo noi.`);
       r.push(`Orari:<br>${(ORD.fasce || []).map((f) => f.join("–")).join(" · ")}`);
       r.push(`Ordine minimo per la consegna € ${euro(ORD.minimo)}`);
       r.push("Si paga alla consegna o al ritiro. Non serve un account: bastano nome e telefono.");
