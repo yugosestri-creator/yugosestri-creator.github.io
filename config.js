@@ -91,12 +91,17 @@ window.YUGO_CONFIG = {
       anticipo: 30,            // minuti minimi tra ordine e consegna/ritiro
       giorniAvanti: 5,         // si può ordinare per oggi o per i prossimi 5 giorni
       fasce: [["12:00", "14:30"], ["19:00", "22:00"]], // dopo le 14:30 e dopo le 22:00 niente ordini
+      // Consegna a domicilio: il costo dipende dalla distanza in auto dal ristorante (km).
+      // "fino": fino a quanti km vale la fascia. "noOre": orari in cui quella fascia NON consegna (ore di punta).
+      // Se cambi i nomi o i prezzi, cambiali anche in telegram-worker.js (ZONE).
       zone: [
-        { nome: "Sestri Levante", costo: 1 },
-        { nome: "Riva Trigoso", costo: 2.5 },
-        { nome: "Casarza Ligure", costo: 3.5 },
-        { nome: "Moneglia", costo: 5 }
-      ]
+        { nome: "Fino a 2,5 km", info: "fino all'autostrada", fino: 2.5, costo: 1 },
+        { nome: "Da 2,5 a 4 km", fino: 4, costo: 2.5 },
+        { nome: "Da 4 a 8 km", fino: 8, costo: 3.5 },
+        { nome: "Oltre 8 km", costo: 5, noOre: [["12:30", "14:00"], ["19:30", "21:30"]] }
+      ],
+      // Dove si trova il ristorante (per calcolare la distanza dall'indirizzo del cliente)
+      posizione: { lat: 44.2723644, lon: 9.3963255 }
     },
     allYouCanEat: {
       titolo: "All You Can Eat",
