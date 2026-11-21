@@ -914,6 +914,12 @@ async function suggerisciVie(testo) {
   const parole = viaParole(testo), dist2 = (f) => (f.geometry.coordinates[1] - P.lat) ** 2 + ((f.geometry.coordinates[0] - P.lon) * 0.72) ** 2;
   const tutte = risposte.flatMap((j) => j.features || []).filter((f) => dist2(f) < 0.03).sort((a, b) => dist2(a) - dist2(b));   // entro ~20 km, le più vicine prima
   const visti = new Set(), out = [];
+  // prima le vie che abbiamo aggiunto noi (quelle che sulla mappa non ci sono)
+  for (const v of ORD.vieExtra || []) {
+    if (!parole.length || !parole.every((w) => norm(v.via).includes(w))) continue;
+    const etichetta = [num ? `${v.via} ${num}` : v.via, v.paese].join(", ");
+    visti.add(norm(etichetta)); out.push({ etichetta, via: v.via, paese: v.paese, lat: v.lat, lon: v.lon });
+  }
   for (const f of tutte) {
     const q = f.properties || {}, via = q.street || (["street", "road"].includes(q.osm_value) || q.type === "street" ? q.name : "");
     if (!via) continue;
@@ -1210,8 +1216,8 @@ function disegnaCarrello() {
             <div class="od-sino"><button type="button" class="btn btn-gold btn-sm" data-comune-si>Sì, è giusto</button><button type="button" class="btn btn-ghost btn-sm" data-paese-cambia>No, è un altro paese</button></div>`
         : distOk
           ? `<p class="od-costo">🛵 <b>Consegna € ${euro(zona.costo)}</b></p><p class="od-km">${distKm ? `<span>circa ${String(distQui.km).replace(".", ",")} km da noi</span> · <span class="notranslate">${esc(distQui.dove)}</span>` : `<span>Consegna a</span> <span class="notranslate">${esc(distQui.paese)}</span>`} · <button type="button" class="od-cambia" data-paese-cambia>Non è giusto?</button></p>`
-        : distNo ? `<p>${distQui && distQui.scelta ? "Nessun problema!" : distQui && distQui.errore ? "Non riusciamo a trovare la via sulla mappa in questo momento." : "Questa via non c'è sulla mappa, ma nessun problema!"} <b>In che paese sei?</b></p>
-            <div class="od-paesi">${PAESI().map((p) => `<button type="button" class="pick" data-paese="${esc(p.nome)}">${esc(p.nome)}</button>`).join("")}</div>
+        : distNo ? `<p><b>Tocca il tuo indirizzo:</b></p>
+            <div class="od-lista notranslate">${PAESI().map((p) => `<button type="button" class="od-s" data-paese="${esc(p.nome)}">📍 <b>${esc(indT.split(",")[0])}</b><small>${esc(p.nome)}</small></button>`).join("")}</div>
             <p class="od-nota">Il tuo paese non c'è? Chiamaci e vediamo se arriviamo.</p>`
         : indT.length >= 5 ? `<p>Calcolo il costo della consegna…</p>` : `<p>Scrivi l'indirizzo: il costo della consegna lo calcoliamo noi.</p>`}</div>
       ${punta ? `<p class="hint">${esc(`Oltre ${String(zone[zone.length - 2] ? zone[zone.length - 2].fino : "").replace(".", ",")} km consegniamo solo fuori dalle ore di punta: ${zona.noOre.map(([a, b]) => `non dalle ${a} alle ${b}`).join(" e ")}.`)}</p>` : ""}`
@@ -1282,9 +1288,9 @@ function disegnaCarrello() {
         boxSugg.innerHTML = sugg.map((x, i) => `<button type="button" class="od-s" data-s="${i}">📍 <b>${esc(x.via)}${/\d/.test(x.etichetta.split(",")[0].replace(x.via, "")) ? " " + esc(x.etichetta.split(",")[0].replace(x.via, "").trim()) : ""}</b><small>${esc(x.paese)}</small></button>`).join("");
         boxSugg.hidden = !sugg.length;
       }, 350);
-      pausa = setTimeout(() => { if (!scelto) { leggi(); calcola(); } }, 2500);   // se non sceglie un suggerimento, calcola lo stesso
+      pausa = setTimeout(() => { if (!scelto && !sugg.length) { leggi(); calcola(); } }, 2500);   // se non sceglie un suggerimento, calcola lo stesso
     };
-    $("#o-ind").onchange = () => { setTimeout(() => { if (!scelto) { clearTimeout(pausa); leggi(); calcola(); } }, 250); };
+    $("#o-ind").onchange = () => { setTimeout(() => { if (!scelto && !sugg.length) { clearTimeout(pausa); leggi(); calcola(); } }, 250); };
   }
   if (boxSugg) boxSugg.onpointerdown = async (e) => {   // tocca una via: indirizzo esatto, niente domande
     const b = e.target.closest("[data-s]"); if (!b) return;
@@ -1331,7 +1337,7 @@ function disegnaCarrello() {
     if (d.telefono.replace(/\D/g, "").length < 8) return fail("Serve un numero di telefono: ti chiamiamo se c'è un problema.");
     if (!d.ora) return fail("Scegli l'ora.");
     if (consegna && d.indirizzo.trim().length < 5) return fail("Scrivi l'indirizzo di consegna.");
-    if (!costoNoto) return fail(distTroppo ? `Consegniamo fino a ${maxKm} km dal ristorante: puoi scegliere il ritiro.` : distChiedi ? "Conferma il paese qui sopra, sotto l'indirizzo." : distNo ? "Scegli il tuo paese qui sopra, sotto l'indirizzo." : "Un attimo: stiamo calcolando il costo della consegna.");
+    if (!costoNoto) return fail(distTroppo ? `Consegniamo fino a ${maxKm} km dal ristorante: puoi scegliere il ritiro.` : distChiedi ? "Conferma il paese qui sopra, sotto l'indirizzo." : distNo || !distInCorso ? "Tocca il tuo indirizzo nell'elenco sotto il campo Indirizzo." : "Un attimo: stiamo calcolando il costo della consegna.");
     if (F && F.bibite && !(d.bibita || "").trim()) return fail("Scrivi quale bibita vuoi.");
     btn.disabled = true; btn.textContent = "Invio…";
     try {
