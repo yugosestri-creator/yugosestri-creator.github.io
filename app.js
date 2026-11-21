@@ -890,18 +890,21 @@ let ordDati = store.get("yugo-ordine-dati", { modo: "consegna", zona: 0, indiriz
 const zonaDaKm = (km) => { const z = ORD.zone || []; const i = z.findIndex((x) => x.fino != null && km <= x.fino); return i < 0 ? z.length - 1 : i; };
 const oraDiPunta = (z, t) => ((z && z.noOre) || []).some(([a, b]) => t >= a && t < b);
 const nomeZona = (z) => `${z.nome}${z.info ? ` (${z.info})` : ""} · € ${euro(z.costo)}`;
-let DIST = store.get("yugo-dist", {});
+let DIST = store.get("yugo-dist", {}), distInCorso = "";
 async function calcolaDistanza(ind) {
   const k = String(ind || "").trim().toLowerCase().replace(/\s+/g, " ");
   if (k.length < 5 || !ORD.posizione) return null;
   if (DIST[k]) return DIST[k];
   const P = ORD.posizione;
-  const g = (await fetch("https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=it&viewbox=9.15,44.42,9.70,44.12&bounded=1&q=" + encodeURIComponent(ind)).then((r) => r.json()))[0];
+  const g = (await fetch("https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=1&countrycodes=it&viewbox=9.15,44.42,9.70,44.12&bounded=1&q=" + encodeURIComponent(ind)).then((r) => r.json()))[0];
   if (!g) return { niente: true };
   const r = await fetch(`https://router.project-osrm.org/route/v1/driving/${P.lon},${P.lat};${g.lon},${g.lat}?overview=false`).then((x) => x.json());
   const m = r && r.routes && r.routes[0] && r.routes[0].distance;
   if (m == null) return { niente: true };
-  const out = { km: Math.round(m / 100) / 10, dove: String(g.display_name || "").split(",").slice(0, 3).map((x) => x.trim()).join(", ") };
+  const a = g.address || {}, via = [a.road || a.pedestrian || a.square, a.house_number].filter(Boolean).join(" ");
+  const paese = a.town || a.village || a.city || a.hamlet || a.suburb || "";
+  const dove = [via, paese].filter(Boolean).join(", ") || String(g.display_name || "").split(",").slice(0, 3).map((x) => x.trim()).join(", ");
+  const out = { km: Math.round(m / 100) / 10, dove };
   const chiavi = Object.keys(DIST); if (chiavi.length > 30) delete DIST[chiavi[0]];
   DIST[k] = out; store.set("yugo-dist", DIST);
   return out;
@@ -1097,10 +1100,13 @@ function disegnaCarrello() {
   }
   if (SOSPESA) ordDati.modo = "ritiro";
   const d = ordDati, consegna = d.modo === "consegna", zone = ORD.zone || [];
-  const distOk = consegna && d.dist && d.dist.km != null && d.dist.ind === (d.indirizzo || "").trim();
-  if (distOk && !d.manuale) d.zona = zonaDaKm(d.dist.km);
+  // il costo della consegna lo calcola il sito dall'indirizzo (km in auto); a mano solo se il calcolo non funziona
+  const indT = (d.indirizzo || "").trim(), distQui = consegna && d.dist && d.dist.ind === indT ? d.dist : null;
+  const distOk = !!(distQui && distQui.km != null), distNo = !!(distQui && distQui.niente), distErr = !!(distQui && distQui.errore) || (consegna && !ORD.posizione);
+  if (distOk) d.zona = zonaDaKm(distQui.km);
   if (!zone[d.zona]) d.zona = 0;
-  const zona = zone[d.zona] || zone[0], costo = consegna && zona ? zona.costo : 0;
+  const costoNoto = !consegna || distOk || distErr;
+  const zona = zone[d.zona] || zone[0], costo = consegna && zona && costoNoto ? zona.costo : 0;
   const F = famAtt(), mancano = F ? Math.max(0, F.piatti - pezzi()) : 0;
   const sub = F ? F.prezzo : subtotale(), perc = percSconto(), meno = perc ? Math.round(sub * perc) / 100 : 0;
   const tot = Math.round((sub - meno + costo) * 100) / 100;
@@ -1124,10 +1130,12 @@ function disegnaCarrello() {
       <button role="tab" type="button" data-modo-ord="ritiro" aria-selected="${!consegna}">🥡 Ritiro</button>
     </div>`}
     ${consegna ? `<div class="field"><label for="o-ind">Indirizzo</label><input class="input" id="o-ind" autocomplete="street-address" placeholder="Via, numero civico, paese, citofono" value="${esc(d.indirizzo || "")}"></div>
-      <p class="hint ord-dist" id="o-dist" aria-live="polite">${distOk ? `📍 <span class="notranslate">${esc(d.dist.dove)}</span> · <span>circa ${String(d.dist.km).replace(".", ",")} km in auto</span>`
-        : d.dist && d.dist.niente && d.dist.ind === (d.indirizzo || "").trim() ? "Non trovo questo indirizzo: controlla via e paese, oppure scegli la distanza qui sotto."
-        : ORD.posizione ? `<button type="button" class="btn btn-ghost btn-sm" id="o-calc">📍 Calcola la distanza</button>` : ""}</p>
-      <div class="field"><label for="o-zona">Distanza dal ristorante</label><select class="input" id="o-zona">${zone.map((z, i) => `<option value="${i}" ${i === d.zona ? "selected" : ""}>${esc(nomeZona(z))}</option>`).join("")}</select></div>
+      <div class="ord-dist${distOk ? " ok" : distNo ? " no" : ""}" id="o-dist" aria-live="polite">${distOk
+          ? `<p class="od-costo">🛵 <b>Consegna € ${euro(zona.costo)}</b></p><p class="od-km"><span>circa ${String(distQui.km).replace(".", ",")} km da noi</span> · <span class="notranslate">${esc(distQui.dove)}</span></p>`
+        : distNo ? `<p>Non troviamo questo indirizzo. Scrivi anche il paese, per esempio «Via Roma 5, Moneglia».</p>`
+        : distErr ? `<p>Non riusciamo a calcolare la distanza in questo momento: scegli tu quanto sei lontano.</p>`
+        : indT.length >= 5 ? `<p>Calcolo il costo della consegna…</p>` : `<p>Scrivi l'indirizzo: il costo della consegna lo calcoliamo noi.</p>`}</div>
+      ${distErr ? `<div class="field"><label for="o-zona">Distanza dal ristorante</label><select class="input" id="o-zona">${zone.map((z, i) => `<option value="${i}" ${i === d.zona ? "selected" : ""}>${esc(nomeZona(z))}</option>`).join("")}</select></div>` : ""}
       ${punta ? `<p class="hint">${esc(`Oltre ${String(zone[zone.length - 2] ? zone[zone.length - 2].fino : "").replace(".", ",")} km consegniamo solo fuori dalle ore di punta: ${zona.noOre.map(([a, b]) => `non dalle ${a} alle ${b}`).join(" e ")}.`)}</p>` : ""}`
       : `<p class="hint">Ritiri da noi in ${esc(R.indirizzo || "")}.</p>`}
     ${giorni.length > 1 ? `<div class="field"><span class="label">Giorno</span><div class="pick-row" id="o-giorni">${giorni.filter((g) => fasceGiorno(g).slots.length).map((g) => `<button type="button" class="pick" data-g="${g}" aria-pressed="${g === d.data}">${esc(chipGiorno(g))}</button>`).join("")}</div></div>` : ""}
@@ -1144,14 +1152,14 @@ function disegnaCarrello() {
     <div class="ord-sum">
       <div><span>${F ? esc(F.nome) : "Piatti"}</span><span>€ ${euro(sub)}</span></div>
       ${perc ? `<div class="ord-sconto"><span>🎉 ${nomeSconto()} ${perc}%</span><span>− € ${euro(meno)}</span></div>` : ""}
-      ${consegna ? `<div><span>Consegna</span><span>€ ${euro(costo)}</span></div>` : ""}
+      ${consegna ? `<div><span>Consegna</span><span>${costoNoto ? `€ ${euro(costo)}` : "—"}</span></div>` : ""}
       <div class="cs-total"><span>Totale</span><b>€ ${euro(tot)}</b></div>
     </div>
     <p class="hint">Paghi alla ${consegna ? "consegna" : "cassa quando ritiri"}.${sottoMinimo ? ` <b>Per la consegna l'ordine minimo è € ${euro(ORD.minimo)}.</b>` : ""}</p>
     <p class="error" id="o-err" hidden></p>
     <div class="cs-actions">
       ${mancano ? `<button class="btn btn-gold btn-block" type="button" disabled>Scegli ancora ${mancano} ${mancano === 1 ? "piatto" : "piatti"}</button>`
-        : `<button class="btn btn-gold btn-block" id="o-send" type="button" ${chiuso || sottoMinimo ? "disabled" : ""}>Invia ordine · € ${euro(tot)}</button>`}
+        : `<button class="btn btn-gold btn-block" id="o-send" type="button" ${chiuso || sottoMinimo || !costoNoto ? "disabled" : ""}>Invia ordine · € ${euro(tot)}</button>`}
       ${!user ? `<p class="hint" style="text-align:center">Non serve un account: bastano nome e telefono.</p>` : ""}
       ${ORD.justEat ? `<button class="btn btn-ghost btn-block" id="o-je" type="button">Ordina su Just Eat</button>
       <p class="hint" style="text-align:center">Su Just Eat i piatti vanno aggiunti di nuovo: ti copiamo la lista da seguire.</p>` : ""}
@@ -1165,22 +1173,30 @@ function disegnaCarrello() {
     store.set("yugo-ordine-dati", { ...d, note: "" });
   };
   body.querySelectorAll("[data-modo-ord]").forEach((b) => b.onclick = () => { leggi(); d.modo = b.dataset.modoOrd; disegnaCarrello(); });
-  if ($("#o-zona")) $("#o-zona").onchange = () => { leggi(); d.manuale = true; disegnaCarrello(); };
+  if ($("#o-zona")) $("#o-zona").onchange = () => { leggi(); disegnaCarrello(); };
   const ridisegna = () => {   // ridisegna senza far perdere il campo in cui il cliente sta scrivendo
     const a = document.activeElement, id = a && a.id && body.contains(a) ? a.id : "", sel = id && a.selectionStart != null ? [a.selectionStart, a.selectionEnd] : null;
     leggi(); disegnaCarrello();
     const b = id && document.getElementById(id); if (b) { b.focus({ preventScroll: true }); if (sel && b.setSelectionRange) try { b.setSelectionRange(...sel); } catch { /* ok */ } }
   };
   const calcola = async () => {
-    const ind = (d.indirizzo || "").trim(); if (ind.length < 5) return;
-    if ($("#o-dist")) $("#o-dist").textContent = "Calcolo la distanza…";
-    let r = null; try { r = await calcolaDistanza(ind); } catch { r = null; }
+    const ind = (d.indirizzo || "").trim(); if (ind.length < 5 || !ORD.posizione || distInCorso === ind) return;
+    if (d.dist && d.dist.ind === ind) return;
+    distInCorso = ind;
+    if ($("#o-dist")) $("#o-dist").innerHTML = "<p>Calcolo il costo della consegna…</p>";
+    let r; try { r = await calcolaDistanza(ind); } catch { r = { errore: true }; }
+    if (distInCorso === ind) distInCorso = "";
+    if ($("#o-ind")) leggi();
     if ((d.indirizzo || "").trim() !== ind) return;            // nel frattempo ha cambiato indirizzo
     d.dist = r ? { ...r, ind } : null;
     if (!$("#carrello").hidden && !$("#ord-body .ord-ok")) ridisegna();
   };
-  if ($("#o-ind")) $("#o-ind").onchange = () => { leggi(); if (d.dist && d.dist.ind !== d.indirizzo.trim()) { d.dist = null; d.manuale = false; } calcola(); };
-  if ($("#o-calc")) $("#o-calc").onclick = () => { leggi(); calcola(); };
+  let pausa = 0;
+  if ($("#o-ind")) {
+    $("#o-ind").oninput = () => { clearTimeout(pausa); pausa = setTimeout(() => { leggi(); calcola(); }, 1100); };   // calcola da solo quando smette di scrivere
+    $("#o-ind").onchange = () => { clearTimeout(pausa); leggi(); calcola(); };
+  }
+  if (consegna && !distQui && indT.length >= 5) calcola();     // indirizzo già scritto (o ordine rifatto): calcola subito
   if ($("#o-giorni")) $("#o-giorni").onclick = (e) => { const b = e.target.closest("[data-g]"); if (!b) return; leggi(); d.data = b.dataset.g; d.ora = ""; disegnaCarrello(); };
   if ($("#o-ore")) $("#o-ore").onclick = (e) => { const b = e.target.closest("[data-t]"); if (!b) return; d.ora = b.dataset.t; $$("#o-ore .pick").forEach((x) => x.setAttribute("aria-pressed", String(x === b))); };
   body.querySelector(".ord-list").onclick = (e) => {
@@ -1202,6 +1218,7 @@ function disegnaCarrello() {
     if (d.telefono.replace(/\D/g, "").length < 8) return fail("Serve un numero di telefono: ti chiamiamo se c'è un problema.");
     if (!d.ora) return fail("Scegli l'ora.");
     if (consegna && d.indirizzo.trim().length < 5) return fail("Scrivi l'indirizzo di consegna.");
+    if (!costoNoto) return fail(distNo ? "Non troviamo l'indirizzo: scrivi anche il paese." : "Un attimo: stiamo calcolando il costo della consegna.");
     if (F && F.bibite && !(d.bibita || "").trim()) return fail("Scrivi quale bibita vuoi.");
     btn.disabled = true; btn.textContent = "Invio…";
     try {
