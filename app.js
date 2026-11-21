@@ -891,20 +891,48 @@ const zonaDaKm = (km) => { const z = ORD.zone || []; const i = z.findIndex((x) =
 const oraDiPunta = (z, t) => ((z && z.noOre) || []).some(([a, b]) => t >= a && t < b);
 const nomeZona = (z) => `${z.nome}${z.info ? ` (${z.info})` : ""} · € ${euro(z.costo)}`;
 let DIST = store.get("yugo-dist", {}), distInCorso = "";
+const norm = (t) => String(t || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+const PAESI = () => (ORD.paesi || []).filter((p) => (ORD.zone || [])[p.fascia]);
+function paeseNelTesto(t) {   // "Via Roma 5, Riva Trigoso" → Riva Trigoso
+  const n = " " + norm(t) + " ";
+  const nomi = PAESI().flatMap((p) => [p.nome, ...(p.anche || [])].map((x) => [norm(x), p])).sort((a, b) => b[0].length - a[0].length);
+  const h = nomi.find(([x]) => n.includes(" " + x + " "));
+  return h ? h[1] : null;
+}
+function viaParole(t) {       // le parole che identificano la via ("via arturo rossi 5, sestri" → arturo, rossi)
+  const via = norm(String(t).split(",")[0]), paesi = new Set(PAESI().flatMap((p) => [p.nome, ...(p.anche || [])].flatMap((x) => norm(x).split(" "))));
+  return via.split(" ").filter((w) => w.length >= 3 && !/^\d/.test(w) && !paesi.has(w) && !["via", "viale", "piazza", "corso", "salita", "vico", "localita", "loc", "largo", "strada", "della", "delle", "dei", "del"].includes(w));
+}
 async function calcolaDistanza(ind) {
   const k = String(ind || "").trim().toLowerCase().replace(/\s+/g, " ");
   if (k.length < 5 || !ORD.posizione) return null;
   if (DIST[k]) return DIST[k];
   const P = ORD.posizione;
-  const g = (await fetch("https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=1&countrycodes=it&viewbox=9.15,44.42,9.70,44.12&bounded=1&q=" + encodeURIComponent(ind)).then((r) => r.json()))[0];
-  if (!g) return { niente: true };
-  const r = await fetch(`https://router.project-osrm.org/route/v1/driving/${P.lon},${P.lat};${g.lon},${g.lat}?overview=false`).then((x) => x.json());
-  const m = r && r.routes && r.routes[0] && r.routes[0].distance;
-  if (m == null) return { niente: true };
-  const a = g.address || {}, via = [a.road || a.pedestrian || a.square, a.house_number].filter(Boolean).join(" ");
-  const paese = a.town || a.village || a.city || a.hamlet || a.suburb || "";
-  const dove = [via, paese].filter(Boolean).join(", ") || String(g.display_name || "").split(",").slice(0, 3).map((x) => x.trim()).join(", ");
-  const out = { km: Math.round(m / 100) / 10, dove };
+  let errori = 0, punto = null;
+  // 1) mappa OpenStreetMap
+  try {
+    const g = (await fetch("https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=1&countrycodes=it&viewbox=9.15,44.42,9.70,44.12&bounded=1&q=" + encodeURIComponent(ind)).then((r) => r.json()))[0];
+    if (g) {
+      const a = g.address || {}, via = [a.road || a.pedestrian || a.square, a.house_number].filter(Boolean).join(" ");
+      const paese = a.town || a.village || a.city || a.hamlet || a.suburb || "";
+      punto = { lat: g.lat, lon: g.lon, dove: [via, paese].filter(Boolean).join(", ") || String(g.display_name || "").split(",").slice(0, 3).map((x) => x.trim()).join(", ") };
+    }
+  } catch { errori++; }
+  // 2) seconda mappa (Photon), ma solo se il nome della via corrisponde davvero a quello scritto
+  if (!punto) try {
+    const parole = viaParole(ind);
+    if (parole.length) {
+      const j = await fetch(`https://photon.komoot.io/api/?limit=5&lang=it&lat=${P.lat}&lon=${P.lon}&bbox=9.15,44.12,9.70,44.42&q=` + encodeURIComponent(ind)).then((r) => r.json());
+      const f = (j.features || []).find((x) => { const n = norm([x.properties.street, x.properties.name].join(" ")); return parole.every((w) => n.includes(w)); });
+      if (f) { const q = f.properties; punto = { lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0], dove: [[q.street || q.name, q.housenumber].filter(Boolean).join(" "), q.city || q.town || q.village || q.locality || ""].filter(Boolean).join(", ") }; }
+    }
+  } catch { errori++; }
+  // 3) la via non c'è sulla mappa: il costo si prende dal paese scritto nell'indirizzo
+  if (!punto) { const pz = paeseNelTesto(ind); if (pz) return { paese: pz.nome, fascia: pz.fascia }; return errori >= 2 ? { errore: true } : { niente: true }; }
+  let m = null;
+  try { const r = await fetch(`https://router.project-osrm.org/route/v1/driving/${P.lon},${P.lat};${punto.lon},${punto.lat}?overview=false`).then((x) => x.json()); m = r && r.routes && r.routes[0] && r.routes[0].distance; } catch { m = null; }
+  if (m == null) { const pz = paeseNelTesto(ind); return pz ? { paese: pz.nome, fascia: pz.fascia } : { errore: true }; }
+  const out = { km: Math.round(m / 100) / 10, dove: punto.dove };
   const chiavi = Object.keys(DIST); if (chiavi.length > 30) delete DIST[chiavi[0]];
   DIST[k] = out; store.set("yugo-dist", DIST);
   return out;
@@ -1102,10 +1130,11 @@ function disegnaCarrello() {
   const d = ordDati, consegna = d.modo === "consegna", zone = ORD.zone || [];
   // il costo della consegna lo calcola il sito dall'indirizzo (km in auto); a mano solo se il calcolo non funziona
   const indT = (d.indirizzo || "").trim(), distQui = consegna && d.dist && d.dist.ind === indT ? d.dist : null;
-  const distOk = !!(distQui && distQui.km != null), distNo = !!(distQui && distQui.niente), distErr = !!(distQui && distQui.errore) || (consegna && !ORD.posizione);
-  if (distOk) d.zona = zonaDaKm(distQui.km);
+  const distKm = !!(distQui && distQui.km != null), distPaese = !!(distQui && distQui.paese && zone[distQui.fascia]);
+  const distOk = distKm || distPaese, distNo = !distOk && !!(distQui && (distQui.niente || distQui.errore)) || (consegna && !ORD.posizione && indT.length >= 5);
+  if (distKm) d.zona = zonaDaKm(distQui.km); else if (distPaese) d.zona = distQui.fascia;
   if (!zone[d.zona]) d.zona = 0;
-  const costoNoto = !consegna || distOk || distErr;
+  const costoNoto = !consegna || distOk;
   const zona = zone[d.zona] || zone[0], costo = consegna && zona && costoNoto ? zona.costo : 0;
   const F = famAtt(), mancano = F ? Math.max(0, F.piatti - pezzi()) : 0;
   const sub = F ? F.prezzo : subtotale(), perc = percSconto(), meno = perc ? Math.round(sub * perc) / 100 : 0;
@@ -1131,11 +1160,11 @@ function disegnaCarrello() {
     </div>`}
     ${consegna ? `<div class="field"><label for="o-ind">Indirizzo</label><input class="input" id="o-ind" autocomplete="street-address" placeholder="Via, numero civico, paese, citofono" value="${esc(d.indirizzo || "")}"></div>
       <div class="ord-dist${distOk ? " ok" : distNo ? " no" : ""}" id="o-dist" aria-live="polite">${distOk
-          ? `<p class="od-costo">🛵 <b>Consegna € ${euro(zona.costo)}</b></p><p class="od-km"><span>circa ${String(distQui.km).replace(".", ",")} km da noi</span> · <span class="notranslate">${esc(distQui.dove)}</span></p>`
-        : distNo ? `<p>Non troviamo questo indirizzo. Scrivi anche il paese, per esempio «Via Roma 5, Moneglia».</p>`
-        : distErr ? `<p>Non riusciamo a calcolare la distanza in questo momento: scegli tu quanto sei lontano.</p>`
+          ? `<p class="od-costo">🛵 <b>Consegna € ${euro(zona.costo)}</b></p><p class="od-km">${distKm ? `<span>circa ${String(distQui.km).replace(".", ",")} km da noi</span> · <span class="notranslate">${esc(distQui.dove)}</span>` : `<span>Consegna a</span> <span class="notranslate">${esc(distQui.paese)}</span>`} · <button type="button" class="od-cambia" data-paese-cambia>Non è giusto?</button></p>`
+        : distNo ? `<p>${distQui && distQui.errore ? "Non riusciamo a trovare la via sulla mappa in questo momento." : "Questa via non c'è sulla mappa, ma nessun problema!"} <b>In che paese sei?</b></p>
+            <div class="od-paesi">${PAESI().map((p) => `<button type="button" class="pick" data-paese="${esc(p.nome)}">${esc(p.nome)}</button>`).join("")}</div>
+            <p class="od-nota">Il tuo paese non c'è? Chiamaci e vediamo se arriviamo.</p>`
         : indT.length >= 5 ? `<p>Calcolo il costo della consegna…</p>` : `<p>Scrivi l'indirizzo: il costo della consegna lo calcoliamo noi.</p>`}</div>
-      ${distErr ? `<div class="field"><label for="o-zona">Distanza dal ristorante</label><select class="input" id="o-zona">${zone.map((z, i) => `<option value="${i}" ${i === d.zona ? "selected" : ""}>${esc(nomeZona(z))}</option>`).join("")}</select></div>` : ""}
       ${punta ? `<p class="hint">${esc(`Oltre ${String(zone[zone.length - 2] ? zone[zone.length - 2].fino : "").replace(".", ",")} km consegniamo solo fuori dalle ore di punta: ${zona.noOre.map(([a, b]) => `non dalle ${a} alle ${b}`).join(" e ")}.`)}</p>` : ""}`
       : `<p class="hint">Ritiri da noi in ${esc(R.indirizzo || "")}.</p>`}
     ${giorni.length > 1 ? `<div class="field"><span class="label">Giorno</span><div class="pick-row" id="o-giorni">${giorni.filter((g) => fasceGiorno(g).slots.length).map((g) => `<button type="button" class="pick" data-g="${g}" aria-pressed="${g === d.data}">${esc(chipGiorno(g))}</button>`).join("")}</div></div>` : ""}
@@ -1196,7 +1225,16 @@ function disegnaCarrello() {
     $("#o-ind").oninput = () => { clearTimeout(pausa); pausa = setTimeout(() => { leggi(); calcola(); }, 1100); };   // calcola da solo quando smette di scrivere
     $("#o-ind").onchange = () => { clearTimeout(pausa); leggi(); calcola(); };
   }
-  if (consegna && !distQui && indT.length >= 5) calcola();     // indirizzo già scritto (o ordine rifatto): calcola subito
+  if (consegna && !distQui && indT.length >= 5) calcola();
+  const boxDist = $("#o-dist");
+  if (boxDist) boxDist.onclick = (e) => {
+    const b = e.target.closest("[data-paese]"), c = e.target.closest("[data-paese-cambia]");
+    if (!b && !c) return;
+    leggi(); const ind = (d.indirizzo || "").trim();
+    const p = b && PAESI().find((x) => x.nome === b.dataset.paese);
+    d.dist = p ? { ind, paese: p.nome, fascia: p.fascia, scelto: true } : { ind, niente: true };
+    disegnaCarrello();
+  };     // indirizzo già scritto (o ordine rifatto): calcola subito
   if ($("#o-giorni")) $("#o-giorni").onclick = (e) => { const b = e.target.closest("[data-g]"); if (!b) return; leggi(); d.data = b.dataset.g; d.ora = ""; disegnaCarrello(); };
   if ($("#o-ore")) $("#o-ore").onclick = (e) => { const b = e.target.closest("[data-t]"); if (!b) return; d.ora = b.dataset.t; $$("#o-ore .pick").forEach((x) => x.setAttribute("aria-pressed", String(x === b))); };
   body.querySelector(".ord-list").onclick = (e) => {
@@ -1218,12 +1256,13 @@ function disegnaCarrello() {
     if (d.telefono.replace(/\D/g, "").length < 8) return fail("Serve un numero di telefono: ti chiamiamo se c'è un problema.");
     if (!d.ora) return fail("Scegli l'ora.");
     if (consegna && d.indirizzo.trim().length < 5) return fail("Scrivi l'indirizzo di consegna.");
-    if (!costoNoto) return fail(distNo ? "Non troviamo l'indirizzo: scrivi anche il paese." : "Un attimo: stiamo calcolando il costo della consegna.");
+    if (!costoNoto) return fail(distNo ? "Scegli il tuo paese qui sopra, sotto l'indirizzo." : "Un attimo: stiamo calcolando il costo della consegna.");
     if (F && F.bibite && !(d.bibita || "").trim()) return fail("Scrivi quale bibita vuoi.");
     btn.disabled = true; btn.textContent = "Invio…";
     try {
       const ordine = { modo: d.modo, zona: consegna ? zona.nome : "", indirizzo: consegna ? d.indirizzo : "", ora: d.ora, data: d.data,
         ...(consegna && d.dist && d.dist.km != null && d.dist.ind === d.indirizzo.trim() ? { km: d.dist.km, trovato: d.dist.dove } : {}),
+        ...(consegna && d.dist && d.dist.paese && d.dist.ind === d.indirizzo.trim() ? { paese: d.dist.paese } : {}),
         nome: d.nome, telefono: d.telefono,
         note: (F && F.bibite ? `Bibite: ${(d.bibita || "").trim()}. ` : "") + d.note,
         righe: (F ? [{ n: null, nome: F.nome, prezzo: F.prezzo, q: 1 }] : []).concat(righeCarrello().map(({ n, nome, prezzo, q }) => ({ n, nome, prezzo: F ? 0 : prezzo, q }))) };
