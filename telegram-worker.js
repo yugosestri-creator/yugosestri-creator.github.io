@@ -1258,6 +1258,25 @@ async function natanDove(env, dove, fresco) {
   const v = r ? JSON.parse(r.valore) : {};
   return { url: TUNNEL_OK.test(v.url || "") ? v.url : "", cod: String(env.NATAN_PC_KEY || ""), modello: v.modello || "" };
 }
+/* Diagnosi pubblica (solo sì/no e codici di errore, nessun indirizzo né codice): per capire perché il Mac risulta spento */
+async function natanDiagnosi() {
+  const out = {};
+  try {
+    const r = await fetch(NATAN_PONTE + "?t=" + Date.now(), { cf: { cacheTtl: 0 } });
+    out.ponte_http = r.status;
+    const p = await r.json().catch(() => ({}));
+    const u = String(p.url || "").replace(/\/$/, "");
+    out.ponte_url_valido = TUNNEL_OK.test(u);
+    out.ponte_aggiornato = p.aggiornato ? new Date(p.aggiornato * 1000).toISOString() : "";
+    if (u) {
+      const t0 = Date.now();
+      try { const q = await fetch(u + "/ping", { signal: AbortSignal.timeout(8000) }); out.ping_http = q.status; out.ping_corpo = (await q.text()).slice(0, 120); }
+      catch (e) { out.ping_errore = String(e && e.message || e).slice(0, 160); }
+      out.ping_ms = Date.now() - t0;
+    }
+  } catch (e) { out.ponte_errore = String(e && e.message || e).slice(0, 160); }
+  return out;
+}
 async function natanStato(env, body) {
   await gestVerifica(env, body);
   const out = {};
@@ -1325,6 +1344,7 @@ export default {
       if (url.pathname === "/otp/stato") return json({ attivo: otpAttivo(env) });
       if (url.pathname === "/eventi") return json(await eventiPubblici(env));
       if (url.pathname === "/natan-pc") return json(await natanPc(env, request, "natan_pc"));
+      if (url.pathname === "/natan-diagnosi") return json(await natanDiagnosi());
       if (url.pathname === "/natan-grande") return json(await natanPc(env, request, "natan_grande"));
       if (url.pathname === "/recensione" && request.method === "POST") return json(await recensione(env, await request.json().catch(() => ({})), request.headers.get("CF-Connecting-IP") || ""));
       if (url.pathname === "/visita" && request.method === "POST") return json(await visita(env, await request.json().catch(() => ({})), request));
