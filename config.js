@@ -98,9 +98,9 @@ window.YUGO_CONFIG = {
         { nome: "Fino a 2,5 km", info: "fino all'autostrada", fino: 2.5, costo: 1 },
         { nome: "Da 2,5 a 4 km", fino: 4, costo: 2.5 },
         { nome: "Da 4 a 8 km", fino: 8, costo: 3.5 },
-        { nome: "Da 8 a 15 km", fino: 15, costo: 5, noOre: [["12:30", "14:00"], ["19:30", "21:30"]] }
+        { nome: "Da 8 a 12,5 km", fino: 12.5, costo: 5 }
       ],
-      maxKm: 15,
+      maxKm: 12.5,
       // Vie che sulla mappa gratuita non ci sono: aggiungile qui (nome, paese e posizione del paese o della via)
       vieExtra: [
         { via: "Via Arturo Rossi", paese: "Castiglione Chiavarese", lat: 44.27409, lon: 9.51468 }
@@ -123,8 +123,8 @@ window.YUGO_CONFIG = {
         { nome: "Cogorno", fascia: 3, anche: ["san salvatore"] },
         { nome: "Carasco", fascia: 3 }
       ],
-      // Dove si trova il ristorante (per calcolare la distanza dall'indirizzo del cliente)
-      posizione: { lat: 44.2723644, lon: 9.3963255 }
+      // Il costo della consegna lo conferma il ristorante dopo l'ordine (guardando i km su Google Maps)
+      posizioneRistorante: { lat: 44.2723644, lon: 9.3963255 }
     },
     allYouCanEat: {
       titolo: "All You Can Eat",
