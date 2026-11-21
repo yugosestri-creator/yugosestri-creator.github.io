@@ -302,12 +302,20 @@ function cardOrdine(o) {
   const d = dataOrd(o), off = o.stato === "annullata_ristorante", old = passato(d, o.ora), casa = o.modo === "consegna";
   return `
     <div class="card${old || off ? " past" : ""}" data-o="${o.id}">
-      <h3>${casa ? "🛵" : "🥡"} #${o.id} · ${d && d !== iso(new Date()) ? `<span class="tag ${old ? "blu" : "att"}">${esc(fmtDay(d))}</span> ` : ""}${esc(o.ora || "")} · ${euroG(o.totale)}
+      <h3>${casa ? "🛵" : "🥡"} #${o.id} · ${d && d !== iso(new Date()) ? `<span class="tag ${old ? "blu" : "att"}">${esc(fmtDay(d))}</span> ` : ""}${esc(o.ora || "")} · ${euroG(o.totale)}${casa && o.consegna == null && o.stato !== "annullata_ristorante" ? " + consegna" : ""}
         ${off ? '<span class="tag off">Annullato</span>' : old ? '<span class="tag blu">Passato</span>' : ""}</h3>
       <p class="meta"><b>${o.modo ? (casa ? "Consegna" : "Ritiro") : ""}</b>${casa && (o.indirizzo || o.zona) ? ` · 📍 ${esc(o.indirizzo || "")}${o.zona ? " (" + esc(o.zona) + ")" : ""}` : ""}</p>
       <p class="meta">${esc(o.nome || "")} · ${esc(o.telefono || "")}${o.email ? " · " + esc(o.email) : " · senza account"}${o.sconto ? ` · 🎉 sconto ${esc(o.sconto)}` : ""}</p>
       ${righeOrdine(o)}
       ${o.note ? `<p class="nota">📝 ${esc(o.note)}</p>` : ""}
+      ${casa && !off ? (o.consegna != null
+        ? `<p class="meta">🛵 Consegna confermata: <b>${euroG(o.consegna)}</b> · totale ${euroG(o.totale)} <button class="b" data-a="consegna-cambia" style="min-height:30px;padding:0 10px">Cambia</button></p>`
+        : "")
+        + `<div class="cons${o.consegna != null ? " chiusa" : ""}"${o.consegna != null ? " hidden" : ""}>
+            <p class="meta"><b>🛵 Quanto costa la consegna?</b> Apri Google Maps, guarda i km e tocca il prezzo. Il cliente lo vede subito.</p>
+            <div class="row">${[[1, "fino a 2,5 km"], [2.5, "2,5–4 km"], [3.5, "4–8 km"], [5, "8–12,5 km"]].map(([c, t]) => `<button class="b gold" data-costo="${c}">${euroG(c)}<small style="display:block;font-weight:400;font-size:11px">${t}</small></button>`).join("")}
+            <button class="b err" data-a="lontano">Oltre 12,5 km: annulla</button></div>
+          </div>` : ""}
       <div class="row">
         ${!old && !off ? `<button class="b" data-a="cambia">Cambia orario</button>
         <button class="b err" data-a="annulla">Annulla</button>` : ""}
@@ -324,6 +332,12 @@ function linkMappa(ind) {
 function bindOrdini() {
   document.querySelectorAll("[data-o]").forEach((c) => {
     const id = +c.dataset.o;
+    c.querySelectorAll("[data-costo]").forEach((b) => b.addEventListener("click", () => azione("ordine-consegna", { id, costo: Number(b.dataset.costo) })));
+    c.querySelector('[data-a="consegna-cambia"]')?.addEventListener("click", () => { const x = c.querySelector(".cons"); if (x) x.hidden = !x.hidden; });
+    c.querySelector('[data-a="lontano"]')?.addEventListener("click", () => {
+      if (!confirm(`L'indirizzo è oltre 12,5 km? Annullo l'ordine #${id} e il cliente riceve una notifica.`)) return;
+      azione("ordine-annulla", { id });
+    });
     c.querySelector('[data-a="annulla"]')?.addEventListener("click", async () => {
       if (!confirm(`Annullare l'ordine #${id}? Il cliente riceve una notifica.`)) return;
       azione("ordine-annulla", { id });
