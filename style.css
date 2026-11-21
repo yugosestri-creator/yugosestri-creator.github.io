@@ -874,6 +874,7 @@ body.tour-open .tabbar { z-index: 80; pointer-events: none; }
 .ord-dist .od-sino { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .ord-dist .od-sino .btn { margin: 0; }
 .od-campo { position: relative; }
+.od-lista { margin-top: 8px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; max-height: 290px; overflow-y: auto; }
 .od-sugg { position: absolute; left: 0; right: 0; top: 100%; z-index: 20; margin-top: 4px; background: var(--surface, #0f2147); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; box-shadow: 0 12px 28px rgb(0 0 0 / .35); }
 .od-s { display: grid; grid-template-columns: auto 1fr; column-gap: 6px; width: 100%; padding: 10px 12px; background: none; border: 0; border-bottom: 1px solid var(--line); color: var(--fg); font: inherit; text-align: left; cursor: pointer; }
 .od-s:last-child { border-bottom: 0; }
