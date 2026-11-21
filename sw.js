@@ -1,5 +1,5 @@
 /* Service worker: fa aprire Yugo velocemente e anche con poca connessione */
-const CACHE = "yugo-v38";
+const CACHE = "yugo-v39";
 const FILES = ["./", "./index.html", "./style.css", "./app.js", "./anim.js", "./config.js", "./i18n.js", "./manifest.json", "./icon-192.png", "./apple-touch-icon.png", "./logo-word.webp", "./piatto.jpg"];
 
 self.addEventListener("install", (e) => {
@@ -26,7 +26,8 @@ self.addEventListener("push", (e) => {
   let d = {};
   try { d = e.data ? e.data.json() : {}; } catch { d = { testo: e.data && e.data.text() }; }
   e.waitUntil(self.registration.showNotification(d.titolo || "Yugo", {
-    body: d.testo || "", icon: "icon-192.png", badge: "icon-192.png", tag: "yugo-" + Date.now(), data: { url: d.url || "./#account" }
+    body: d.testo || "", icon: "icon-192.png", badge: "icon-192.png", tag: d.tag || "yugo-" + Date.now(), renotify: !!d.tag,
+    vibrate: [200, 100, 200], data: { url: d.url || "./#account" }
   }));
 });
 self.addEventListener("notificationclick", (e) => {
