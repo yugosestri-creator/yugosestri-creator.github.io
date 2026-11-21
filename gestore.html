@@ -801,19 +801,19 @@ async function ntChiedi(domanda) {
 
     } else {                                                    // soluzione principale: due bozze, poi il Mac unisce
       bot.chi = "unita"; bot.testo = "💻 Mac e 🖥 PC stanno scrivendo le bozze…"; render();
-      const parole = { mac: 0, pc: 0 }, fatto = { mac: "…", pc: "…" };
+      const parole = { mac: 0, pc: 0 }, fatto = { mac: "…", pc: "…" }, motivo = { mac: "", pc: "" };
       const mostra = () => live("main", `💻 Mac: ${fatto.mac === "…" ? `sta scrivendo (${parole.mac} parole)` : fatto.mac}\n🖥 PC: ${fatto.pc === "…" ? `sta scrivendo (${parole.pc} parole, è più lento)` : fatto.pc}`);
       const [bMac, bPc] = await Promise.all([mac, pc].map((t) => ntLavoro(t, per(t), (x) => { parole[t.dove] = x.split(/\s+/).length; mostra(); })
         .then((x) => { fatto[t.dove] = "fatto ✓"; mostra(); return x; })
-        .catch(() => { fatto[t.dove] = "non ce l'ha fatta"; mostra(); return ""; })));
+        .catch((e) => { fatto[t.dove] = "non ce l'ha fatta"; motivo[t.dove] = (e && e.message) || ""; mostra(); return ""; })));
       bot.bozze = { mac: bMac, pc: bPc };
       if (bMac && bPc) {
         live("main", "💻 Il Mac confronta le due bozze e scrive la risposta migliore…");
         const unisci = `${testo}\n\nBOZZA 1 (Natan del Mac):\n${bMac.slice(0, 5000)}\n\nBOZZA 2 (Natan del PC fisso):\n${bPc.slice(0, 5000)}`;
         try { bot.testo = await ntLavoro(mac, { sistema: sistema + NT_UNISCI, testo: unisci, storia: [], max_token: 4000 }, (t) => { bot.testo = t; live("main", t); }); }
         catch { bot.testo = bMac; bot.nota = "Il Mac non è riuscito a unire le bozze: questa è la sua."; }
-      } else if (bMac) { bot.testo = bMac; bot.chi = "mac"; bot.nota = "Solo il Mac: il PC fisso non ha risposto."; }
-      else if (bPc) { bot.testo = bPc; bot.chi = "pc"; bot.nota = "Solo il PC fisso: il Mac non ha risposto."; }
+      } else if (bMac) { bot.testo = bMac; bot.chi = "mac"; bot.nota = "Solo il Mac: il PC fisso non ha risposto." + (motivo.pc ? ` (${motivo.pc})` : ""); }
+      else if (bPc) { bot.testo = bPc; bot.chi = "pc"; bot.nota = "Solo il PC fisso: il Mac non ha risposto." + (motivo.mac ? ` (${motivo.mac})` : ""); }
       else throw new Error("Né il Mac né il PC sono riusciti a rispondere.");
     }
   } catch (e) {
