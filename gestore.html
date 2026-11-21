@@ -706,7 +706,9 @@ function ntTaglia(t) {
 /* Una richiesta a un Natan (Mac, PC o Grande): parte, poi legge il testo mentre lo scrive */
 async function ntLavoro(t, corpo, suTesto) {
   const chi = { pc: "il PC fisso", mac: "il Mac", grande: "Natan Grande" }[t.dove];
-  const r = await fetch(t.url + "/consulente", { method: "POST", headers: { "Authorization": "Bearer " + t.cod, "Content-Type": "application/json" }, body: JSON.stringify(corpo) });
+  let r;
+  try { r = await fetch(t.url + "/consulente", { method: "POST", headers: { "Authorization": "Bearer " + t.cod, "Content-Type": "application/json" }, body: JSON.stringify(corpo) }); }
+  catch { throw new Error(`Non riesco a raggiungere ${chi}: forse si è appena riavviato o è spento. Riprova tra un minuto.`); }
   const d = await r.json().catch(() => ({}));
   if (r.status === 404) throw new Error(t.dove === "mac" ? "Il Natan del Mac non ha ancora il «consulente»: chiudi Natan e riaprilo, poi riprova." : `${chi} non ha il «consulente».`);
   if (r.status === 401) throw new Error(`Il codice per ${chi} non è giusto: premi «Cambia codici».`);
@@ -740,12 +742,15 @@ Regole:
 async function ntChiedi(domanda) {
   domanda = String(domanda || "").trim();
   if (!domanda || NT.lavoro) return;
+  // gli indirizzi di Mac e PC cambiano a ogni riavvio: li ricontrollo subito prima di chiedere (così niente «Failed to fetch»)
+  const b0 = $("#nt-invia"); if (b0) { b0.disabled = true; b0.textContent = "Controllo chi è acceso…"; }
+  await ntTrova();
   const codPc = store.get("yugo-natan-pc-codice", ""), codMac = store.get("yugo-natan-codice", "");
   const mac = NT.mac && codMac ? { dove: "mac", url: NT.mac, cod: codMac } : null;
   const pc = NT.pc && codPc ? { dove: "pc", url: NT.pc.url, cod: codPc } : null;
   const grande = NT.grande && codPc ? { dove: "grande", url: NT.grande.url, cod: codPc } : null;
   const modo = NT.modo === "grande" && grande ? "grande" : NT.modo === "pareri" ? "pareri" : "principale";
-  if (modo !== "grande" && !mac && !pc) { toast("Natan è spento o manca il codice: accendi il Mac."); return; }
+  if (modo !== "grande" && !mac && !pc) { toast("Natan è spento o manca il codice: accendi il Mac."); const q = $("#nt-q"); if (q) q.value = domanda; return; }
   NT.lavoro = true; NT.log.push({ io: true, testo: domanda }, { testo: "" }); render();
   const bot = NT.log[NT.log.length - 1];
   const live = (k, txt) => { const x = [...document.querySelectorAll(`#nt-log [data-live="${k}"]`)].pop(); if (x && tab === "natan") x.textContent = ntPulito(txt); };
