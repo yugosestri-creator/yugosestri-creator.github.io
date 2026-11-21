@@ -315,7 +315,13 @@ async function prenotazione(env, body, ip) {
 
 
 /* ---------------- ordini da casa ---------------- */
-const ZONE = { "Sestri Levante": 1, "Riva Trigoso": 2.5, "Casarza Ligure": 3.5, "Moneglia": 5 };
+// Consegna: costo in base ai km in auto dal ristorante (uguale a config.js → ordini.zone)
+const ZONE = { "Fino a 2,5 km": 1, "Da 2,5 a 4 km": 2.5, "Da 4 a 8 km": 3.5, "Oltre 8 km": 5,
+  // nomi vecchi: per chi ha ancora il sito vecchio in memoria (si possono togliere tra qualche giorno)
+  "Sestri Levante": 1, "Riva Trigoso": 2.5, "Casarza Ligure": 3.5, "Moneglia": 5 };
+const ZONA_KM = [[2.5, "Fino a 2,5 km"], [4, "Da 2,5 a 4 km"], [8, "Da 4 a 8 km"], [Infinity, "Oltre 8 km"]];
+// Oltre 8 km niente consegne nelle ore di punta
+const ZONA_NO_ORE = { "Oltre 8 km": [["12:30", "14:00"], ["19:30", "21:30"]], "Moneglia": [["12:30", "14:00"], ["19:30", "21:30"]] };
 const GIORNI_CHIUSI = [2]; // martedì chiuso
 function giornoRoma() {
   const g = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Rome", weekday: "short" }).format(new Date());
@@ -482,7 +488,9 @@ async function ordine(env, body, ip) {
   if (!righe.length) throw new Errore("L'ordine è vuoto");
   const o = {
     nome: pulisci(body.nome, 80), telefono: pulisci(body.telefono, 30), note: pulisci(body.note, 400),
-    indirizzo: pulisci(body.indirizzo, 160), zona: pulisci(body.zona, 40), ora: /^\d{2}:\d{2}$/.test(body.ora) ? body.ora : ""
+    indirizzo: pulisci(body.indirizzo, 160), zona: pulisci(body.zona, 40), ora: /^\d{2}:\d{2}$/.test(body.ora) ? body.ora : "",
+    km: Number.isFinite(Number(body.km)) && body.km !== null && body.km !== "" && Number(body.km) >= 0 && Number(body.km) < 200 ? Math.round(Number(body.km) * 10) / 10 : null,
+    trovato: pulisci(body.trovato, 120)
   };
   if (!o.nome || o.telefono.replace(/\D/g, "").length < 8) throw new Errore("Servono nome e telefono");
   if (!o.ora) throw new Errore("Scegli l'orario");
@@ -505,7 +513,13 @@ async function ordine(env, body, ip) {
     if (o.indirizzo.length < 5) throw new Errore("Manca l'indirizzo");
     if (sub < MINIMO) throw new Errore(`Per la consegna l'ordine minimo è ${eur(MINIMO)}`);
     costo = ZONE[o.zona];
+    if ((ZONA_NO_ORE[o.zona] || []).some(([a, b]) => o.ora >= a && o.ora < b))
+      throw new Errore(`Oltre 8 km consegniamo solo fuori dalle ore di punta (non dalle 12:30 alle 14:00 e non dalle 19:30 alle 21:30): scegli un altro orario.`);
   }
+  // distanza calcolata dal sito: se la fascia scelta è più economica, lo segnaliamo al ristorante
+  const fasciaKm = consegna && o.km != null ? ZONA_KM.find(([k]) => o.km <= k)[1] : null;
+  const kmTesto = fasciaKm ? `🛣 circa ${String(o.km).replace(".", ",")} km in auto${o.trovato ? ` (${o.trovato})` : ""}` : null;
+  const kmAvviso = fasciaKm && ZONE[fasciaKm] > ZONE[o.zona] ? `⚠️ Il cliente ha scelto «${o.zona}» ma la distanza calcolata è nella fascia «${fasciaKm}» (${eur(ZONE[fasciaKm])}): controlla l'indirizzo.` : null;
   const recenti = await env.DB.prepare("SELECT COUNT(*) AS n FROM ordini WHERE uid = ? AND creato > ?")
     .bind(u.uid, new Date(Date.now() - 12 * 3600e3).toISOString()).first();
   if (recenti && recenti.n >= 5) throw new Errore("Hai già inviato diversi ordini oggi: per altri chiama il ristorante", 429);
@@ -532,6 +546,7 @@ async function ordine(env, body, ip) {
     consegna ? `🛵 NUOVO ORDINE n. ${numero} – CONSEGNA` : `🥡 NUOVO ORDINE n. ${numero} – RITIRO`, "",
     `👤 ${o.nome}`, `📞 ${o.telefono}`,
     consegna ? `📍 ${o.indirizzo} (${o.zona})` : "📍 Ritiro al ristorante",
+    kmTesto, kmAvviso,
     `🕗 ${quando}`, "", ...lista, "",
     consegna || sconto ? `Piatti ${eur(sub)}${sconto ? ` − ${sconto.it.toLowerCase()} ${sconto.perc}% (${eur(meno)})` : ""}${consegna ? ` + consegna ${eur(costo)}` : ""}` : null,
     sconto ? `🎉 ${sconto.it.toUpperCase()} ${sconto.perc}% GIÀ CALCOLATO` : null,
@@ -542,6 +557,7 @@ async function ordine(env, body, ip) {
     consegna ? `🛵 新订单 ${numero}号 – 外送` : `🥡 新订单 ${numero}号 – 自取`, "",
     `👤 姓名：${o.nome}`, `📞 电话：${o.telefono}`,
     consegna ? `📍 地址：${o.indirizzo}（${o.zona}）` : "📍 到店自取",
+    fasciaKm ? `🛣 约 ${o.km} 公里${kmAvviso ? `（⚠️ 应为「${fasciaKm}」${eur(ZONE[fasciaKm])}，请核对地址）` : ""}` : null,
     `🕗 时间：${quandoZh}`, "", ...lista, "",
     consegna || sconto ? `菜品 ${eur(sub)}${sconto ? ` − ${sconto.zh} ${sconto.perc}%（${eur(meno)}）` : ""}${consegna ? ` + 配送费 ${eur(costo)}` : ""}` : null,
     sconto ? `🎉 ${sconto.zh} ${sconto.perc}%（已计算在内）` : null,
@@ -737,10 +753,13 @@ async function comando(env, msg) {
     if (ordine) await ridaiSconto(env, id);
     const quando = ordine ? `n. ${id}${r.ora ? " (" + r.ora + ")" : ""}` : `${r.data.split("-").reverse().join("/")} ${r.ora}`;
     const email = await avvisaCliente(env, r.email, r.lang || "it", ordine, quando);
+    const push = ordine
+      ? await notifica(env, r.uid, "Ordine annullato", `Il ristorante ha annullato il tuo ordine n. ${id}. Tocca per rifarlo con un altro orario o chiamarci.`, { url: "./#home", tag: "ordine-" + id })
+      : await notifica(env, r.uid, "Prenotazione annullata", `Il ristorante ha annullato la tua prenotazione del ${quando}.`);
     const chi = [r.nome, r.telefono].filter(Boolean).join(" · ");
     return rispondi([
       `❌ ${ordine ? "Ordine" : "Prenotazione"} ${m[1]}${id} annullat${ordine ? "o" : "a"}${chi ? " – " + chi : ""}`,
-      email ? "✉️ Il cliente è stato avvisato via email." : `📞 Avvisa il cliente${r.telefono ? " al " + r.telefono : ""}.`,
+      email || push ? `${push ? "🔔 Notifica arrivata sul telefono del cliente. " : ""}${email ? "✉️ Avvisato anche via email." : ""}`.trim() : `📞 Avvisa il cliente${r.telefono ? " al " + r.telefono : ""}.`,
       ordine ? "" : "Sul sito la vede già come annullata dal ristorante.",
       `❌ 已取消 ${m[1]}${id}。${email ? "已发邮件通知客人。" : "请打电话通知客人。"}`
     ].filter(Boolean).join("\n"));
@@ -1061,7 +1080,7 @@ async function gestAzione(env, body) {
     await env.DB.prepare("UPDATE ordini SET stato = 'annullata_ristorante' WHERE id = ?").bind(id).run();
     await ridaiSconto(env, id);
     await avvisaCliente(env, r.email, r.lang || "it", true, `n. ${id}${r.ora ? " (" + r.ora + ")" : ""}`);
-    await notifica(env, r.uid, "Ordine annullato", `Il ristorante ha annullato il tuo ordine n. ${id}. Per info: 0185 177 1400.`);
+    await notifica(env, r.uid, "Ordine annullato", `Il ristorante ha annullato il tuo ordine n. ${id}. Tocca per rifarlo con un altro orario o chiamarci.`, { url: "./#home", tag: "ordine-" + id });
     await tg(env, testoModifica(r, true, null), CONFIG.CHAT_ORDINI || CONFIG.CHAT_ID);
     return { ok: true };
   }
@@ -1191,18 +1210,32 @@ async function inviaPush(env, sub, dati) {
     "Content-Encoding": "aes128gcm", "Content-Type": "application/octet-stream", TTL: "86400", Urgency: "high",
     Authorization: `vapid t=${testa}.${claims}.${firma}, k=${v.pub}` } });
 }
-async function notifica(env, uid, titolo, testo) {
+async function notifica(env, uid, titolo, testo, extra = {}) {
   if (!uid) return 0;
   try {
     const subs = (await env.DB.prepare("SELECT * FROM push_sub WHERE uid = ?").bind(uid).all()).results || [];
     let n = 0;
     for (const s of subs) {
-      const r = await inviaPush(env, s, { titolo, testo, url: "./#account" }).catch(() => null);
+      const r = await inviaPush(env, s, { titolo, testo, url: extra.url || "./#account", tag: extra.tag || "" }).catch(() => null);
       if (r && (r.status === 404 || r.status === 410)) await env.DB.prepare("DELETE FROM push_sub WHERE endpoint = ?").bind(s.endpoint).run();
       else if (r && r.ok) n++;
     }
     return n;
   } catch { return 0; }
+}
+/* Notifiche per chi ordina senza account: si collegano al suo ordine (numero + telefono, come per seguire l'ordine) */
+async function pushOrdine(env, body) {
+  await init(env);
+  const id = parseInt(body.numero, 10) || 0;
+  const tel = String(body.telefono || "").replace(/\D/g, "").slice(-8);
+  const o = await env.DB.prepare("SELECT uid, telefono FROM ordini WHERE id = ?").bind(id).first();
+  if (!o || !tel || String(o.telefono || "").replace(/\D/g, "").slice(-8) !== tel) throw new Errore("Ordine non trovato.", 404);
+  const s = body.sub || {}, k = s.keys || {};
+  if (!/^https:\/\//.test(s.endpoint || "") || !k.p256dh || !k.auth) throw new Errore("Iscrizione non valida.", 400);
+  await env.DB.prepare("INSERT INTO push_sub (endpoint, uid, p256dh, auth, creato) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(endpoint) DO UPDATE SET uid = ?2, p256dh = ?3, auth = ?4")
+    .bind(String(s.endpoint).slice(0, 800), o.uid, String(k.p256dh).slice(0, 200), String(k.auth).slice(0, 100), adessoISO()).run();
+  if (body.prova) await notifica(env, o.uid, "Notifiche attive ✓", `Ti avvisiamo qui se il ristorante cambia o annulla l'ordine n. ${id}.`, { url: "./#home" });
+  return { ok: true };
 }
 async function pushIscrivi(env, body) {
   const u = await utente(env, body.idToken);
@@ -1368,6 +1401,7 @@ export default {
       if (url.pathname === "/miei") return json(await miei(env, body));
       if (url.pathname === "/ordine/nascondi") return json(await nascondiOrdine(env, body));
       if (url.pathname === "/push/iscrivi") return json(await pushIscrivi(env, body));
+      if (url.pathname === "/push/ordine") return json(await pushOrdine(env, body));
       if (url.pathname === "/otp/invia") return json(await otpInvia(env, body));
       if (url.pathname === "/otp/verifica") return json(await otpVerifica(env, body));
       if (url.pathname === "/gestore/login") return json(await gestLogin(env, body, ip));
