@@ -950,6 +950,50 @@ function trackerHTML(o) {
     ${f >= 0 ? `<ol class="trk-steps">${passi.map((p, i) => `<li class="${i < f || f === 3 ? "done" : i === f ? "now" : ""}"><span></span>${esc(p)}</li>`).join("")}</ol>` : ""}
   </div>`;
 }
+/* ---------- Scontrino: il riepilogo dell'ordine in stile scontrino (non è uno scontrino fiscale) ---------- */
+function scontrinoHTML(o, stampa) {
+  const quando = new Date(o.creato || Date.now());
+  const dt = quando.toLocaleDateString(LOC(), { day: "2-digit", month: "2-digit", year: "numeric" }) + " " + quando.toLocaleTimeString(LOC(), { hour: "2-digit", minute: "2-digit" });
+  const casa = o.modo === "consegna";
+  const righe = (o.righe || []).map((r) => {
+    const tot = (Number(r.prezzo) || 0) * (Number(r.q) || 1);
+    const incluso = o.famiglia && !(Number(r.prezzo) > 0);
+    return `<div class="sc-riga"><span class="sc-q">${esc(r.q)}×</span><span class="sc-nome">${esc(r.nome)}${r.n != null ? ` <small>n.${esc(r.n)}</small>` : ""}</span><span class="sc-pr">${incluso ? "incl." : euro(tot)}</span></div>`;
+  }).join("");
+  const pezzi = (o.righe || []).reduce((a, r) => a + (Number(r.q) || 1), 0);
+  const barre = [...String(o.numero).padStart(4, "0") + "YUGO"].map((c) => c.charCodeAt(0)).map((n) => `<i style="width:${1 + (n % 3)}px"></i><i class="v" style="width:${1 + ((n >> 2) % 3)}px"></i>`).join("");
+  return `<div class="scontrino${stampa ? " stampa" : ""}" role="group" aria-label="Scontrino dell'ordine">
+    <div class="sc-carta">
+      <div class="sc-testa"><b>YUGO</b><span>sushi experience</span><small>${esc(R.indirizzo || "")}<br>Tel. ${esc(R.telefono || "")}</small></div>
+      <div class="sc-sep"></div>
+      <div class="sc-info"><span>Ordine n. <b>${esc(o.numero)}</b></span><span>${esc(dt)}</span></div>
+      <div class="sc-info"><span>${casa ? "🛵 Consegna" : "🥡 Ritiro"}</span><span><span>${esc(nomeGiorno(o.data))}</span> · ${esc(o.ora)}</span></div>
+      ${casa && o.indirizzo ? `<div class="sc-info sc-ind"><span>${esc(o.indirizzo)}${o.zona ? ", " + esc(o.zona) : ""}</span></div>` : ""}
+      <div class="sc-info"><span>Cliente</span><span>${esc(o.nome || "")}</span></div>
+      <div class="sc-sep"></div>
+      ${righe}
+      <div class="sc-sep"></div>
+      <div class="sc-riga sc-som"><span></span><span class="sc-nome">Subtotale (${pezzi} ${pezzi === 1 ? "pezzo" : "pezzi"})</span><span class="sc-pr">${euro(o.sub != null ? o.sub : o.totale)}</span></div>
+      ${o.sconto && o.sconto.meno ? `<div class="sc-riga sc-som sc-sconto"><span></span><span class="sc-nome"><span>${esc(o.sconto.nome)}</span> ${esc(o.sconto.perc)}%</span><span class="sc-pr">−${euro(o.sconto.meno)}</span></div>` : ""}
+      ${casa ? `<div class="sc-riga sc-som"><span></span><span class="sc-nome">Consegna</span><span class="sc-pr">${euro(o.consegna || 0)}</span></div>` : ""}
+      <div class="sc-totale"><span>TOTALE</span><b>€ ${euro(o.totale)}</b></div>
+      <p class="sc-paga">Pagamento ${casa ? "alla consegna" : "alla cassa quando ritiri"}</p>
+      ${o.note ? `<p class="sc-note"><span>Note:</span> <span class="notranslate">${esc(o.note)}</span></p>` : ""}
+      <div class="sc-sep"></div>
+      <div class="sc-barre" aria-hidden="true">${barre}</div>
+      <p class="sc-grazie">Grazie e buon appetito! 🍣</p>
+      <p class="sc-legale">Riepilogo dell'ordine · non è uno scontrino fiscale</p>
+    </div>
+  </div>`;
+}
+function apriScontrino(o) {
+  const el = document.createElement("div");
+  el.className = "sheet sc-sheet"; el.setAttribute("role", "dialog"); el.setAttribute("aria-modal", "true"); el.setAttribute("aria-label", "Scontrino");
+  el.innerHTML = `<div class="sheet-bg" data-x></div><div class="sheet-card sc-card"><button type="button" class="sheet-x" data-x aria-label="Chiudi">×</button>${scontrinoHTML(o, true)}</div>`;
+  const chiudi = () => { el.remove(); document.documentElement.classList.remove("no-scroll"); };
+  el.addEventListener("click", (e) => { if (e.target.closest("[data-x]")) chiudi(); });
+  document.body.appendChild(el); document.documentElement.classList.add("no-scroll");
+}
 function ultimoOrdine() {
   const o = store.get("yugo-ultimo-ordine", null);
   if (!o || !o.numero || !o.data || !o.ora) return null;
@@ -961,7 +1005,8 @@ function disegnaTracker() {
     home.hidden = !o;
     home.innerHTML = o ? `<article class="block trk-card"><h2>Il tuo ordine</h2>${trackerHTML(o)}
       ${o.cosa && o.cosa.length ? `<p class="hint trk-cosa">${o.cosa.map(esc).join(" · ")}</p>` : ""}
-      <a class="btn btn-ghost btn-sm" href="tel:${esc((R.telefono || "").replace(/[^\d+]/g, ""))}">Chiama il ristorante</a></article>` : "";
+      <div class="trk-azioni">${o.righe ? `<button type="button" class="btn btn-ghost btn-sm" data-scontrino>🧾 Scontrino</button>` : ""}<a class="btn btn-ghost btn-sm" href="tel:${esc((R.telefono || "").replace(/[^\d+]/g, ""))}">Chiama il ristorante</a></div></article>` : "";
+    const bs = home.querySelector("[data-scontrino]"); if (bs) bs.onclick = () => apriScontrino(o);
   }
   document.querySelectorAll("#ord-body .trk-host").forEach((h) => { if (o) h.innerHTML = trackerHTML(o); });
 }
@@ -1086,10 +1131,14 @@ function disegnaCarrello() {
       SCONTI = null; caricaSconti(true);
       if (F) { FAM = null; store.set("yugo-family", null); disegnaFamily(); menuReset(); }
       const traccia = { numero: res.numero, telefono: d.telefono, data: d.data || isoDate(new Date()), ora: d.ora, modo: d.modo, nome: d.nome.split(" ")[0], creato: Date.now(),
-        cosa: ordine.righe.map((r) => `${r.q}× ${r.nome}`).slice(0, 6), totale: res.totale != null ? res.totale : tot };
+        cosa: ordine.righe.map((r) => `${r.q}× ${r.nome}`).slice(0, 6), totale: res.totale != null ? res.totale : tot,
+        // per lo scontrino
+        righe: ordine.righe, famiglia: F ? F.nome : "", sub, consegna: consegna ? costo : 0, zona: consegna ? zona.nome : "", indirizzo: consegna ? d.indirizzo : "",
+        sconto: res.sconto ? { nome: nomeSconto(), perc: res.sconto.perc, meno: res.sconto.meno } : perc ? { nome: nomeSconto(), perc, meno } : null, note: ordine.note || "" };
       store.set("yugo-ultimo-ordine", traccia);
       body.innerHTML = `<div class="ord-ok">
         <p class="cs-kicker">Ordine n. ${esc(res.numero)} inviato</p><h2 id="ord-title">Grazie ${esc(d.nome.split(" ")[0])}!</h2>
+        ${scontrinoHTML(traccia, true)}
         <div class="trk-host">${trackerHTML(traccia)}</div>
         <p class="muted">Se c'è un problema ti chiamiamo al ${esc(d.telefono)}.</p>
         <p class="hint">Puoi seguire l'ordine anche dalla home.</p>
