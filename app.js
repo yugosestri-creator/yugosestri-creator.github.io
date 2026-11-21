@@ -890,7 +890,7 @@ let ordDati = store.get("yugo-ordine-dati", { modo: "consegna", zona: 0, indiriz
 const zonaDaKm = (km) => { const z = ORD.zone || []; const i = z.findIndex((x) => x.fino != null && km <= x.fino); return i < 0 ? z.length - 1 : i; };
 const oraDiPunta = (z, t) => ((z && z.noOre) || []).some(([a, b]) => t >= a && t < b);
 const nomeZona = (z) => `${z.nome}${z.info ? ` (${z.info})` : ""} · € ${euro(z.costo)}`;
-let DIST = store.get("yugo-dist", {}), distInCorso = "";
+let DIST = store.get("yugo-dist2", {}), distInCorso = "";
 const norm = (t) => String(t || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
 const PAESI = () => (ORD.paesi || []).filter((p) => (ORD.zone || [])[p.fascia]);
 function paeseNelTesto(t) {   // "Via Roma 5, Riva Trigoso" → Riva Trigoso
@@ -915,7 +915,7 @@ async function calcolaDistanza(ind) {
     if (g) {
       const a = g.address || {}, via = [a.road || a.pedestrian || a.square, a.house_number].filter(Boolean).join(" ");
       const paese = a.town || a.village || a.city || a.hamlet || a.suburb || "";
-      punto = { lat: g.lat, lon: g.lon, dove: [via, paese].filter(Boolean).join(", ") || String(g.display_name || "").split(",").slice(0, 3).map((x) => x.trim()).join(", ") };
+      punto = { lat: g.lat, lon: g.lon, comune: paese, dove: [via, paese].filter(Boolean).join(", ") || String(g.display_name || "").split(",").slice(0, 3).map((x) => x.trim()).join(", ") };
     }
   } catch { errori++; }
   // 2) seconda mappa (Photon), ma solo se il nome della via corrisponde davvero a quello scritto
@@ -924,7 +924,7 @@ async function calcolaDistanza(ind) {
     if (parole.length) {
       const j = await fetch(`https://photon.komoot.io/api/?limit=5&lang=it&lat=${P.lat}&lon=${P.lon}&bbox=9.15,44.12,9.70,44.42&q=` + encodeURIComponent(ind)).then((r) => r.json());
       const f = (j.features || []).find((x) => { const n = norm([x.properties.street, x.properties.name].join(" ")); return parole.every((w) => n.includes(w)); });
-      if (f) { const q = f.properties; punto = { lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0], dove: [[q.street || q.name, q.housenumber].filter(Boolean).join(" "), q.city || q.town || q.village || q.locality || ""].filter(Boolean).join(", ") }; }
+      if (f) { const q = f.properties; punto = { lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0], comune: q.city || q.town || q.village || q.locality || "", dove: [[q.street || q.name, q.housenumber].filter(Boolean).join(" "), q.city || q.town || q.village || q.locality || ""].filter(Boolean).join(", ") }; }
     }
   } catch { errori++; }
   // 3) la via non c'è sulla mappa: il costo si prende dal paese scritto nell'indirizzo
@@ -932,9 +932,9 @@ async function calcolaDistanza(ind) {
   let m = null;
   try { const r = await fetch(`https://router.project-osrm.org/route/v1/driving/${P.lon},${P.lat};${punto.lon},${punto.lat}?overview=false`).then((x) => x.json()); m = r && r.routes && r.routes[0] && r.routes[0].distance; } catch { m = null; }
   if (m == null) { const pz = paeseNelTesto(ind); return pz ? { paese: pz.nome, fascia: pz.fascia } : { errore: true }; }
-  const out = { km: Math.round(m / 100) / 10, dove: punto.dove };
+  const out = { km: Math.round(m / 100) / 10, dove: punto.dove, comune: punto.comune || "" };
   const chiavi = Object.keys(DIST); if (chiavi.length > 30) delete DIST[chiavi[0]];
-  DIST[k] = out; store.set("yugo-dist", DIST);
+  DIST[k] = out; store.set("yugo-dist2", DIST);
   return out;
 }
 /* Sconto sugli ordini dal sito (consegna o ritiro): lo decide il bot, qui lo mostriamo */
@@ -1131,7 +1131,9 @@ function disegnaCarrello() {
   // il costo della consegna lo calcola il sito dall'indirizzo (km in auto); a mano solo se il calcolo non funziona
   const indT = (d.indirizzo || "").trim(), distQui = consegna && d.dist && d.dist.ind === indT ? d.dist : null;
   const distKm = !!(distQui && distQui.km != null), distPaese = !!(distQui && distQui.paese && zone[distQui.fascia]);
-  const distOk = distKm || distPaese, distNo = !distOk && !!(distQui && (distQui.niente || distQui.errore)) || (consegna && !ORD.posizione && indT.length >= 5);
+  // il cliente ha scritto solo la via: gli chiediamo se il comune trovato è giusto (sì / no)
+  const distChiedi = distKm && !distQui.ok && !!distQui.comune && !norm(indT).includes(norm(distQui.comune));
+  const distOk = (distKm && !distChiedi) || distPaese, distNo = !distOk && !!(distQui && (distQui.niente || distQui.errore)) || (consegna && !ORD.posizione && indT.length >= 5);
   if (distKm) d.zona = zonaDaKm(distQui.km); else if (distPaese) d.zona = distQui.fascia;
   if (!zone[d.zona]) d.zona = 0;
   const costoNoto = !consegna || distOk;
@@ -1158,10 +1160,13 @@ function disegnaCarrello() {
       <button role="tab" type="button" data-modo-ord="consegna" aria-selected="${consegna}">🛵 Consegna</button>
       <button role="tab" type="button" data-modo-ord="ritiro" aria-selected="${!consegna}">🥡 Ritiro</button>
     </div>`}
-    ${consegna ? `<div class="field"><label for="o-ind">Indirizzo</label><input class="input" id="o-ind" autocomplete="street-address" placeholder="Via, numero civico, paese, citofono" value="${esc(d.indirizzo || "")}"></div>
-      <div class="ord-dist${distOk ? " ok" : distNo ? " no" : ""}" id="o-dist" aria-live="polite">${distOk
+    ${consegna ? `<div class="field"><label for="o-ind">Indirizzo</label><input class="input" id="o-ind" autocomplete="street-address" placeholder="Via e numero civico, citofono" value="${esc(d.indirizzo || "")}"></div>
+      <div class="ord-dist${distOk ? " ok" : distNo || distChiedi ? " no" : ""}" id="o-dist" aria-live="polite">${distChiedi
+          ? `<p class="od-domanda"><span>La via è a</span> <b class="notranslate">${esc(distQui.comune)}</b>?</p>
+            <div class="od-sino"><button type="button" class="btn btn-gold btn-sm" data-comune-si>Sì, è giusto</button><button type="button" class="btn btn-ghost btn-sm" data-paese-cambia>No, è un altro paese</button></div>`
+        : distOk
           ? `<p class="od-costo">🛵 <b>Consegna € ${euro(zona.costo)}</b></p><p class="od-km">${distKm ? `<span>circa ${String(distQui.km).replace(".", ",")} km da noi</span> · <span class="notranslate">${esc(distQui.dove)}</span>` : `<span>Consegna a</span> <span class="notranslate">${esc(distQui.paese)}</span>`} · <button type="button" class="od-cambia" data-paese-cambia>Non è giusto?</button></p>`
-        : distNo ? `<p>${distQui && distQui.errore ? "Non riusciamo a trovare la via sulla mappa in questo momento." : "Questa via non c'è sulla mappa, ma nessun problema!"} <b>In che paese sei?</b></p>
+        : distNo ? `<p>${distQui && distQui.scelta ? "Nessun problema!" : distQui && distQui.errore ? "Non riusciamo a trovare la via sulla mappa in questo momento." : "Questa via non c'è sulla mappa, ma nessun problema!"} <b>In che paese sei?</b></p>
             <div class="od-paesi">${PAESI().map((p) => `<button type="button" class="pick" data-paese="${esc(p.nome)}">${esc(p.nome)}</button>`).join("")}</div>
             <p class="od-nota">Il tuo paese non c'è? Chiamaci e vediamo se arriviamo.</p>`
         : indT.length >= 5 ? `<p>Calcolo il costo della consegna…</p>` : `<p>Scrivi l'indirizzo: il costo della consegna lo calcoliamo noi.</p>`}</div>
@@ -1228,11 +1233,12 @@ function disegnaCarrello() {
   if (consegna && !distQui && indT.length >= 5) calcola();
   const boxDist = $("#o-dist");
   if (boxDist) boxDist.onclick = (e) => {
-    const b = e.target.closest("[data-paese]"), c = e.target.closest("[data-paese-cambia]");
-    if (!b && !c) return;
+    const b = e.target.closest("[data-paese]"), c = e.target.closest("[data-paese-cambia]"), si = e.target.closest("[data-comune-si]");
+    if (!b && !c && !si) return;
     leggi(); const ind = (d.indirizzo || "").trim();
+    if (si) { if (d.dist && d.dist.ind === ind) d.dist = { ...d.dist, ok: true }; disegnaCarrello(); return; }
     const p = b && PAESI().find((x) => x.nome === b.dataset.paese);
-    d.dist = p ? { ind, paese: p.nome, fascia: p.fascia, scelto: true } : { ind, niente: true };
+    d.dist = p ? { ind, paese: p.nome, fascia: p.fascia, scelto: true } : { ind, niente: true, scelta: true };
     disegnaCarrello();
   };     // indirizzo già scritto (o ordine rifatto): calcola subito
   if ($("#o-giorni")) $("#o-giorni").onclick = (e) => { const b = e.target.closest("[data-g]"); if (!b) return; leggi(); d.data = b.dataset.g; d.ora = ""; disegnaCarrello(); };
@@ -1256,12 +1262,12 @@ function disegnaCarrello() {
     if (d.telefono.replace(/\D/g, "").length < 8) return fail("Serve un numero di telefono: ti chiamiamo se c'è un problema.");
     if (!d.ora) return fail("Scegli l'ora.");
     if (consegna && d.indirizzo.trim().length < 5) return fail("Scrivi l'indirizzo di consegna.");
-    if (!costoNoto) return fail(distNo ? "Scegli il tuo paese qui sopra, sotto l'indirizzo." : "Un attimo: stiamo calcolando il costo della consegna.");
+    if (!costoNoto) return fail(distChiedi ? "Conferma il paese qui sopra, sotto l'indirizzo." : distNo ? "Scegli il tuo paese qui sopra, sotto l'indirizzo." : "Un attimo: stiamo calcolando il costo della consegna.");
     if (F && F.bibite && !(d.bibita || "").trim()) return fail("Scrivi quale bibita vuoi.");
     btn.disabled = true; btn.textContent = "Invio…";
     try {
       // se il cliente non ha scritto il paese, lo aggiungiamo noi (serve al rider e a Google Maps)
-      const paeseInd = distQui ? (distQui.paese || String(distQui.dove || "").split(",").slice(1).join(",").trim()) : "";
+      const paeseInd = distQui ? (distQui.paese || distQui.comune || String(distQui.dove || "").split(",").slice(1).join(",").trim()) : "";
       const indirizzoPieno = consegna && paeseInd && !norm(d.indirizzo).includes(norm(paeseInd)) ? `${d.indirizzo.trim()}, ${paeseInd}` : d.indirizzo;
       const ordine = { modo: d.modo, zona: consegna ? zona.nome : "", indirizzo: consegna ? indirizzoPieno : "", ora: d.ora, data: d.data,
         ...(consegna && d.dist && d.dist.km != null && d.dist.ind === d.indirizzo.trim() ? { km: d.dist.km, trovato: d.dist.dove } : {}),
