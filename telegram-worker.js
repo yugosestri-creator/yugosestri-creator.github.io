@@ -147,7 +147,8 @@ const NUOVE_COLONNE = ["ALTER TABLE visite ADD COLUMN anonimi INTEGER NOT NULL D
   "ALTER TABLE prenot ADD COLUMN oraPrima TEXT", "ALTER TABLE ordini ADD COLUMN data TEXT",
   "ALTER TABLE coupon ADD COLUMN uid TEXT", "ALTER TABLE ordini ADD COLUMN sconto TEXT",
   "ALTER TABLE ordini ADD COLUMN righe TEXT", "ALTER TABLE ordini ADD COLUMN modo TEXT", "ALTER TABLE ordini ADD COLUMN indirizzo TEXT",
-  "ALTER TABLE ordini ADD COLUMN zona TEXT", "ALTER TABLE ordini ADD COLUMN note TEXT", "ALTER TABLE prenot ADD COLUMN note TEXT"];
+  "ALTER TABLE ordini ADD COLUMN zona TEXT", "ALTER TABLE ordini ADD COLUMN note TEXT", "ALTER TABLE prenot ADD COLUMN note TEXT",
+  "ALTER TABLE ordini ADD COLUMN consegna REAL"];
 let schemaPronto = false;
 async function init(env) {
   if (schemaPronto) return;
@@ -320,7 +321,8 @@ const ZONE = { "Fino a 2,5 km": 1, "Da 2,5 a 4 km": 2.5, "Da 4 a 8 km": 3.5, "Da
   // nomi vecchi: per chi ha ancora il sito vecchio in memoria (si possono togliere tra qualche giorno)
   "Sestri Levante": 1, "Riva Trigoso": 2.5, "Casarza Ligure": 3.5, "Moneglia": 5 };
 const ZONA_KM = [[2.5, "Fino a 2,5 km"], [4, "Da 2,5 a 4 km"], [8, "Da 4 a 8 km"], [Infinity, "Da 8 a 15 km"]];
-const MAX_KM = 15; // oltre 15 km in auto non consegniamo
+const MAX_KM = 12.5; // oltre 12,5 km in auto non consegniamo
+const COSTI_CONSEGNA = [[2.5, 1], [4, 2.5], [8, 3.5], [12.5, 5]]; // fino a … km → € (il ristorante sceglie guardando Google Maps)
 // Oltre 8 km niente consegne nelle ore di punta
 const ZONA_NO_ORE = { "Da 8 a 15 km": [["12:30", "14:00"], ["19:30", "21:30"]], "Oltre 8 km": [["12:30", "14:00"], ["19:30", "21:30"]], "Moneglia": [["12:30", "14:00"], ["19:30", "21:30"]] };
 const GIORNI_CHIUSI = [2]; // martedì chiuso
@@ -508,18 +510,14 @@ async function ordine(env, body, ip) {
     : FASCE.some(([a, b]) => ora <= minuti(b) && minuti(o.ora) >= minuti(a) && minuti(o.ora) <= minuti(b) + 30 && minuti(o.ora) >= ora + 15);
   if (!dentro) throw new Errore("Orario non disponibile. Si ordina dalle 12:00 alle 14:30 e dalle 19:00 alle 22:00");
   const sub = Math.round(righe.reduce((a, r) => a + r.q * r.prezzo, 0) * 100) / 100;
-  let costo = 0;
+  // Consegna: il costo lo conferma il ristorante dopo aver guardato la distanza su Google Maps (Gestore o /consegna su Telegram)
+  const costo = 0;
   if (consegna) {
-    if (!(o.zona in ZONE)) throw new Errore("Zona di consegna non valida");
     if (o.indirizzo.length < 5) throw new Errore("Manca l'indirizzo");
     if (sub < MINIMO) throw new Errore(`Per la consegna l'ordine minimo è ${eur(MINIMO)}`);
-    costo = ZONE[o.zona];
-    if ((ZONA_NO_ORE[o.zona] || []).some(([a, b]) => o.ora >= a && o.ora < b))
-      throw new Errore(`Oltre 8 km consegniamo solo fuori dalle ore di punta (non dalle 12:30 alle 14:00 e non dalle 19:30 alle 21:30): scegli un altro orario.`);
   }
   // distanza calcolata dal sito: se la fascia scelta è più economica, lo segnaliamo al ristorante
-  if (consegna && o.km != null && o.km > MAX_KM) throw new Errore(`Consegniamo fino a ${MAX_KM} km dal ristorante: il tuo indirizzo è a circa ${String(o.km).replace(".", ",")} km. Puoi scegliere il ritiro.`);
-  const fasciaKm = consegna && o.km != null ? ZONA_KM.find(([k]) => o.km <= k)[1] : null;
+  const fasciaKm = null;
   const kmTesto = fasciaKm ? `🛣 circa ${String(o.km).replace(".", ",")} km in auto${o.trovato ? ` (${o.trovato})` : ""}`
     : consegna && o.paese ? `🛣 Via non trovata sulla mappa: costo calcolato dal paese «${o.paese}». Controlla l'indirizzo.` : null;
   const kmAvviso = fasciaKm && ZONE[fasciaKm] > ZONE[o.zona] ? `⚠️ Il cliente ha scelto «${o.zona}» ma la distanza calcolata è nella fascia «${fasciaKm}» (${eur(ZONE[fasciaKm])}): controlla l'indirizzo.` : null;
@@ -548,24 +546,26 @@ async function ordine(env, body, ip) {
   const it = [
     consegna ? `🛵 NUOVO ORDINE n. ${numero} – CONSEGNA` : `🥡 NUOVO ORDINE n. ${numero} – RITIRO`, "",
     `👤 ${o.nome}`, `📞 ${o.telefono}`,
-    consegna ? `📍 ${o.indirizzo} (${o.zona})` : "📍 Ritiro al ristorante",
+    consegna ? `📍 ${o.indirizzo}` : "📍 Ritiro al ristorante",
     kmTesto, kmAvviso,
     consegna && o.indirizzo ? `🗺 Google Maps: https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=${encodeURIComponent(/liguria|italia/i.test(o.indirizzo) ? o.indirizzo : o.indirizzo + ", Liguria, Italia")}` : null,
     `🕗 ${quando}`, "", ...lista, "",
-    consegna || sconto ? `Piatti ${eur(sub)}${sconto ? ` − ${sconto.it.toLowerCase()} ${sconto.perc}% (${eur(meno)})` : ""}${consegna ? ` + consegna ${eur(costo)}` : ""}` : null,
+    consegna || sconto ? `Piatti ${eur(sub)}${sconto ? ` − ${sconto.it.toLowerCase()} ${sconto.perc}% (${eur(meno)})` : ""}${consegna ? " + consegna DA CONFERMARE" : ""}` : null,
     sconto ? `🎉 ${sconto.it.toUpperCase()} ${sconto.perc}% GIÀ CALCOLATO` : null,
-    `💶 TOTALE ${eur(tot)} – paga alla ${consegna ? "consegna" : "cassa"}`,
+    consegna ? `💶 TOTALE ${eur(tot)} + consegna – paga alla consegna` : `💶 TOTALE ${eur(tot)} – paga alla cassa`,
+    consegna ? `🛵 Guarda i km su Google Maps e conferma la consegna (fino a ${String(MAX_KM).replace(".", ",")} km): /consegna O${numero} 1 · 2,5 · 3,5 · 5 — oppure dal Gestore` : null,
     o.note ? `📝 ${o.note}` : null, u.email ? `✉️ ${u.email}` : "👤 Ordine senza account", `⏱ Inviato il ${t.it}`
   ];
   const zh = [
     consegna ? `🛵 新订单 ${numero}号 – 外送` : `🥡 新订单 ${numero}号 – 自取`, "",
     `👤 姓名：${o.nome}`, `📞 电话：${o.telefono}`,
-    consegna ? `📍 地址：${o.indirizzo}（${o.zona}）` : "📍 到店自取",
+    consegna ? `📍 地址：${o.indirizzo}` : "📍 到店自取",
     fasciaKm ? `🛣 约 ${o.km} 公里${kmAvviso ? `（⚠️ 应为「${fasciaKm}」${eur(ZONE[fasciaKm])}，请核对地址）` : ""}` : consegna && o.paese ? `🛣 地图上找不到这条街：按城镇「${o.paese}」计算配送费，请核对地址。` : null,
     `🕗 时间：${quandoZh}`, "", ...lista, "",
-    consegna || sconto ? `菜品 ${eur(sub)}${sconto ? ` − ${sconto.zh} ${sconto.perc}%（${eur(meno)}）` : ""}${consegna ? ` + 配送费 ${eur(costo)}` : ""}` : null,
+    consegna || sconto ? `菜品 ${eur(sub)}${sconto ? ` − ${sconto.zh} ${sconto.perc}%（${eur(meno)}）` : ""}${consegna ? " + 配送费（待确认）" : ""}` : null,
     sconto ? `🎉 ${sconto.zh} ${sconto.perc}%（已计算在内）` : null,
-    `💶 合计 ${eur(tot)}（${consegna ? "送达时付款" : "取餐时付款"}）`,
+    `💶 合计 ${eur(tot)}${consegna ? " + 配送费" : ""}（${consegna ? "送达时付款" : "取餐时付款"}）`,
+    consegna ? `🛵 请在 Google 地图查看距离并确认配送费：/consegna O${numero} 1 · 2,5 · 3,5 · 5` : null,
     o.note ? `📝 备注：${o.note}` : null, `⏱ 提交时间：${t.zh}`
   ];
   const testo = [...it, "", "— — — — — — —", "", ...zh, "", `🔁 Per annullarlo / 取消：/annulla O${numero}`].filter((r) => r !== null).join("\n");
@@ -582,13 +582,25 @@ async function ordine(env, body, ip) {
 }
 
 /* Stato di un ordine, per la pagina "segui il tuo ordine" (serve numero + telefono) */
+/* Il ristorante conferma il costo della consegna (dopo aver guardato i km su Google Maps) */
+async function confermaConsegna(env, id, costo) {
+  const r = await env.DB.prepare("SELECT * FROM ordini WHERE id = ?").bind(id).first();
+  if (!r) throw new Errore("Ordine non trovato.", 404);
+  if (r.modo !== "consegna") throw new Errore("Questo ordine è da ritirare: niente consegna.");
+  if (/annullat/.test(r.stato || "")) throw new Errore("L'ordine è annullato.");
+  if (!COSTI_CONSEGNA.some(([, c]) => c === costo)) throw new Errore("Costo non valido: 1 · 2,5 · 3,5 · 5");
+  const prima = Number(r.consegna) || 0, tot = Math.round(((Number(r.totale) || 0) - prima + costo) * 100) / 100;
+  await env.DB.prepare("UPDATE ordini SET consegna = ?, totale = ? WHERE id = ?").bind(costo, tot, id).run();
+  await notifica(env, r.uid, "Consegna confermata", `Ordine n. ${id}: consegna € ${eur(costo).replace("€", "").trim()}, totale € ${eur(tot).replace("€", "").trim()}. Paghi alla consegna.`, { url: "./#home", tag: "ordine-" + id });
+  return { ok: true, totale: tot, consegna: costo };
+}
 async function statoOrdine(env, body) {
   await init(env);
   const id = parseInt(body.numero, 10) || 0;
   const tel = String(body.telefono || "").replace(/\D/g, "").slice(-8);
-  const o = await env.DB.prepare("SELECT id, telefono, ora, data, modo, stato, totale FROM ordini WHERE id = ?").bind(id).first();
+  const o = await env.DB.prepare("SELECT id, telefono, ora, data, modo, stato, totale, consegna FROM ordini WHERE id = ?").bind(id).first();
   if (!o || !tel || String(o.telefono || "").replace(/\D/g, "").slice(-8) !== tel) return { ok: false };
-  return { ok: true, numero: o.id, ora: o.ora, data: o.data, modo: o.modo || "", stato: o.stato || "inviato", totale: o.totale };
+  return { ok: true, numero: o.id, ora: o.ora, data: o.data, modo: o.modo || "", stato: o.stato || "inviato", totale: o.totale, consegna: o.consegna };
 }
 
 /* Prenotazioni che il ristorante ha annullato da Telegram: il sito le mostra al cliente */
@@ -767,6 +779,14 @@ async function comando(env, msg) {
       ordine ? "" : "Sul sito la vede già come annullata dal ristorante.",
       `❌ 已取消 ${m[1]}${id}。${email ? "已发邮件通知客人。" : "请打电话通知客人。"}`
     ].filter(Boolean).join("\n"));
+  }
+
+  if (cmd === "/consegna") {
+    const parti = String(msg.text || "").trim().split(/\s+/);
+    const m = String(parti[1] || "").toUpperCase().match(/^O?(\d+)$/), costo = Number(String(parti[2] || "").replace(",", "."));
+    if (!m || !costo) return rispondi("Scrivi per esempio /consegna O34 2,5 (costi: 1 · 2,5 · 3,5 · 5). Se è oltre 12,5 km: /annulla O34\n例如 /consegna O34 2,5");
+    try { const x = await confermaConsegna(env, +m[1], costo); return rispondi(`✅ Ordine O${m[1]}: consegna ${eur(costo)} – totale ${eur(x.totale)}. Il cliente lo vede sul sito.\n✅ 配送费 ${eur(costo)}，合计 ${eur(x.totale)}`); }
+    catch (e) { return rispondi("⚠️ " + e.message); }
   }
 
   if (cmd === "/ok" || cmd === "/no") {
@@ -1043,7 +1063,7 @@ async function gestDati(env, body) {
   const da = new Date(Date.now() - 14 * 864e5).toISOString().slice(0, 10); // anche i giorni passati, per il calendario
   const [prenot, ordini, follower, eventi] = await Promise.all([
     env.DB.prepare("SELECT id, nome, telefono, data, ora, persone, email, stato, creato, note FROM prenot WHERE data >= ? AND stato IN ('confermata', 'annullata_ristorante') ORDER BY data, ora LIMIT 300").bind(da).all(),
-    env.DB.prepare("SELECT id, nome, telefono, ora, data, totale, email, stato, creato, righe, modo, indirizzo, zona, note, sconto FROM ordini WHERE COALESCE(data, substr(creato, 1, 10)) >= ? ORDER BY COALESCE(data, substr(creato, 1, 10)), ora LIMIT 300").bind(da).all(),
+    env.DB.prepare("SELECT id, nome, telefono, ora, data, totale, email, stato, creato, righe, modo, indirizzo, zona, note, sconto, consegna FROM ordini WHERE COALESCE(data, substr(creato, 1, 10)) >= ? ORDER BY COALESCE(data, substr(creato, 1, 10)), ora LIMIT 300").bind(da).all(),
     env.DB.prepare("SELECT f.id, f.codice, f.username, f.piattaforma, f.creato, p.nome AS daChi FROM follow f LEFT JOIN promoter p ON p.codice = f.codice WHERE f.stato = 'attesa' ORDER BY f.id DESC LIMIT 100").all(),
     env.DB.prepare("SELECT id, nome, descrizione, sconto, etichetta, dal, al FROM eventi WHERE eliminato = 0 AND (al IS NULL OR al = '' OR al >= ?) ORDER BY dal, id").bind(oggi).all()
   ]);
@@ -1077,6 +1097,7 @@ async function gestAzione(env, body) {
     await tg(env, testoModifica(r, false, nuovaOra));
     return { ok: true };
   }
+  if (az === "ordine-consegna") return await confermaConsegna(env, id, Number(body.costo));
   if (az === "ordine-annulla") {
     const r = await env.DB.prepare("SELECT * FROM ordini WHERE id = ?").bind(id).first();
     if (!r) throw new Errore("Ordine non trovato.", 404);
