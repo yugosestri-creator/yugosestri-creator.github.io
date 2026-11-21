@@ -911,7 +911,17 @@ async function calcolaDistanza(ind) {
   let errori = 0, punto = null;
   // 1) mappa OpenStreetMap
   try {
-    const g = (await fetch("https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=1&countrycodes=it&viewbox=9.15,44.42,9.70,44.12&bounded=1&q=" + encodeURIComponent(ind)).then((r) => r.json()))[0];
+    // tra le vie con lo stesso nome (es. Via Aurelia c'è in tanti paesi) prendiamo la più vicina al ristorante
+    const vicino = (x) => (x.lat - P.lat) ** 2 + ((x.lon - P.lon) * 0.72) ** 2;
+    const cerca = (q) => fetch("https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=10&countrycodes=it&viewbox=9.15,44.42,9.70,44.12&bounded=1&q=" + encodeURIComponent(q)).then((r) => r.json());
+    let tutti = await cerca(ind);
+    const soloVia = String(ind).split(",")[0].replace(/\s+\d+\s*[a-z]?(\/\w+)?\s*$/i, "").trim();
+    // il numero civico c'è solo in un paese lontano (es. Via Aurelia 100 → Camogli)? cerchiamo la via senza numero e prendiamo il tratto più vicino
+    if ((!tutti.length || Math.min(...tutti.map(vicino)) > 0.0065) && soloVia.length >= 5 && soloVia !== String(ind).trim()) {
+      await new Promise((r) => setTimeout(r, 1100));   // regola di OpenStreetMap: al massimo una richiesta al secondo
+      tutti = tutti.concat(await cerca(soloVia));
+    }
+    const g = tutti.sort((x, y) => vicino(x) - vicino(y))[0];
     if (g) {
       const a = g.address || {}, via = [a.road || a.pedestrian || a.square, a.house_number].filter(Boolean).join(" ");
       const paese = a.town || a.village || a.city || a.hamlet || a.suburb || "";
