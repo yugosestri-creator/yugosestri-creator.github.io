@@ -634,6 +634,7 @@ function ntContesto() {
 }
 const NT_ISTRUZIONI = `Sei Natan e fai il consulente di marketing per Yugo, il ristorante di sushi di Kevin a Sestri Levante. Kevin ti manda i dati veri del ristorante e del sito (visite, ordini, prenotazioni, menu, offerte) e una domanda.
 Regole:
+- Non inventare canali che non esistono (per esempio un'app da scaricare, un altro sito, WhatsApp, un numero diverso). I canali veri sono solo: il sito yugosestri-creator.github.io (pulsanti Ordina e Prenota), il telefono del ristorante, Just Eat, Instagram, TikTok e Facebook.
 - Usa solo i dati forniti: non inventare piatti, prezzi, offerte, domini, app o numeri. Per i giorni usa i nomi già scritti nei dati (non calcolare tu il giorno della settimana). Un post normale su Instagram o TikTok costa 0 €; solo le sponsorizzate costano.
 - Usa solo i dati forniti: non inventare piatti, prezzi o numeri. Se un piatto o un dato non è nei DATI DI YUGO, non nominarlo.
 - Scrivi in italiano corretto e semplice (controlla le parole prima di scriverle). Rispondi solo alla DOMANDA DI KEVIN e non ripetere risposte precedenti.
@@ -711,13 +712,27 @@ function ntTaglia(t) {
 /* Una richiesta a un Natan (Mac, PC o Grande): parte, poi legge il testo mentre lo scrive */
 async function ntLavoro(t, corpo, suTesto) {
   const chi = { pc: "il PC fisso", mac: "il Mac", grande: "Natan Grande" }[t.dove];
+  const pausa = (ms) => new Promise((ok) => setTimeout(ok, ms));
+  // 1) parte la richiesta: se la rete fa le bizze riprovo (il server rilegge ogni volta l'indirizzo, che cambia a ogni riavvio)
   let d;
-  try { d = await api("/gestore/natan/chiedi", { token: sessione.token, dove: t.dove, corpo }); }
-  catch (e) { if (e.status === 401) { logout(); throw new Error("Accesso al Gestore scaduto: rientra."); } throw new Error(/fetch|network|load/i.test(e.message) ? "Connessione assente: riprova tra poco." : e.message); }
-  let testo = ""; const fine = Date.now() + ({ grande: 30, pc: 25 }[t.dove] || 12) * 60000;
-  while (Date.now() < fine) {
-    await new Promise((ok) => setTimeout(ok, 2000));
-    const j = await api("/gestore/natan/job", { token: sessione.token, dove: t.dove, id: d.job }).catch(() => ({}));
+  for (let k = 1; ; k++) {
+    try { d = await api("/gestore/natan/chiedi", { token: sessione.token, dove: t.dove, corpo }); break; }
+    catch (e) {
+      if (e.status === 401) { logout(); throw new Error("Accesso al Gestore scaduto: rientra."); }
+      const rete = !e.status || /fetch|network|load/i.test(e.message) || /raggiungere/.test(e.message);
+      if (!rete || k >= 4) throw new Error(rete ? `Non riesco a raggiungere ${chi}. Riprova tra un minuto.` : e.message);
+      await pausa(5000);
+    }
+  }
+  // 2) leggo la risposta mentre la scrive; se un controllo fallisce per la rete non mi fermo: riprovo ogni 5 secondi
+  let testo = "", errori = 0; const fine = Date.now() + ({ grande: 30, pc: 25 }[t.dove] || 15) * 60000;
+  while (Date.now() < fine || errori) {
+    await pausa(errori ? 5000 : 2000);
+    let j;
+    try { j = await api("/gestore/natan/job", { token: sessione.token, dove: t.dove, id: d.job }); }
+    catch (e) { if (e.status === 401) { logout(); throw new Error("Accesso al Gestore scaduto: rientra."); } j = { rete: true }; }
+    if (j.rete) { if (++errori >= 10 && Date.now() >= fine) break; continue; }
+    errori = 0;
     if (j.modello) t.modello = j.modello;
     if (j.text) { testo = ntTaglia(j.text); suTesto && suTesto(testo); }
     if (j.error) throw new Error(j.error);
@@ -725,6 +740,12 @@ async function ntLavoro(t, corpo, suTesto) {
   }
   if (!testo) throw new Error(`${chi} non ha risposto in tempo.`);
   return testo;
+}
+/* La data di oggi in cima alle istruzioni: Natan non deve mai calcolare da solo i giorni della settimana */
+function ntOggi() {
+  const gg = (d) => d.toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "Europe/Rome" });
+  const prossimi = []; for (let i = 1; i <= 7; i++) { const d = new Date(); d.setDate(d.getDate() + i); prossimi.push(gg(d).replace(/ \d{4}$/, "")); }
+  return `DATA DI OGGI: ${gg(new Date())}. Calendario dei prossimi giorni (copia questi nomi, non calcolarli tu): ${prossimi.join("; ")}.\n\n`;
 }
 /* Il Mac (Qwen 14B, il più bravo) fa da «capo»: riceve le due bozze e scrive la risposta finale. */
 const NT_UNISCI = `\n\nOra sei il Natan «capo». Due Natan (quello del Mac, cioè tu, e quello del PC fisso) hanno scritto due bozze di risposta alla stessa domanda. Scrivi TU la risposta finale per Kevin, in questo formato fisso:
@@ -756,8 +777,9 @@ async function ntChiedi(domanda) {
   try {
     const storia = NT.log.slice(0, -2).filter((m) => m.testo && !/^⚠️|non sono sicuro di rispondere/.test(m.testo)).slice(-2).map((m) => ({ ruolo: m.io ? "io" : "natan", testo: m.testo.slice(0, 1500) }));
     const testo = `DATI DI YUGO (aggiornati ${new Date().toLocaleString("it-IT")}):\n${ntContesto()}\n\nDOMANDA DI KEVIN: ${domanda}`;
-    const corpo = { sistema: NT_ISTRUZIONI, testo, storia, max_token: 1000 };
-    const corpoPc = { ...corpo, sistema: NT_ISTRUZIONI + "\n- Scrivi una risposta BREVE: al massimo 150 parole, solo i punti più importanti." };   // il PC è lento: bozza corta
+    const sistema = ntOggi() + NT_ISTRUZIONI;
+    const corpo = { sistema, testo, storia, max_token: 4000 };
+    const corpoPc = { ...corpo, sistema: sistema + "\n- Scrivi una risposta BREVE: al massimo 150 parole, solo i punti più importanti." };   // il PC è lento: bozza corta
     const per = (t) => t.dove === "pc" ? corpoPc : corpo;
 
     if (modo === "grande") {
@@ -788,7 +810,7 @@ async function ntChiedi(domanda) {
       if (bMac && bPc) {
         live("main", "💻 Il Mac confronta le due bozze e scrive la risposta migliore…");
         const unisci = `${testo}\n\nBOZZA 1 (Natan del Mac):\n${bMac.slice(0, 5000)}\n\nBOZZA 2 (Natan del PC fisso):\n${bPc.slice(0, 5000)}`;
-        try { bot.testo = await ntLavoro(mac, { sistema: NT_ISTRUZIONI + NT_UNISCI, testo: unisci, storia: [], max_token: 1500 }, (t) => { bot.testo = t; live("main", t); }); }
+        try { bot.testo = await ntLavoro(mac, { sistema: sistema + NT_UNISCI, testo: unisci, storia: [], max_token: 4000 }, (t) => { bot.testo = t; live("main", t); }); }
         catch { bot.testo = bMac; bot.nota = "Il Mac non è riuscito a unire le bozze: questa è la sua."; }
       } else if (bMac) { bot.testo = bMac; bot.chi = "mac"; bot.nota = "Solo il Mac: il PC fisso non ha risposto."; }
       else if (bPc) { bot.testo = bPc; bot.chi = "pc"; bot.nota = "Solo il PC fisso: il Mac non ha risposto."; }
