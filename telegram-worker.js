@@ -316,12 +316,13 @@ async function prenotazione(env, body, ip) {
 
 /* ---------------- ordini da casa ---------------- */
 // Consegna: costo in base ai km in auto dal ristorante (uguale a config.js → ordini.zone)
-const ZONE = { "Fino a 2,5 km": 1, "Da 2,5 a 4 km": 2.5, "Da 4 a 8 km": 3.5, "Oltre 8 km": 5,
+const ZONE = { "Fino a 2,5 km": 1, "Da 2,5 a 4 km": 2.5, "Da 4 a 8 km": 3.5, "Da 8 a 15 km": 5, "Oltre 8 km": 5,
   // nomi vecchi: per chi ha ancora il sito vecchio in memoria (si possono togliere tra qualche giorno)
   "Sestri Levante": 1, "Riva Trigoso": 2.5, "Casarza Ligure": 3.5, "Moneglia": 5 };
-const ZONA_KM = [[2.5, "Fino a 2,5 km"], [4, "Da 2,5 a 4 km"], [8, "Da 4 a 8 km"], [Infinity, "Oltre 8 km"]];
+const ZONA_KM = [[2.5, "Fino a 2,5 km"], [4, "Da 2,5 a 4 km"], [8, "Da 4 a 8 km"], [Infinity, "Da 8 a 15 km"]];
+const MAX_KM = 15; // oltre 15 km in auto non consegniamo
 // Oltre 8 km niente consegne nelle ore di punta
-const ZONA_NO_ORE = { "Oltre 8 km": [["12:30", "14:00"], ["19:30", "21:30"]], "Moneglia": [["12:30", "14:00"], ["19:30", "21:30"]] };
+const ZONA_NO_ORE = { "Da 8 a 15 km": [["12:30", "14:00"], ["19:30", "21:30"]], "Oltre 8 km": [["12:30", "14:00"], ["19:30", "21:30"]], "Moneglia": [["12:30", "14:00"], ["19:30", "21:30"]] };
 const GIORNI_CHIUSI = [2]; // martedì chiuso
 function giornoRoma() {
   const g = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Rome", weekday: "short" }).format(new Date());
@@ -517,6 +518,7 @@ async function ordine(env, body, ip) {
       throw new Errore(`Oltre 8 km consegniamo solo fuori dalle ore di punta (non dalle 12:30 alle 14:00 e non dalle 19:30 alle 21:30): scegli un altro orario.`);
   }
   // distanza calcolata dal sito: se la fascia scelta è più economica, lo segnaliamo al ristorante
+  if (consegna && o.km != null && o.km > MAX_KM) throw new Errore(`Consegniamo fino a ${MAX_KM} km dal ristorante: il tuo indirizzo è a circa ${String(o.km).replace(".", ",")} km. Puoi scegliere il ritiro.`);
   const fasciaKm = consegna && o.km != null ? ZONA_KM.find(([k]) => o.km <= k)[1] : null;
   const kmTesto = fasciaKm ? `🛣 circa ${String(o.km).replace(".", ",")} km in auto${o.trovato ? ` (${o.trovato})` : ""}`
     : consegna && o.paese ? `🛣 Via non trovata sulla mappa: costo calcolato dal paese «${o.paese}». Controlla l'indirizzo.` : null;
