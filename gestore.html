@@ -570,6 +570,9 @@ function ntStato() {
 /* Tutto quello che Natan deve sapere, in poche righe (massimo ~4000 caratteri) */
 function ntContesto() {
   const R = (window.YUGO_CONFIG || {}).ristorante || {}, r = [], fatti = [], oggi = iso(new Date());
+  { const gg = (d) => d.toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long", timeZone: "Europe/Rome" });
+    const prossimi = []; for (let i = 1; i <= 7; i++) { const d = new Date(); d.setDate(d.getDate() + i); prossimi.push(gg(d)); }
+    r.push(`OGGI è ${gg(new Date())} ${new Date().getFullYear()}. Prossimi giorni (usa questi nomi, non calcolarli): ${prossimi.join(", ")}. Il martedì il ristorante è chiuso.`); }
   r.push(`RISTORANTE: ${R.nome || "Yugo"} (${R.slogan || ""}), sushi a ${R.citta || "Sestri Levante"}, ${R.indirizzo || ""}. Social: TikTok @${(R.social || {}).tiktok || "-"}, Instagram @${(R.social || {}).instagram || "-"}.`);
   r.push(`Orari: ${(R.orari || []).map((o) => `${o.giorno.slice(0, 3)} ${o.ore}`).join("; ")}.`);
   if (R.allYouCanEat) r.push(`All you can eat: cena € ${R.allYouCanEat.prezzo}${R.allYouCanEatPranzo ? `, pranzo € ${R.allYouCanEatPranzo.prezzo} (weekend € ${R.allYouCanEatPranzo.prezzoWeekend || R.allYouCanEatPranzo.prezzo})` : ""}.`);
@@ -577,14 +580,14 @@ function ntContesto() {
   if (R.ordini) r.push(`Consegna: zone ${(R.ordini.zone || []).map((z) => `${z.nome} € ${z.costo}`).join(", ")}; minimo € ${R.ordini.minimo}; anche su Just Eat.`);
   const cats = (R.menu || []).map((c) => { const p = c.piatti.map((x) => x.prezzo).filter((x) => x != null); return `${c.categoria} (${c.piatti.length} piatti, € ${Math.min(...p)}–${Math.max(...p)})`; });
   r.push(`Menu: ${cats.join("; ")}.`);
-  r.push("SITO: pagine Home (offerte, social, invita amici), Menu (asporto o al ristorante, filtri, quiz «Non sai cosa prendere?»), Ordina (asporto/consegna senza account, si paga alla consegna), Prenota (nome e telefono, pulsanti giorno e ora), Account (ordini, carta fedeltà, invita amici con codice sconto), assistente Natan a pulsanti. 7 lingue. Si installa come app. Foto dei piatti: quasi nessuna (solo 1).");
-  const ev = (dati.eventi || []).map((e) => `${e.nome} ${e.dal}→${e.al}${e.sconto ? " sconto " + e.sconto : ""}`);
-  r.push(`Eventi/offerte attive: ${ev.length ? ev.join(" | ") : "nessuna"}.`);
+  r.push("SITO: pagine Home (offerte, social, invita amici), Menu (asporto o al ristorante, filtri, quiz «Non sai cosa prendere?»), Ordina (asporto/consegna senza account, si paga alla consegna), Prenota (nome e telefono, pulsanti giorno e ora), Account (ordini, carta fedeltà, invita amici con codice sconto), assistente Natan a pulsanti. 7 lingue. Foto dei piatti: quasi nessuna (solo 1). Indirizzo del sito: yugosestri-creator.github.io (NON esiste yugo.it né altri domini). NON esiste un'app da scaricare negli store: il sito si può solo «aggiungere alla schermata Home» del telefono. Il quiz «Non sai cosa prendere?» e Natan a pulsanti ci sono già: non proporli come novità.");
+  const ev = (dati.eventi || []).map((e) => `${e.nome}${e.descrizione ? " (" + String(e.descrizione).slice(0, 160) + ")" : ""} dal ${e.dal} al ${e.al}${e.sconto ? ", sconto " + e.sconto : ""}`);
+  r.push(`OFFERTE ATTIVE (sono le UNICHE: non esistono altri sconti, per esempio nessuno sconto sul primo ordine; se ne proponi una nuova, scrivi chiaramente che è un'idea nuova da attivare): ${ev.length ? ev.join(" | ") : "nessuna"}.`);
   const V = dati.visite;
   if (V) {
     const per = {}; V.giorni.forEach((g) => per[g.giorno] = g);
     const giorni = []; for (let i = 13; i >= 0; i--) { const d = new Date(V.oggi + "T12:00"); d.setDate(d.getDate() - i); const k = iso(d), g = per[k] || { n: 0, ritorni: 0, prenot: 0, ordini: 0 };
-      giorni.push(`${d.toLocaleDateString("it-IT", { weekday: "short", day: "numeric" })}: ${g.n} visite (${g.ritorni || 0} tornati), ${g.prenot || 0} pren, ${g.ordini || 0} ord`); }
+      giorni.push(`${d.toLocaleDateString("it-IT", { weekday: "long", day: "numeric" })}${i === 0 ? " (oggi, giornata non ancora finita)" : ""}: ${g.n} visite (${g.ritorni || 0} tornati), ${g.prenot || 0} pren, ${g.ordini || 0} ord`); }
     r.push(`VISITE AL SITO ultimi 14 giorni: ${giorni.join("; ")}.`);
     const g14 = []; for (let i = 0; i < 14; i++) { const d = new Date(V.oggi + "T12:00"); d.setDate(d.getDate() - i); g14.push(per[iso(d)] || { n: 0, ritorni: 0, prenot: 0, ordini: 0 }); }
     const tv = g14.reduce((a, g) => a + g.n, 0), tr = g14.reduce((a, g) => a + (g.ritorni || 0), 0), az = g14.reduce((a, g) => a + (g.prenot || 0) + (g.ordini || 0), 0);
@@ -606,10 +609,11 @@ function ntContesto() {
     r.push(`PRENOTAZIONI DAL SITO: ${pr.length} (${pr.filter((p) => p.data >= oggi).length} future), media ${(pr.reduce((a, p) => a + (+p.persone || 0), 0) / pr.length).toFixed(1)} persone. Per giorno: ${Object.entries(gs).map(([g, n]) => `${g} ${n}`).join(", ")}.`);
     fatti.push(`Prenotazioni dal sito: ${pr.length}.`);
   } else { r.push("PRENOTAZIONI DAL SITO: nessuna negli ultimi 14 giorni."); fatti.push("Nessuna prenotazione dal sito in 14 giorni."); }
-  return ("NUMERI CHIAVE (già calcolati, usali):\n- " + fatti.join("\n- ") + "\n\n" + r.join("\n")).slice(0, 5000);
+  return ("NUMERI CHIAVE (già calcolati, usali):\n- " + fatti.join("\n- ") + "\n\n" + r.join("\n")).slice(0, 7000);
 }
 const NT_ISTRUZIONI = `Sei Natan e fai il consulente di marketing per Yugo, il ristorante di sushi di Kevin a Sestri Levante. Kevin ti manda i dati veri del ristorante e del sito (visite, ordini, prenotazioni, menu, offerte) e una domanda.
 Regole:
+- Usa solo i dati forniti: non inventare piatti, prezzi, offerte, domini, app o numeri. Per i giorni usa i nomi già scritti nei dati (non calcolare tu il giorno della settimana). Un post normale su Instagram o TikTok costa 0 €; solo le sponsorizzate costano.
 - Usa solo i dati forniti: non inventare piatti, prezzi o numeri. Se un piatto o un dato non è nei DATI DI YUGO, non nominarlo.
 - Scrivi in italiano corretto e semplice (controlla le parole prima di scriverle). Rispondi solo alla DOMANDA DI KEVIN e non ripetere risposte precedenti.
 - Usa i numeri: ogni punto deve citare un dato (es. «solo 3 visite al giorno», «0 ordini dal sito»). Se i dati sono pochi, dillo.
