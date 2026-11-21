@@ -1047,6 +1047,7 @@ function trackerHTML(o) {
     <p class="trk-num">Ordine n. ${esc(o.numero)} · ${casa ? "consegna" : "ritiro"} alle ${esc(o.ora)}</p>
     <h3 class="trk-tit">${esc(tit)}</h3>
     <p class="trk-sub">${esc(sub)}</p>
+    ${f >= 0 && casa ? (o.consegna == null ? `<p class="trk-cons">🛵 Stiamo guardando i km su Google Maps: tra poco ti confermiamo il costo della consegna.</p>` : `<p class="trk-cons ok">🛵 <span>Consegna confermata:</span> <b>€ ${euro(o.consegna)}</b> · <span>totale</span> <b>€ ${euro(o.totale)}</b></p>`) : ""}
     ${f < 0 ? `<div class="trk-azioni trk-no-az">${o.righe ? `<button type="button" class="btn btn-gold btn-sm" data-riordina>🔁 Riordina con un altro orario</button>` : ""}<a class="btn btn-ghost btn-sm" href="tel:${esc((R.telefono || "").replace(/[^\d+]/g, ""))}">📞 Chiama il ristorante</a></div>` : ""}
     ${f >= 0 ? `<ol class="trk-steps">${passi.map((p, i) => `<li class="${i < f || f === 3 ? "done" : i === f ? "now" : ""}"><span></span>${esc(p)}</li>`).join("")}</ol>` : ""}
   </div>`;
@@ -1076,8 +1077,8 @@ function scontrinoHTML(o, stampa) {
       <div class="sc-sep"></div>
       <div class="sc-riga sc-som"><span></span><span class="sc-nome">Subtotale (${pezzi} ${pezzi === 1 ? "pezzo" : "pezzi"})</span><span class="sc-pr">${euro(o.sub != null ? o.sub : o.totale)}</span></div>
       ${o.sconto && o.sconto.meno ? `<div class="sc-riga sc-som sc-sconto"><span></span><span class="sc-nome"><span>${esc(o.sconto.nome)}</span> ${esc(o.sconto.perc)}%</span><span class="sc-pr">−${euro(o.sconto.meno)}</span></div>` : ""}
-      ${casa ? `<div class="sc-riga sc-som"><span></span><span class="sc-nome">Consegna</span><span class="sc-pr">${euro(o.consegna || 0)}</span></div>` : ""}
-      <div class="sc-totale"><span>TOTALE</span><b>€ ${euro(o.totale)}</b></div>
+      ${casa ? `<div class="sc-riga sc-som"><span></span><span class="sc-nome">Consegna</span><span class="sc-pr">${o.consegna == null ? "da confermare" : euro(o.consegna)}</span></div>` : ""}
+      <div class="sc-totale"><span>TOTALE</span><b>€ ${euro(o.totale)}${casa && o.consegna == null ? " + consegna" : ""}</b></div>
       <p class="sc-paga">Pagamento ${casa ? "alla consegna" : "alla cassa quando ritiri"}</p>
       ${o.note ? `<p class="sc-note"><span>Note:</span> <span class="notranslate">${esc(o.note)}</span></p>` : ""}
       <div class="sc-sep"></div>
@@ -1114,11 +1115,12 @@ function disegnaTracker() {
 let statoChiesto = 0;
 function aggiornaStatoOrdine() {
   const o = ultimoOrdine(); if (!o || !WORKER || DEMO || o.stato === "annullata_ristorante") return;
-  if (Date.now() - statoChiesto < 80000) return; statoChiesto = Date.now();
+  if (Date.now() - statoChiesto < (o.modo === "consegna" && o.consegna == null ? 25000 : 80000)) return; statoChiesto = Date.now();
   api("/ordine/stato", { numero: o.numero, telefono: o.telefono }).then((r) => {
     if (!r || !r.ok) return;
-    const n = { ...o, stato: r.stato, ora: r.ora || o.ora, data: r.data || o.data };
-    if (n.stato !== o.stato || n.ora !== o.ora || n.data !== o.data) {
+    const n = { ...o, stato: r.stato, ora: r.ora || o.ora, data: r.data || o.data, ...(r.consegna != null ? { consegna: r.consegna, totale: r.totale } : {}) };
+    if (n.stato !== o.stato || n.ora !== o.ora || n.data !== o.data || n.consegna !== o.consegna) {
+      if (n.consegna != null && o.consegna == null) try { toast(`🛵 Consegna confermata: € ${euro(n.consegna)} · totale € ${euro(n.totale)}`); } catch { /* ok */ }
       store.set("yugo-ultimo-ordine", n); disegnaTracker();
       if (n.stato === "annullata_ristorante") avvisoAnnullato(n);
     }
@@ -1175,7 +1177,8 @@ function disegnaCarrello() {
   if (SOSPESA) ordDati.modo = "ritiro";
   const d = ordDati, consegna = d.modo === "consegna", zone = ORD.zone || [];
   // il costo della consegna lo calcola il sito dall'indirizzo (km in auto); a mano solo se il calcolo non funziona
-  const indT = (d.indirizzo || "").trim(), distQui = consegna && d.dist && d.dist.ind === indT ? d.dist : null;
+  d.dist = null;   // niente più calcolo automatico: la consegna la conferma il ristorante
+  const indT = (d.indirizzo || "").trim(), distQui = null;
   const maxKm = ORD.maxKm || Infinity, distTroppo = !!(distQui && distQui.km != null && distQui.km > maxKm);
   const distKm = !!(distQui && distQui.km != null) && !distTroppo, distPaese = !!(distQui && distQui.paese && zone[distQui.fascia]);
   // il cliente ha scritto solo la via: gli chiediamo se il comune trovato è giusto (sì / no)
@@ -1183,14 +1186,14 @@ function disegnaCarrello() {
   const distOk = (distKm && !distChiedi) || distPaese, distNo = !distOk && !!(distQui && (distQui.niente || distQui.errore)) || (consegna && !ORD.posizione && indT.length >= 5);
   if (distKm) d.zona = zonaDaKm(distQui.km); else if (distPaese) d.zona = distQui.fascia;
   if (!zone[d.zona]) d.zona = 0;
-  const costoNoto = !consegna || distOk;
-  const zona = zone[d.zona] || zone[0], costo = consegna && zona && costoNoto ? zona.costo : 0;
+  const costoNoto = true;   // la consegna la conferma il ristorante dopo l'ordine (Google Maps)
+  const zona = null, costo = 0;
   const F = famAtt(), mancano = F ? Math.max(0, F.piatti - pezzi()) : 0;
   const sub = F ? F.prezzo : subtotale(), perc = percSconto(), meno = perc ? Math.round(sub * perc) / 100 : 0;
   const tot = Math.round((sub - meno + costo) * 100) / 100;
   const giorni = giorniOrdine();
   if (!giorni.includes(d.data) || !fasceGiorno(d.data).slots.length) d.data = giorni.find((g) => fasceGiorno(g).slots.length) || "";
-  const tutti = d.data ? fasceGiorno(d.data).slots : [], punta = consegna && zona && zona.noOre && zona.noOre.length;
+  const tutti = d.data ? fasceGiorno(d.data).slots : [], punta = false;
   const slots = punta ? tutti.filter((t) => !oraDiPunta(zona, t)) : tutti, chiusoOggi = false, soloPunta = punta && tutti.length && !slots.length;
   if (!slots.includes(d.ora)) d.ora = slots[0] || "";
   const chiuso = !slots.length;
@@ -1207,20 +1210,8 @@ function disegnaCarrello() {
       <button role="tab" type="button" data-modo-ord="consegna" aria-selected="${consegna}">🛵 Consegna</button>
       <button role="tab" type="button" data-modo-ord="ritiro" aria-selected="${!consegna}">🥡 Ritiro</button>
     </div>`}
-    ${consegna ? `<div class="field od-campo"><label for="o-ind">Indirizzo</label><input class="input" id="o-ind" autocomplete="off" placeholder="Via e numero civico, citofono" value="${esc(d.indirizzo || "")}"><div class="od-sugg notranslate" id="o-sugg" role="listbox" hidden></div></div>
-      <div class="ord-dist${distOk ? " ok" : distNo || distChiedi || distTroppo ? " no" : ""}" id="o-dist" aria-live="polite">${distTroppo
-          ? `<p class="od-domanda">😔 <span>Sei a circa ${String(distQui.km).replace(".", ",")} km: consegniamo fino a ${maxKm} km dal ristorante.</span></p>
-            <div class="od-sino"><button type="button" class="btn btn-gold btn-sm" data-modo-ord="ritiro">🥡 Passo a ritirarlo</button><button type="button" class="btn btn-ghost btn-sm" data-paese-cambia>Sono in un altro paese</button></div>`
-        : distChiedi
-          ? `<p class="od-domanda"><span>La via è a</span> <b class="notranslate">${esc(distQui.comune)}</b>?</p>
-            <div class="od-sino"><button type="button" class="btn btn-gold btn-sm" data-comune-si>Sì, è giusto</button><button type="button" class="btn btn-ghost btn-sm" data-paese-cambia>No, è un altro paese</button></div>`
-        : distOk
-          ? `<p class="od-costo">🛵 <b>Consegna € ${euro(zona.costo)}</b></p><p class="od-km">${distKm ? `<span>circa ${String(distQui.km).replace(".", ",")} km da noi</span> · <span class="notranslate">${esc(distQui.dove)}</span>` : `<span>Consegna a</span> <span class="notranslate">${esc(distQui.paese)}</span>`} · <button type="button" class="od-cambia" data-paese-cambia>Non è giusto?</button></p>`
-        : distNo ? `<p><b>Tocca il tuo indirizzo:</b></p>
-            <div class="od-lista notranslate">${PAESI().map((p) => `<button type="button" class="od-s" data-paese="${esc(p.nome)}">📍 <b>${esc(indT.split(",")[0])}</b><small>${esc(p.nome)}</small></button>`).join("")}</div>
-            <p class="od-nota">Il tuo paese non c'è? Chiamaci e vediamo se arriviamo.</p>`
-        : indT.length >= 5 ? `<p>Calcolo il costo della consegna…</p>` : `<p>Scrivi l'indirizzo: il costo della consegna lo calcoliamo noi.</p>`}</div>
-      ${punta ? `<p class="hint">${esc(`Oltre ${String(zone[zone.length - 2] ? zone[zone.length - 2].fino : "").replace(".", ",")} km consegniamo solo fuori dalle ore di punta: ${zona.noOre.map(([a, b]) => `non dalle ${a} alle ${b}`).join(" e ")}.`)}</p>` : ""}`
+    ${consegna ? `<div class="field"><label for="o-ind">Indirizzo</label><input class="input" id="o-ind" autocomplete="street-address" placeholder="Via, numero civico, paese, citofono" value="${esc(d.indirizzo || "")}"></div>
+      <div class="ord-dist" id="o-dist"><p>🛵 <b>Il costo della consegna te lo confermiamo noi</b> appena riceviamo l'ordine: guardiamo i km su Google Maps (da € 1 a € 5).</p><p class="od-nota">${esc(`Consegniamo fino a ${String(ORD.maxKm || 12.5).replace(".", ",")} km dal ristorante.`)}</p></div>`
       : `<p class="hint">Ritiri da noi in ${esc(R.indirizzo || "")}.</p>`}
     ${giorni.length > 1 ? `<div class="field"><span class="label">Giorno</span><div class="pick-row" id="o-giorni">${giorni.filter((g) => fasceGiorno(g).slots.length).map((g) => `<button type="button" class="pick" data-g="${g}" aria-pressed="${g === d.data}">${esc(chipGiorno(g))}</button>`).join("")}</div></div>` : ""}
     <div class="field"><span class="label">${consegna ? "A che ora lo vuoi" : "A che ora passi"}</span>
@@ -1236,14 +1227,14 @@ function disegnaCarrello() {
     <div class="ord-sum">
       <div><span>${F ? esc(F.nome) : "Piatti"}</span><span>€ ${euro(sub)}</span></div>
       ${perc ? `<div class="ord-sconto"><span>🎉 ${nomeSconto()} ${perc}%</span><span>− € ${euro(meno)}</span></div>` : ""}
-      ${consegna ? `<div><span>Consegna</span><span>${costoNoto ? `€ ${euro(costo)}` : "—"}</span></div>` : ""}
-      <div class="cs-total"><span>Totale</span><b>€ ${euro(tot)}</b></div>
+      ${consegna ? `<div><span>Consegna</span><span>da confermare</span></div>` : ""}
+      <div class="cs-total"><span>Totale</span><b>€ ${euro(tot)}${consegna ? " + consegna" : ""}</b></div>
     </div>
     <p class="hint">Paghi alla ${consegna ? "consegna" : "cassa quando ritiri"}.${sottoMinimo ? ` <b>Per la consegna l'ordine minimo è € ${euro(ORD.minimo)}.</b>` : ""}</p>
     <p class="error" id="o-err" hidden></p>
     <div class="cs-actions">
       ${mancano ? `<button class="btn btn-gold btn-block" type="button" disabled>Scegli ancora ${mancano} ${mancano === 1 ? "piatto" : "piatti"}</button>`
-        : `<button class="btn btn-gold btn-block" id="o-send" type="button" ${chiuso || sottoMinimo || !costoNoto ? "disabled" : ""}>Invia ordine · € ${euro(tot)}</button>`}
+        : `<button class="btn btn-gold btn-block" id="o-send" type="button" ${chiuso || sottoMinimo || !costoNoto ? "disabled" : ""}>Invia ordine · € ${euro(tot)}${consegna ? " + consegna" : ""}</button>`}
       ${!user ? `<p class="hint" style="text-align:center">Non serve un account: bastano nome e telefono.</p>` : ""}
       ${ORD.justEat ? `<button class="btn btn-ghost btn-block" id="o-je" type="button">Ordina su Just Eat</button>
       <p class="hint" style="text-align:center">Su Just Eat i piatti vanno aggiunti di nuovo: ti copiamo la lista da seguire.</p>` : ""}
@@ -1288,9 +1279,9 @@ function disegnaCarrello() {
         boxSugg.innerHTML = sugg.map((x, i) => `<button type="button" class="od-s" data-s="${i}">📍 <b>${esc(x.via)}${/\d/.test(x.etichetta.split(",")[0].replace(x.via, "")) ? " " + esc(x.etichetta.split(",")[0].replace(x.via, "").trim()) : ""}</b><small>${esc(x.paese)}</small></button>`).join("");
         boxSugg.hidden = !sugg.length;
       }, 350);
-      pausa = setTimeout(() => { if (!scelto && !sugg.length) { leggi(); calcola(); } }, 2500);   // se non sceglie un suggerimento, calcola lo stesso
+      pausa = setTimeout(() => { if (!scelto && !sugg.length && $("#o-nome")) leggi(); }, 2500);   // se non sceglie un suggerimento, calcola lo stesso
     };
-    $("#o-ind").onchange = () => { setTimeout(() => { if (!scelto && !sugg.length) { clearTimeout(pausa); leggi(); calcola(); } }, 250); };
+    $("#o-ind").onchange = () => { clearTimeout(pausa); if ($("#o-nome")) leggi(); };
   }
   if (boxSugg) boxSugg.onpointerdown = async (e) => {   // tocca una via: indirizzo esatto, niente domande
     const b = e.target.closest("[data-s]"); if (!b) return;
@@ -1305,7 +1296,7 @@ function disegnaCarrello() {
     d.dist = r ? { ...r, ind } : { ind, errore: true };
     disegnaCarrello();
   };
-  if (consegna && !distQui && indT.length >= 5) calcola();
+
   const boxDist = $("#o-dist");
   if (boxDist) boxDist.onclick = (e) => {
     const b = e.target.closest("[data-paese]"), c = e.target.closest("[data-paese-cambia]"), si = e.target.closest("[data-comune-si]");
@@ -1344,7 +1335,7 @@ function disegnaCarrello() {
       // se il cliente non ha scritto il paese, lo aggiungiamo noi (serve al rider e a Google Maps)
       const paeseInd = distQui ? (distQui.paese || distQui.comune || String(distQui.dove || "").split(",").slice(1).join(",").trim()) : "";
       const indirizzoPieno = consegna && paeseInd && !norm(d.indirizzo).includes(norm(paeseInd)) ? `${d.indirizzo.trim()}, ${paeseInd}` : d.indirizzo;
-      const ordine = { modo: d.modo, zona: consegna ? zona.nome : "", indirizzo: consegna ? indirizzoPieno : "", ora: d.ora, data: d.data,
+      const ordine = { modo: d.modo, zona: "", indirizzo: consegna ? indirizzoPieno : "", ora: d.ora, data: d.data,
         ...(consegna && d.dist && d.dist.km != null && d.dist.ind === d.indirizzo.trim() ? { km: d.dist.km, trovato: d.dist.dove } : {}),
         ...(consegna && d.dist && d.dist.paese && d.dist.ind === d.indirizzo.trim() ? { paese: d.dist.paese } : {}),
         nome: d.nome, telefono: d.telefono,
@@ -1357,7 +1348,7 @@ function disegnaCarrello() {
       const traccia = { numero: res.numero, telefono: d.telefono, data: d.data || isoDate(new Date()), ora: d.ora, modo: d.modo, nome: d.nome.split(" ")[0], creato: Date.now(),
         cosa: ordine.righe.map((r) => `${r.q}× ${r.nome}`).slice(0, 6), totale: res.totale != null ? res.totale : tot,
         // per lo scontrino
-        righe: ordine.righe, famiglia: F ? F.nome : "", sub, consegna: consegna ? costo : 0, zona: consegna ? zona.nome : "", indirizzo: consegna ? ordine.indirizzo : "",
+        righe: ordine.righe, famiglia: F ? F.nome : "", sub, consegna: consegna ? null : 0, zona: "", indirizzo: consegna ? ordine.indirizzo : "",
         sconto: res.sconto ? { nome: nomeSconto(), perc: res.sconto.perc, meno: res.sconto.meno } : perc ? { nome: nomeSconto(), perc, meno } : null, note: ordine.note || "" };
       store.set("yugo-ultimo-ordine", traccia);
       if (pushOk() && Notification.permission === "granted") attivaNotifiche(false).catch(() => {});   // già permesse: le colleghiamo anche a questo ordine
@@ -1372,7 +1363,7 @@ function disegnaCarrello() {
         <p class="hint">Per modifiche chiama il ${esc(R.telefono || "")}.</p>
         ${bottoneNotifiche()}
         <button class="btn btn-block" type="button" data-close>Chiudi</button></div>`;
-    } catch (ex) { fail(ex.message); btn.disabled = false; btn.textContent = `Invia ordine · € ${euro(tot)}`; }
+    } catch (ex) { fail(ex.message); btn.disabled = false; btn.textContent = `Invia ordine · € ${euro(tot)}${consegna ? " + consegna" : ""}`; }
   };
 }
 function ridisegnaQta() {
@@ -2190,7 +2181,7 @@ function natanRisposta(k) {
     case "consegna": {
       if (!ORD) return { t: `<p>Per asporto e consegna chiamaci:</p><p>${tel()}</p>`, b: altre };
       const r = [];
-      r.push(ORD.consegnaSospesa ? "In questo momento le consegne sono sospese: puoi ordinare e passare a ritirare." : `Costo della consegna, in base alla distanza in auto dal ristorante:<br>${(ORD.zone || []).map((z) => esc(nomeZona(z))).join("<br>")}${(ORD.zone || []).some((z) => z.noOre) ? `<br>${esc(`Oltre 8 km consegniamo solo fuori dalle ore di punta: non dalle 12:30 alle 14:00 e non dalle 19:30 alle 21:30.`)}` : ""}${ORD.maxKm ? `<br>${esc(`Consegniamo fino a ${ORD.maxKm} km dal ristorante.`)}` : ""}<br>Quando scrivi l'indirizzo nell'ordine, la distanza la calcoliamo noi.`);
+      r.push(ORD.consegnaSospesa ? "In questo momento le consegne sono sospese: puoi ordinare e passare a ritirare." : `Costo della consegna, in base alla distanza in auto dal ristorante:<br>${(ORD.zone || []).map((z) => esc(nomeZona(z))).join("<br>")}${(ORD.zone || []).some((z) => z.noOre) ? `<br>${esc(`Oltre 8 km consegniamo solo fuori dalle ore di punta: non dalle 12:30 alle 14:00 e non dalle 19:30 alle 21:30.`)}` : ""}${ORD.maxKm ? `<br>${esc(`Consegniamo fino a ${String(ORD.maxKm).replace(".", ",")} km dal ristorante.`)}` : ""}<br>Il costo esatto della consegna te lo confermiamo noi subito dopo l'ordine.`);
       r.push(`Orari:<br>${(ORD.fasce || []).map((f) => f.join("–")).join(" · ")}`);
       r.push(`Ordine minimo per la consegna € ${euro(ORD.minimo)}`);
       r.push("Si paga alla consegna o al ritiro. Non serve un account: bastano nome e telefono.");
