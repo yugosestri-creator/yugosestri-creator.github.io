@@ -101,6 +101,8 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS log_avvisi (id INTEGER PRIMARY KEY AUTOINCREMENT, quando TEXT NOT NULL, tipo TEXT, ok INTEGER, errore TEXT)`,
   // Visite: solo conteggi per giorno, ora e lingua. Nessun nome, nessun IP. Si cancellano dopo 30 giorni.
   `CREATE TABLE IF NOT EXISTS visite (giorno TEXT NOT NULL, ora INTEGER NOT NULL, lingua TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (giorno, ora, lingua))`,
+  // recensioni del sito (mini quiz + commento): anonime, una al giorno per persona (chi = IP cifrato, mai in chiaro)
+  `CREATE TABLE IF NOT EXISTS recensioni (id INTEGER PRIMARY KEY AUTOINCREMENT, creato TEXT NOT NULL, giorno TEXT NOT NULL, chi TEXT NOT NULL, risposte TEXT, testo TEXT, lingua TEXT)`,
   // primo evento: la promo di Halloween che prima stava nel sito (solo se la tabella è vuota)
   `INSERT INTO eventi (nome, descrizione, sconto, etichetta, dal, al, creato)
      SELECT 'Halloween da Yugo: fino al 20% di sconto', 'Per tutti il 10% di sconto. Se ci segui su Instagram o TikTok lo sconto sale al 20%. Mostra alla cassa che ci segui per avere il 20%.',
@@ -409,6 +411,25 @@ async function visita(env, body, request) {
   await env.DB.prepare("INSERT INTO visite (giorno, ora, lingua, n, ritorni, anonimi) VALUES (?, ?, ?, 1, ?, ?) ON CONFLICT (giorno, ora, lingua) DO UPDATE SET n = n + 1, ritorni = ritorni + excluded.ritorni, anonimi = anonimi + excluded.anonimi").bind(giorno, ora, lingua, ritorno, anonimo).run();
   return { ok: true };
 }
+/* Recensione del sito: 5 risposte a tocco (1–5) e/o un commento. Niente nomi né telefoni. */
+const DOMANDE_RECENSIONE = ["facile", "trovato", "grafica", "veloce", "consiglio"];
+async function recensione(env, body, ip) {
+  await init(env);
+  const risposte = {};
+  for (const k of DOMANDE_RECENSIONE) { const v = parseInt((body.risposte || {})[k], 10); if (v >= 1 && v <= 5) risposte[k] = v; }
+  const testo = pulisci(body.testo, 800);
+  if (!Object.keys(risposte).length && !testo) throw new Errore("Rispondi ad almeno una domanda o scrivi un commento.");
+  const { giorno } = giornoOraRoma();
+  const h = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("recensione|" + (ip || "?")));
+  const chi = [...new Uint8Array(h)].slice(0, 12).map((b) => b.toString(16).padStart(2, "0")).join("");
+  const gia = await env.DB.prepare("SELECT id FROM recensioni WHERE giorno = ? AND chi = ?").bind(giorno, chi).first();
+  if (gia) return { ok: true, gia: true };
+  const l = String(body.lingua || "").toLowerCase().slice(0, 2);
+  await env.DB.prepare("INSERT INTO recensioni (creato, giorno, chi, risposte, testo, lingua) VALUES (?, ?, ?, ?, ?, ?)")
+    .bind(adessoISO(), giorno, chi, JSON.stringify(risposte), testo, LINGUE_VISITE.includes(l) ? l : "altro").run();
+  return { ok: true };
+}
+
 async function statVisite(env) {
   const da = giornoOraRoma(new Date(Date.now() - (GIORNI_VISITE - 1) * 864e5)).giorno;
   const daISO = new Date(Date.now() - (GIORNI_VISITE + 1) * 864e5).toISOString();
@@ -1003,7 +1024,8 @@ async function gestDati(env, body) {
     env.DB.prepare("SELECT f.id, f.codice, f.username, f.piattaforma, f.creato, p.nome AS daChi FROM follow f LEFT JOIN promoter p ON p.codice = f.codice WHERE f.stato = 'attesa' ORDER BY f.id DESC LIMIT 100").all(),
     env.DB.prepare("SELECT id, nome, descrizione, sconto, etichetta, dal, al FROM eventi WHERE eliminato = 0 AND (al IS NULL OR al = '' OR al >= ?) ORDER BY dal, id").bind(oggi).all()
   ]);
-  return { ok: true, prenot: prenot.results || [], ordini: ordini.results || [], follower: follower.results || [], eventi: eventi.results || [], visite: await statVisite(env).catch(() => null) };
+  const rec = await env.DB.prepare("SELECT id, creato, risposte, testo, lingua FROM recensioni ORDER BY id DESC LIMIT 200").all().catch(() => ({ results: [] }));
+  return { ok: true, prenot: prenot.results || [], ordini: ordini.results || [], follower: follower.results || [], eventi: eventi.results || [], visite: await statVisite(env).catch(() => null), recensioni: rec.results || [] };
 }
 
 async function gestAzione(env, body) {
@@ -1303,6 +1325,7 @@ export default {
       if (url.pathname === "/eventi") return json(await eventiPubblici(env));
       if (url.pathname === "/natan-pc") return json(await natanPc(env, request, "natan_pc"));
       if (url.pathname === "/natan-grande") return json(await natanPc(env, request, "natan_grande"));
+      if (url.pathname === "/recensione" && request.method === "POST") return json(await recensione(env, await request.json().catch(() => ({})), request.headers.get("CF-Connecting-IP") || ""));
       if (url.pathname === "/visita" && request.method === "POST") return json(await visita(env, await request.json().catch(() => ({})), request));
       if (url.pathname === "/push/chiave") return json({ ok: true, chiave: (await vapid(env)).pub });
       if (request.method === "GET") return json({ ok: true, servizio: "Yugo – bot e promo" });
