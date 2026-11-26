@@ -702,6 +702,10 @@ async function promoSocial(env, body) {
   const u = await utente(env, body.idToken);
   if (!u) throw new Errore("Accedi per partecipare.", 401);
   let p = await env.DB.prepare(`SELECT * FROM promoter WHERE uid = ?`).bind(u.uid).first();
+  if (body.rimuovi === "instagram" || body.rimuovi === "tiktok") {
+    if (p) await env.DB.prepare(`DELETE FROM follow WHERE codice = ? AND username LIKE ? AND stato != 'ok'`).bind(p.codice, body.rimuovi + ":%").run();
+    return promoMe(env, body, u);
+  }
   const voci = [];
   for (const pf of ["instagram", "tiktok"]) {
     const us = pulisci(body[pf], 40).replace(/^@+/, "").toLowerCase(); if (!us) continue;
