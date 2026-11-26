@@ -348,6 +348,21 @@ async function fedeltaDi(env, uid) {
 }
 const oggiRomaISO = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Rome" }).format(new Date());
 const promoScontiAttiva = () => { const g = oggiRomaISO(); return g >= PROMO_SCONTI.dal && g <= PROMO_SCONTI.al; };
+/* "Seguici e ricevi un regalo": un passo solo, senza account. Il regalo lo dai alla cassa guardando che ci segua davvero. */
+const PREMIO_SEGUI = "Una bibita piccola in omaggio";
+async function segui(env, body) {
+  await init(env);
+  const piattaforma = body.piattaforma === "tiktok" ? "tiktok" : "instagram";
+  const username = String(body.username || "").trim().replace(/^@+/, "").toLowerCase();
+  if (!/^[a-z0-9._]{2,30}$/.test(username)) throw new Errore("Scrivi il tuo nome utente, per esempio @mario.rossi", 400);
+  const chi = `segui:${piattaforma}:${username}`;
+  const c = await env.DB.prepare("SELECT codice, stato FROM coupon WHERE uid = ? AND tipo = 'segui'").bind(chi).first();
+  if (c) return { ok: true, codice: c.codice, premio: PREMIO_SEGUI, stato: c.stato, gia: true };
+  const codice = await codiceCouponNuovo(env);
+  await env.DB.prepare("INSERT INTO coupon (codice, promoter_id, livello, creato, tipo, premio, uid) VALUES (?, 0, 0, ?, 'segui', ?, ?)")
+    .bind(codice, adessoISO(), PREMIO_SEGUI, chi).run();
+  return { ok: true, codice, premio: PREMIO_SEGUI, stato: "valido" };
+}
 async function codiceCouponNuovo(env) {
   for (let i = 0; i < 30; i++) {
     const c = String(100000 + Math.floor(Math.random() * 900000));
@@ -813,6 +828,13 @@ async function comando(env, msg) {
       `SELECT c.*, p.nome, p.telefono, p.codice AS invito FROM coupon c LEFT JOIN promoter p ON p.id = c.promoter_id WHERE c.codice = ?`
     ).bind(codice).first();
     if (!c) return rispondi(`❌ Il coupon ${codice} non esiste.\n❌ 优惠券 ${codice} 不存在。`);
+    if (c.tipo === "segui") {
+      const [, pf, us] = String(c.uid || "").split(":");
+      if (c.stato === "usato") return rispondi(`⚠️ Regalo ${codice} GIÀ USATO il ${oraRoma(c.usato).it}\n⚠️ 礼品 ${codice} 已使用`);
+      if (cmd === "/coupon") return rispondi(`✅ Regalo ${codice} VALIDO: ${c.premio}\nControlla che @${us} ci segua su ${pf === "tiktok" ? "TikTok" : "Instagram"}.\n✅ 礼品有效：小饮料一杯（请确认 @${us} 已关注）`);
+      await env.DB.prepare(`UPDATE coupon SET stato = 'usato', usato = ? WHERE codice = ? AND stato = 'valido'`).bind(adessoISO(), codice).run();
+      return rispondi(`✅ Regalo ${codice} segnato come usato (@${us}).\n✅ 礼品 ${codice} 已标记为已使用。`);
+    }
     if (c.tipo === "benvenuto") {
       const giu = c.stato === "usato" ? `⚠️ Buono di benvenuto ${codice} GIÀ USATO il ${oraRoma(c.usato).it}\n⚠️ 新会员优惠券 ${codice} 已于 ${oraRoma(c.usato).zh} 使用过` : null;
       if (giu) return rispondi(giu);
@@ -1069,7 +1091,8 @@ async function gestDati(env, body) {
     env.DB.prepare("SELECT id, nome, descrizione, sconto, etichetta, dal, al FROM eventi WHERE eliminato = 0 AND (al IS NULL OR al = '' OR al >= ?) ORDER BY dal, id").bind(oggi).all()
   ]);
   const rec = await env.DB.prepare("SELECT id, creato, risposte, testo, lingua FROM recensioni ORDER BY id DESC LIMIT 200").all().catch(() => ({ results: [] }));
-  return { ok: true, prenot: prenot.results || [], ordini: ordini.results || [], follower: follower.results || [], eventi: eventi.results || [], visite: await statVisite(env).catch(() => null), recensioni: rec.results || [] };
+  const seg = await env.DB.prepare("SELECT codice, stato, creato, usato, uid FROM coupon WHERE tipo = 'segui' ORDER BY creato DESC LIMIT 200").all().catch(() => ({ results: [] }));
+  return { ok: true, prenot: prenot.results || [], ordini: ordini.results || [], follower: follower.results || [], eventi: eventi.results || [], visite: await statVisite(env).catch(() => null), recensioni: rec.results || [], seguaci: (seg.results || []).map((x) => { const [, pf, us] = String(x.uid || "").split(":"); return { codice: x.codice, stato: x.stato, creato: x.creato, usato: x.usato, piattaforma: pf, username: us }; }) };
 }
 
 async function gestAzione(env, body) {
@@ -1134,6 +1157,10 @@ async function gestAzione(env, body) {
     if (!codice) throw new Errore("Scrivi il codice del coupon.", 400);
     const c = await env.DB.prepare("SELECT c.*, p.nome, p.telefono, p.codice AS invito FROM coupon c LEFT JOIN promoter p ON p.id = c.promoter_id WHERE c.codice = ?").bind(codice).first();
     if (!c) return { ok: true, coupon: null };
+    if (c.tipo === "segui") {
+      const [, pf, us] = String(c.uid || "").split(":");
+      return { ok: true, oggi: { ok: true }, coupon: { codice: c.codice, stato: c.stato, livello: 0, premio: c.premio, tipo: "segui", condizione: `Controlla che @${us} ci segua su ${pf === "tiktok" ? "TikTok" : "Instagram"}`, giorni: "Tutti i giorni, una volta sola", nome: "", telefono: "", invito: "", usato: c.usato, creato: c.creato, username: us, piattaforma: pf } };
+    }
     if (c.tipo === "benvenuto") {
       const att = promoScontiAttiva();
       return { ok: true, oggi: att ? { ok: true } : { ok: false, motivo: "Buono scaduto: valeva dal 6 al 30 novembre." },
@@ -1160,7 +1187,7 @@ async function gestAzione(env, body) {
   if (az === "coupon-usato") {
     const codice = String(body.codice || "").replace(/\D/g, "");
     const tc = await env.DB.prepare("SELECT tipo FROM coupon WHERE codice = ?").bind(codice).first();
-    const oggi = tc && tc.tipo === "benvenuto" ? (promoScontiAttiva() ? { ok: true } : { ok: false, motivo: "Buono scaduto." }) : couponOggi();
+    const oggi = tc && tc.tipo === "segui" ? { ok: true } : tc && tc.tipo === "benvenuto" ? (promoScontiAttiva() ? { ok: true } : { ok: false, motivo: "Buono scaduto." }) : couponOggi();
     if (!oggi.ok) throw new Errore(oggi.motivo, 400);
     const r = await env.DB.prepare("UPDATE coupon SET stato = 'usato', usato = ? WHERE codice = ? AND stato = 'valido'").bind(adessoISO(), codice).run();
     if (!r.meta || r.meta.changes !== 1) throw new Errore("Coupon già usato o non valido.", 400);
@@ -1405,6 +1432,7 @@ export default {
       if (url.pathname === "/natan-pc") return json(await natanPc(env, request, "natan_pc"));
       if (url.pathname === "/natan-diagnosi") return json(await natanDiagnosi());
       if (url.pathname === "/natan-grande") return json(await natanPc(env, request, "natan_grande"));
+      if (url.pathname === "/segui" && request.method === "POST") return json(await segui(env, await request.json().catch(() => ({}))));
       if (url.pathname === "/recensione" && request.method === "POST") return json(await recensione(env, await request.json().catch(() => ({})), request.headers.get("CF-Connecting-IP") || ""));
       if (url.pathname === "/visita" && request.method === "POST") return json(await visita(env, await request.json().catch(() => ({})), request));
       if (url.pathname === "/push/chiave") return json({ ok: true, chiave: (await vapid(env)).pub });
