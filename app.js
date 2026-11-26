@@ -455,47 +455,44 @@ async function renderInvite() {
   const S = R.social || {};
   const mio = store.get("yugo-regalo", null);
   if (mio && mio.codice) {
+    const n = mio.bibite || 1, nomi = mio.profili || [mio.username];
     area.innerHTML = `<article class="block invite">
       <span class="promo-tag">Il tuo regalo</span>
       <h2>Grazie per averci seguito! 🎉</h2>
       <div class="coupons"><div class="coupon c-omaggio fx-stamp">
-        <span class="c-tipo">🎁 Bibita piccola in omaggio</span>
+        <span class="c-tipo">${n > 1 ? "🎁 2 bibite piccole in omaggio" : "🎁 Bibita piccola in omaggio"}</span>
         <span class="c-code notranslate">${esc(mio.codice)}</span>
-        <span class="c-info notranslate">@${esc(mio.username)}</span>
+        <span class="c-info notranslate">${nomi.map((u) => "@" + esc(u)).join(" · ")}</span>
         <span class="c-state">Mostralo alla cassa</span>
       </div></div>
       <p class="hint">Alla cassa controlliamo che ci segui. Un regalo per ogni profilo.</p>
     </article>`;
     return;
   }
-  let pf = "instagram";
   area.innerHTML = `<article class="block invite">
     <span class="promo-tag">Regalo</span>
     <h2>Seguici e ricevi una bibita gratis</h2>
-    <ol class="how"><li>Tocca Instagram o TikTok e seguici.</li><li>Scrivi il tuo nome utente.</li><li>Ricevi il codice e mostralo alla cassa.</li></ol>
-    <div class="seg-pf" style="display:flex;gap:8px;margin:10px 0">
-      <a class="btn btn-block" data-pf="instagram" href="https://www.instagram.com/${esc(S.instagram || "")}/" target="_blank" rel="noopener">📸 Instagram</a>
-      <a class="btn btn-ghost btn-block" data-pf="tiktok" href="https://www.tiktok.com/@${esc(S.tiktok || "")}" target="_blank" rel="noopener">🎵 TikTok</a>
-    </div>
+    <p>Ci segui su Instagram e TikTok? Ricevi 2 bibite. Solo uno dei due: 1 bibita.</p>
     <form class="form" id="seg-form" novalidate>
-      <div class="field"><label for="seg-user">Il tuo nome utente</label><input class="input" id="seg-user" autocomplete="off" autocapitalize="none" placeholder="@iltuonome"></div>
+      <div class="field"><label for="seg-ig">📸 Il tuo nome utente Instagram</label><input class="input" id="seg-ig" autocomplete="off" autocapitalize="none" placeholder="@iltuonome"></div>
+      <div class="field"><label for="seg-tt">🎵 Il tuo nome utente TikTok</label><input class="input" id="seg-tt" autocomplete="off" autocapitalize="none" placeholder="@iltuonome"></div>
+      <p class="hint">Lascia vuoto quello che non usi.</p>
+      <p class="hint"><a href="https://www.instagram.com/${esc(S.instagram || "")}/" target="_blank" rel="noopener">Instagram</a> · <a href="https://www.tiktok.com/@${esc(S.tiktok || "")}" target="_blank" rel="noopener">TikTok</a></p>
       <p class="error" id="seg-err" hidden></p>
       <button class="btn btn-gold btn-block" type="submit" id="seg-go">Ho seguito: dammi il regalo</button>
     </form>
   </article>`;
-  area.querySelectorAll("[data-pf]").forEach((a) => a.addEventListener("click", () => {
-    pf = a.dataset.pf;
-    area.querySelectorAll("[data-pf]").forEach((x) => x.classList.toggle("btn-ghost", x !== a));
-  }));
   $("#seg-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const err = $("#seg-err"), btn = $("#seg-go"); err.hidden = true;
-    const username = $("#seg-user").value.trim().replace(/^@/, "").toLowerCase();
-    if (!/^[a-z0-9._]{2,30}$/.test(username)) { err.textContent = "Scrivi il tuo nome utente, per esempio @mario.rossi"; err.hidden = false; return; }
+    const pul = (v) => v.trim().replace(/^@+/, "").toLowerCase();
+    const instagram = pul($("#seg-ig").value), tiktok = pul($("#seg-tt").value);
+    const ok = (u) => !u || /^[a-z0-9._]{2,30}$/.test(u);
+    if ((!instagram && !tiktok) || !ok(instagram) || !ok(tiktok)) { err.textContent = "Scrivi il tuo nome utente, per esempio @mario.rossi"; err.hidden = false; return; }
     btn.disabled = true;
     try {
-      const r = await api("/segui", { piattaforma: pf, username });
-      store.set("yugo-regalo", { codice: r.codice, username, piattaforma: pf });
+      const r = await api("/segui", { instagram, tiktok });
+      store.set("yugo-regalo", { codice: r.codice, bibite: r.bibite || 1, profili: [instagram, tiktok].filter(Boolean) });
       toast("Ecco il tuo regalo!"); renderInvite();
     } catch (ex) { err.textContent = ex.message; err.hidden = false; btn.disabled = false; }
   });
@@ -2218,7 +2215,7 @@ function natanRisposta(k) {
         : `<p>In questo momento non ci sono offerte attive. Seguici su Instagram e TikTok per sapere le prossime!</p>`,
         b: [["invita", "Regalo per chi ci segue"], ...altre] };
     }
-    case "invita": return { t: `<p>Seguici su Instagram o TikTok, scrivi il tuo nome utente e ricevi una bibita piccola in omaggio. Basta un minuto!</p>`, b: [["vai-promo", "Ricevi il regalo"], ...altre] };
+    case "invita": return { t: `<p>Seguici su Instagram o TikTok, scrivi il tuo nome utente e ricevi una bibita in omaggio (2 se ci segui su entrambi). Basta un minuto!</p>`, b: [["vai-promo", "Ricevi il regalo"], ...altre] };
     case "consegna": {
       if (!ORD) return { t: `<p>Per asporto e consegna chiamaci:</p><p>${tel()}</p>`, b: altre };
       const r = [];
