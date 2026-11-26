@@ -452,15 +452,53 @@ function verifyBox(box) {
 async function renderInvite() {
   const area = $("#invite-area"); if (!area) return;
   area.hidden = !WORKER; if (!WORKER) return;
-  if (!backend || user === undefined) { area.innerHTML = `<p class="muted">Caricamento…</p>`; return; }
-  const intro = `<span class="promo-tag">Invita amici</span><h2>Porta i tuoi amici, vinci premi</h2>
-    <p>Ogni amico che ci segue su TikTok o Instagram riempie la tua barra. Barra piena = un coupon da usare da Yugo.</p>
-    <p class="hint">Ogni premio vale per una sola persona. Coupon validi solo dal lunedì al giovedì, festivi esclusi.</p>`;
-  if (!user) { area.innerHTML = `<article class="block invite">${intro}<a href="#account" data-go="account" class="btn">Accedi o registrati per partecipare</a></article>`; return; }
-  if (!user.verified) { area.innerHTML = `<article class="block invite">${intro}<div class="vbox"></div></article>`; verifyBox(area.querySelector(".vbox")); return; }
-  if (!area.innerHTML.trim()) area.innerHTML = `<p class="muted">Caricamento…</p>`;
-  try { drawInvite(area, await api("/promo/me", { idToken: await backend.token() })); }
-  catch (e) { area.innerHTML = `<article class="block invite">${intro}<p class="error">${esc(e.message)}</p></article>`; }
+  const S = R.social || {};
+  const mio = store.get("yugo-regalo", null);
+  if (mio && mio.codice) {
+    area.innerHTML = `<article class="block invite">
+      <span class="promo-tag">Il tuo regalo</span>
+      <h2>Grazie per averci seguito! 🎉</h2>
+      <div class="coupons"><div class="coupon c-omaggio fx-stamp">
+        <span class="c-tipo">🎁 Bibita piccola in omaggio</span>
+        <span class="c-code notranslate">${esc(mio.codice)}</span>
+        <span class="c-info notranslate">@${esc(mio.username)}</span>
+        <span class="c-state">Mostralo alla cassa</span>
+      </div></div>
+      <p class="hint">Alla cassa controlliamo che ci segui. Un regalo per ogni profilo.</p>
+    </article>`;
+    return;
+  }
+  let pf = "instagram";
+  area.innerHTML = `<article class="block invite">
+    <span class="promo-tag">Regalo</span>
+    <h2>Seguici e ricevi una bibita gratis</h2>
+    <ol class="how"><li>Tocca Instagram o TikTok e seguici.</li><li>Scrivi il tuo nome utente.</li><li>Ricevi il codice e mostralo alla cassa.</li></ol>
+    <div class="seg-pf" style="display:flex;gap:8px;margin:10px 0">
+      <a class="btn btn-block" data-pf="instagram" href="https://www.instagram.com/${esc(S.instagram || "")}/" target="_blank" rel="noopener">📸 Instagram</a>
+      <a class="btn btn-ghost btn-block" data-pf="tiktok" href="https://www.tiktok.com/@${esc(S.tiktok || "")}" target="_blank" rel="noopener">🎵 TikTok</a>
+    </div>
+    <form class="form" id="seg-form" novalidate>
+      <div class="field"><label for="seg-user">Il tuo nome utente</label><input class="input" id="seg-user" autocomplete="off" autocapitalize="none" placeholder="@iltuonome"></div>
+      <p class="error" id="seg-err" hidden></p>
+      <button class="btn btn-gold btn-block" type="submit" id="seg-go">Ho seguito: dammi il regalo</button>
+    </form>
+  </article>`;
+  area.querySelectorAll("[data-pf]").forEach((a) => a.addEventListener("click", () => {
+    pf = a.dataset.pf;
+    area.querySelectorAll("[data-pf]").forEach((x) => x.classList.toggle("btn-ghost", x !== a));
+  }));
+  $("#seg-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const err = $("#seg-err"), btn = $("#seg-go"); err.hidden = true;
+    const username = $("#seg-user").value.trim().replace(/^@/, "").toLowerCase();
+    if (!/^[a-z0-9._]{2,30}$/.test(username)) { err.textContent = "Scrivi il tuo nome utente, per esempio @mario.rossi"; err.hidden = false; return; }
+    btn.disabled = true;
+    try {
+      const r = await api("/segui", { piattaforma: pf, username });
+      store.set("yugo-regalo", { codice: r.codice, username, piattaforma: pf });
+      toast("Ecco il tuo regalo!"); renderInvite();
+    } catch (ex) { err.textContent = ex.message; err.hidden = false; btn.disabled = false; }
+  });
 }
 
 function drawInvite(area, me, nuovo) {
@@ -1794,7 +1832,7 @@ function renderAccount() {
       <article class="block"><h2>Le mie prenotazioni</h2><div id="my-list" class="blist"><p class="muted">Caricamento…</p></div></article>
       <article class="block sconti-box" id="sconti-box" hidden></article>
       <article class="block" id="my-ord-box" hidden><h2>I miei ordini</h2><div id="my-ord" class="blist"></div></article>
-      <a class="btn btn-gold" href="#promo" data-go="promo">🎁 Invita amici e vinci premi</a>
+      <a class="btn btn-gold" href="#promo" data-go="promo">🎁 Seguici: bibita in omaggio</a>
       <article class="block" id="notif-box" hidden></article>
       ${installBlock()}
       <button type="button" class="btn btn-ghost" data-tour>✨ Guarda il tour del sito</button>
@@ -2178,9 +2216,9 @@ function natanRisposta(k) {
       const l = promoAttive();
       return { t: l.length ? `<p>Ecco le offerte di adesso:</p>${lista(l.map((p) => `<b>${esc(p.titolo)}</b>${p.descrizione ? ` – ${esc(p.descrizione)}` : ""}${p.sconto ? ` (${esc(p.sconto)})` : ""}${p.al ? ` · fino al ${esc(p.al.split("-").reverse().join("/"))}` : ""}`))}`
         : `<p>In questo momento non ci sono offerte attive. Seguici su Instagram e TikTok per sapere le prossime!</p>`,
-        b: [["invita", "Sconti invitando amici"], ...altre] };
+        b: [["invita", "Regalo per chi ci segue"], ...altre] };
     }
-    case "invita": return { t: `<p>Dalla pagina Account puoi invitare i tuoi amici con il tuo codice: più amici vengono, più sconti ricevi.</p>`, b: [["vai-account", "Vai ad Account"], ...altre] };
+    case "invita": return { t: `<p>Seguici su Instagram o TikTok, scrivi il tuo nome utente e ricevi una bibita piccola in omaggio. Basta un minuto!</p>`, b: [["vai-promo", "Ricevi il regalo"], ...altre] };
     case "consegna": {
       if (!ORD) return { t: `<p>Per asporto e consegna chiamaci:</p><p>${tel()}</p>`, b: altre };
       const r = [];
@@ -2222,7 +2260,7 @@ function natanMostra() {
 function apriNatan() { $("#natan").hidden = false; document.documentElement.classList.add("no-scroll"); natanMostra(); }
 function chiudiNatan() { $("#natan").hidden = true; document.documentElement.classList.remove("no-scroll"); }
 function sceltaNatan(k, label) {
-  const vai = { "vai-ordina": "ordina", "vai-prenota": "prenota", "vai-account": "account", "menu-sito": "menu" }[k];
+  const vai = { "vai-ordina": "ordina", "vai-prenota": "prenota", "vai-account": "account", "vai-promo": "promo", "menu-sito": "menu" }[k];
   if (vai) { chiudiNatan(); go(vai); return; }
   if (k === "quiz") { chiudiNatan(); apriConsiglio(); return; }
   if (k === "menu") { natanBottoni = NATAN_MENU; natanMostra(); return; }
