@@ -499,7 +499,7 @@ function viewRecensioni() {
 }
 /* 📈 Andamento: lo storico giornaliero (non si cancella mai) in grafici per giorni, settimane, mesi e anni */
 const AND_M = {
-  stima: ["💰 Totale stimato", (x) => x.incasso + 20 * x.persone, "€", "Ordini + 20 € per ogni persona prenotata"],
+  stima: ["💰 Totale stimato", (x) => x.incasso + 20 * x.pers_pranzo + 30 * x.pers_cena, "€", "Ordini + 20 € a persona a pranzo e 30 € a persona a cena"],
   incasso: ["💶 Incasso ordini", (x) => x.incasso, "€", "Totale degli ordini dal sito (senza consegna)"],
   ordini: ["🛵 Ordini", (x) => x.ordini, "", "Ordini validi (senza gli annullati)"],
   persone: ["👥 Persone ai tavoli", (x) => x.persone, "", "Persone delle prenotazioni confermate"],
@@ -510,7 +510,7 @@ const AND_M = {
 const AND_P = { g: "30 giorni", s: "12 settimane", m: "12 mesi", a: "Anni" };
 function andamentoDati(m, p) {
   const S = dati.storico || [], per = {}; S.forEach((x) => per[x.giorno] = x);
-  const vuoto = () => ({ visite: 0, ritorni: 0, ordini: 0, incasso: 0, consegne: 0, ritiri: 0, annullati: 0, prenot: 0, persone: 0 });
+  const vuoto = () => ({ visite: 0, ritorni: 0, ordini: 0, incasso: 0, consegne: 0, ritiri: 0, annullati: 0, prenot: 0, persone: 0, pers_pranzo: 0, pers_cena: 0 });
   const add = (a, x) => { for (const k in a) a[k] += Number(x[k]) || 0; };
   const oggi = new Date(); oggi.setHours(12, 0, 0, 0);
   const giorniDa = (a, b) => { const out = []; for (let d = new Date(a); d <= b; d.setDate(d.getDate() + 1)) out.push(iso(d)); return out; };
@@ -558,15 +558,15 @@ function viewAndamento() {
       ${etich}
     </svg>
     <p class="and-sel"><strong>${esc(sel.e)}</strong>${sel.da !== sel.a ? ` <small>(${esc(fmtDay(sel.da))} – ${esc(fmtDay(sel.a))})</small>` : ""}: <b>${fmtAnd(sel.v, u)}</b>
-      <small> · ${sel.t.ordini} ordini (${sel.t.consegne} consegne, ${sel.t.ritiri} ritiri) · ${fmtAnd(sel.t.incasso, "€")} · ${sel.t.prenot} prenotazioni, ${sel.t.persone} persone · ${sel.t.visite} visite</small></p>
+      <small> · ${sel.t.ordini} ordini (${sel.t.consegne} consegne, ${sel.t.ritiri} ritiri) · ${fmtAnd(sel.t.incasso, "€")} · ${sel.t.prenot} prenotazioni, ${sel.t.persone} persone (${sel.t.pers_pranzo} a pranzo, ${sel.t.pers_cena} a cena) · ${sel.t.visite} visite</small></p>
     <div class="row"><button class="b" id="and-csv">⬇️ Scarica tutto lo storico (Excel)</button></div>
     <p class="hint">Tocca il grafico per vedere ogni punto. Lo storico è un riassunto di pochi numeri al giorno: non si cancella mai e pesa pochissimo. Con «Scarica» ne salvi una copia sul tuo telefono o computer.</p>
   </div>`;
 }
 function scaricaStorico() {
   const S = dati.storico || [];
-  const righe = [["Giorno", "Visite", "Visite di ritorno", "Ordini", "Incasso ordini €", "Consegne", "Ritiri", "Annullati", "Prenotazioni", "Persone"]]
-    .concat(S.map((x) => [x.giorno, x.visite, x.ritorni, x.ordini, String(x.incasso).replace(".", ","), x.consegne, x.ritiri, x.annullati, x.prenot, x.persone]));
+  const righe = [["Giorno", "Visite", "Visite di ritorno", "Ordini", "Incasso ordini €", "Consegne", "Ritiri", "Annullati", "Prenotazioni", "Persone", "Persone a pranzo", "Persone a cena", "Totale stimato €"]]
+    .concat(S.map((x) => [x.giorno, x.visite, x.ritorni, x.ordini, String(x.incasso).replace(".", ","), x.consegne, x.ritiri, x.annullati, x.prenot, x.persone, x.pers_pranzo || 0, x.pers_cena || 0, String(Math.round((x.incasso + 20 * (x.pers_pranzo || 0) + 30 * (x.pers_cena || 0)) * 100) / 100).replace(".", ",")]));
   const csv = "\ufeff" + righe.map((r) => r.join(";")).join("\r\n");
   const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
   a.download = `yugo-storico-${iso(new Date())}.csv`; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
