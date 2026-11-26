@@ -983,3 +983,12 @@ body:has(#cart-bar:not([hidden])) .natan-fab { bottom: calc(var(--tabbar-h) + en
 .sc-card { padding-top: 34px; }
 .trk-azioni { display: flex; flex-wrap: wrap; gap: 8px; }
 @media (prefers-reduced-motion: reduce) { .scontrino.stampa .sc-carta { animation: none; } }
+
+/* Account ordinato */
+.acc .acc-sub { font-size: .8rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted, #9aa6c0); margin: 14px 0 6px; }
+.acc .acc-sub:first-of-type { margin-top: 4px; }
+.acc-altro { display: flex; flex-direction: column; gap: 0; }
+.acc-altro > .acc-row { display: flex; align-items: center; width: 100%; padding: 13px 2px; background: none; border: 0; border-top: 1px solid rgba(255,255,255,.08); color: inherit; font: inherit; text-align: left; text-decoration: none; cursor: pointer; }
+.acc-altro > .acc-row::after { content: "›"; margin-left: auto; opacity: .5; }
+.acc-altro > h2 + .acc-row { border-top: 0; }
+#btn-logout { color: #ff9b9b; }
