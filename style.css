@@ -992,3 +992,23 @@ body:has(#cart-bar:not([hidden])) .natan-fab { bottom: calc(var(--tabbar-h) + en
 .acc-altro > .acc-row::after { content: "›"; margin-left: auto; opacity: .5; }
 .acc-altro > h2 + .acc-row { border-top: 0; }
 #btn-logout { color: #ff9b9b; }
+
+/* La cucina: foto orizzontale sopra il testo */
+.block-photo { grid-template-columns: 1fr; }
+.block-photo .photo { height: auto; min-height: 0; aspect-ratio: 4 / 3; object-position: center; }
+
+/* Seguici: elenco dei profili inviati */
+.so-apri { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 12px; }
+.so-apri .btn { flex: 1 1 0; }
+.so-list { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 8px; }
+.so-list li { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); }
+.so-ic { font-size: 1.2rem; }
+.so-nome { display: grid; min-width: 0; flex: 1; }
+.so-nome b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.so-nome small { opacity: .65; font-size: .8rem; }
+.so-st { font-size: .8rem; font-weight: 600; padding: 4px 8px; border-radius: 999px; white-space: nowrap; }
+.so-st.ok { background: rgba(80,200,120,.16); color: #7fe0a0; }
+.so-st.att { background: rgba(230,190,90,.16); color: #f0cf7a; }
+.so-st.no { background: rgba(240,100,100,.16); color: #ff9b9b; }
+.so-x { background: none; border: 0; color: inherit; opacity: .6; font-size: 1rem; padding: 4px 6px; cursor: pointer; }
+.so-form { margin-top: 6px; }
