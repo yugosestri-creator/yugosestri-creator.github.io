@@ -391,7 +391,7 @@ function viewFollower() {
         <div class="row">${pr.map((p) => `<a class="b" href="${p.pf === "tiktok" ? `https://tiktok.com/@${esc(p.us)}` : `https://instagram.com/${esc(p.us)}`}" target="_blank" rel="noopener">Controlla ${p.pf === "tiktok" ? "TikTok" : "Instagram"} ↗</a>`).join("")}</div></div>`; }).join("") : `<div class="empty">Ancora nessuno.</div>`}`;
   if (!list.length) return nuovi;
   return nuovi + `<h3 class="sez">Vecchio programma «Invita amici» (${list.length})</h3>` + list.map((f) => {
-    const u = (f.username || "").replace(/^@/, "");
+    const u = (f.username || "").replace(/^@/, "").replace(/^(instagram|tiktok):/, "");
     const ig = `https://instagram.com/${u}`, tt = `https://tiktok.com/@${u}`;
     return `<div class="card" data-f="${f.id}">
       <h3>@${esc(u)} <span class="tag att">In attesa</span></h3>
