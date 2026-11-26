@@ -154,6 +154,7 @@ async function init(env) {
   if (schemaPronto) return;
   await env.DB.batch(SCHEMA.map((s) => env.DB.prepare(s)));
   for (const q of NUOVE_COLONNE) await env.DB.prepare(q).run().catch(() => {}); // già presenti: ok
+  await env.DB.prepare(`UPDATE follow SET stato = 'attesa', deciso = NULL WHERE stato = 'ok' AND deciso = creato AND (username LIKE 'instagram:%' OR username LIKE 'tiktok:%')`).run().catch(() => {});
   schemaPronto = true;
 }
 
@@ -695,8 +696,8 @@ async function promoIscrivi(env, body) {
   return promoMe(env, body, u);
 }
 
-/* I social del cliente stesso: Instagram e TikTok contano 1 punto ciascuno nella barra, subito.
-   Il ristorante controlla alla cassa quando usa il coupon. Salvati in follow come "instagram:nome" / "tiktok:nome". */
+/* I social del cliente stesso: Instagram e TikTok contano 1 punto ciascuno nella barra
+   quando il ristorante li conferma nel Gestore (scheda Follower), come per gli amici. Salvati in follow come "instagram:nome" / "tiktok:nome". */
 async function promoSocial(env, body) {
   const u = await utente(env, body.idToken);
   if (!u) throw new Errore("Accedi per partecipare.", 401);
@@ -706,10 +707,11 @@ async function promoSocial(env, body) {
     const us = pulisci(body[pf], 40).replace(/^@+/, "").toLowerCase(); if (!us) continue;
     const nomePf = pf === "tiktok" ? "TikTok" : "Instagram";
     if (!/^[a-z0-9._]{2,30}$/.test(us)) throw new Errore(`Nome utente ${nomePf} non valido.`);
-    const gia = await env.DB.prepare(`SELECT codice FROM follow WHERE username = ? OR (username = ? AND piattaforma = ?)`).bind(`${pf}:${us}`, us, nomePf).first();
+    const gia = await env.DB.prepare(`SELECT codice FROM follow WHERE stato != 'no' AND (username = ? OR (username = ? AND piattaforma = ?))`).bind(`${pf}:${us}`, us, nomePf).first();
     if (gia && (!p || gia.codice !== p.codice)) throw new Errore(`@${us} su ${nomePf} è già stato usato: non valido.`, 409);
     if (gia) continue;
-    if (p && await env.DB.prepare(`SELECT 1 FROM follow WHERE codice = ? AND username LIKE ?`).bind(p.codice, pf + ":%").first()) throw new Errore(`Hai già inserito il tuo ${nomePf}.`, 409);
+    if (p && await env.DB.prepare(`SELECT 1 FROM follow WHERE codice = ? AND username LIKE ? AND stato != 'no'`).bind(p.codice, pf + ":%").first()) throw new Errore(`Hai già inserito il tuo ${nomePf}.`, 409);
+    await env.DB.prepare(`DELETE FROM follow WHERE stato = 'no' AND username = ?`).bind(`${pf}:${us}`).run();
     voci.push([pf, us, nomePf]);
   }
   if (!voci.length && !p) throw new Errore("Scrivi almeno un nome utente, per esempio @mario.rossi");
@@ -721,8 +723,8 @@ async function promoSocial(env, body) {
     p = await env.DB.prepare(`SELECT * FROM promoter WHERE uid = ?`).bind(u.uid).first();
   }
   for (const [pf, us, nomePf] of voci)
-    await env.DB.prepare(`INSERT INTO follow (codice, username, piattaforma, stato, creato, deciso) VALUES (?, ?, ?, 'ok', ?, ?)`)
-      .bind(p.codice, `${pf}:${us}`, nomePf, adessoISO(), adessoISO()).run();
+    await env.DB.prepare(`INSERT INTO follow (codice, username, piattaforma, stato, creato) VALUES (?, ?, ?, 'attesa', ?)`)
+      .bind(p.codice, `${pf}:${us}`, nomePf, adessoISO()).run();
   return promoMe(env, body, u);
 }
 
@@ -733,8 +735,8 @@ async function promoMe(env, body, uGia) {
   if (!p) return { iscritto: false, livelli: LIVELLI };
   const s = await statoPromoter(env, p);
   const c = await env.DB.prepare(`SELECT codice, livello, stato, creato, usato, tipo, premio FROM coupon WHERE promoter_id = ? ORDER BY creato DESC, tipo`).bind(p.id).all();
-  const so = await env.DB.prepare(`SELECT username FROM follow WHERE codice = ? AND (username LIKE 'instagram:%' OR username LIKE 'tiktok:%')`).bind(p.codice).all();
-  const social = {}; for (const r of so.results || []) { const [pf, us] = r.username.split(":"); social[pf] = us; }
+  const so = await env.DB.prepare(`SELECT username, stato FROM follow WHERE codice = ? AND (username LIKE 'instagram:%' OR username LIKE 'tiktok:%') ORDER BY id`).bind(p.codice).all();
+  const social = {}; for (const r of so.results || []) { const [pf, us] = r.username.split(":"); social[pf] = { us, stato: r.stato }; }
   return { iscritto: true, nome: p.nome, codice: p.codice, livelli: LIVELLI, ...s, social, coupon: c.results || [] };
 }
 
