@@ -370,10 +370,10 @@ function bindCoupon() {
       const stato = c.stato === "valido" ? `<span class="tag ok">Disponibile</span>` : `<span class="tag off">Già usato</span>`;
       out.innerHTML = `<div class="card">
         <h3>Coupon ${esc(c.codice)} ${stato}</h3>
-        <p><strong>${c.tipo === "benvenuto" ? "🎉 Buono di benvenuto" : c.tipo === "cena" ? "🍣 Buono cena gratis" : c.tipo === "sconto" ? "％ Buono sconto" : "🎁 Omaggio"}: ${esc(c.premio)}</strong></p>
-        ${c.tipo === "benvenuto" ? `<p class="meta"><strong>Sconto sul conto al ristorante, una volta sola. Valido tutti i giorni fino al 30 novembre.</strong></p>` : `<p class="meta"><strong>Vale per 1 persona.</strong>${c.condizione ? ` <strong style="color:var(--err)">${esc(c.condizione)}.</strong>` : ""}</p>`}
+        <p><strong>${c.tipo === "segui" ? "🎁 Regalo per chi ci segue" : c.tipo === "benvenuto" ? "🎉 Buono di benvenuto" : c.tipo === "cena" ? "🍣 Buono cena gratis" : c.tipo === "sconto" ? "％ Buono sconto" : "🎁 Omaggio"}: ${esc(c.premio)}</strong></p>
+        ${c.tipo === "segui" ? `<p class="meta"><strong style="color:var(--err)">${esc(c.condizione)}</strong> · <a class="b" style="display:inline-flex" href="${c.piattaforma === "tiktok" ? "https://tiktok.com/@" : "https://instagram.com/"}${esc(c.username || "")}" target="_blank" rel="noopener">Apri profilo ↗</a></p>` : c.tipo === "benvenuto" ? `<p class="meta"><strong>Sconto sul conto al ristorante, una volta sola. Valido tutti i giorni fino al 30 novembre.</strong></p>` : `<p class="meta"><strong>Vale per 1 persona.</strong>${c.condizione ? ` <strong style="color:var(--err)">${esc(c.condizione)}.</strong>` : ""}</p>`}
         ${c.stato === "valido" && r.oggi && !r.oggi.ok ? `<p class="err" style="font-weight:700">⛔ ${esc(r.oggi.motivo)}</p>` : ""}
-        ${c.tipo === "benvenuto" ? "" : `<p class="meta">Cliente: ${esc(c.nome)} · ${esc(c.telefono)}<br>Invito ${esc(c.invito)} · livello ${esc(c.livello)}</p>`}
+        ${c.tipo === "benvenuto" || c.tipo === "segui" ? "" : `<p class="meta">Cliente: ${esc(c.nome)} · ${esc(c.telefono)}<br>Invito ${esc(c.invito)} · livello ${esc(c.livello)}</p>`}
         ${c.stato === "valido" ? (r.oggi && !r.oggi.ok ? `<p class="meta">${esc(c.giorni || "")}.</p>` : `<div class="row"><button class="b ok" id="use">Segna come usato</button></div>`) : `<p class="meta">Usato il ${esc(c.usato || "")}</p>`}
       </div>`;
       $("#use")?.addEventListener("click", async () => { await azione("coupon-usato", { codice: c.codice }); bindCoupon(); out.innerHTML = ""; $("#cod-in").value = ""; });
@@ -382,9 +382,15 @@ function bindCoupon() {
 }
 
 function viewFollower() {
-  const list = dati.follower || [];
-  if (!list.length) return `<div class="empty">Nessuna segnalazione in attesa.</div>`;
-  return list.map((f) => {
+  const list = dati.follower || [], seg = dati.seguaci || [];
+  const nuovi = `<h3 class="sez">🎁 Ci hanno seguito dal sito (${seg.length})</h3>
+    <p class="meta" style="margin:0 0 10px">Il cliente ti mostra il codice alla cassa: controlla che ci segua davvero e dagli la bibita. Poi segna il codice come usato nella scheda 🎁 Coupon.</p>
+    ${seg.length ? seg.map((x) => { const u = esc(x.username || ""), url = x.piattaforma === "tiktok" ? `https://tiktok.com/@${u}` : `https://instagram.com/${u}`;
+      return `<div class="card${x.stato === "usato" ? " past" : ""}"><h3>${x.piattaforma === "tiktok" ? "🎵" : "📸"} @${u} ${x.stato === "usato" ? '<span class="tag blu">Bibita data</span>' : '<span class="tag att">Da dare</span>'}</h3>
+        <p class="meta">Codice <b>${esc(x.codice)}</b> · ${esc(String(x.creato || "").slice(0, 10))}</p>
+        <div class="row"><a class="b" href="${url}" target="_blank" rel="noopener">Controlla il profilo ↗</a></div></div>`; }).join("") : `<div class="empty">Ancora nessuno.</div>`}`;
+  if (!list.length) return nuovi;
+  return nuovi + `<h3 class="sez">Vecchio programma «Invita amici» (${list.length})</h3>` + list.map((f) => {
     const u = (f.username || "").replace(/^@/, "");
     const ig = `https://instagram.com/${u}`, tt = `https://tiktok.com/@${u}`;
     return `<div class="card" data-f="${f.id}">
