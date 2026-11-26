@@ -100,6 +100,8 @@ const SCHEMA = [
   // Registro tecnico degli avvisi (senza dati dei clienti): serve a capire se Telegram riceve i messaggi
   `CREATE TABLE IF NOT EXISTS log_avvisi (id INTEGER PRIMARY KEY AUTOINCREMENT, quando TEXT NOT NULL, tipo TEXT, ok INTEGER, errore TEXT)`,
   // Visite: solo conteggi per giorno, ora e lingua. Nessun nome, nessun IP. Si cancellano dopo 30 giorni.
+  // Storico: un riassunto per giorno (pochi numeri, niente dati dei clienti) che NON si cancella mai: serve per i grafici di mesi e anni
+  `CREATE TABLE IF NOT EXISTS storico (giorno TEXT PRIMARY KEY, visite INTEGER DEFAULT 0, ritorni INTEGER DEFAULT 0, ordini INTEGER DEFAULT 0, incasso REAL DEFAULT 0, consegne INTEGER DEFAULT 0, ritiri INTEGER DEFAULT 0, annullati INTEGER DEFAULT 0, prenot INTEGER DEFAULT 0, persone INTEGER DEFAULT 0)`,
   `CREATE TABLE IF NOT EXISTS visite (giorno TEXT NOT NULL, ora INTEGER NOT NULL, lingua TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (giorno, ora, lingua))`,
   // recensioni del sito (mini quiz + commento): anonime, una al giorno per persona (chi = IP cifrato, mai in chiaro)
   `CREATE TABLE IF NOT EXISTS recensioni (id INTEGER PRIMARY KEY AUTOINCREMENT, creato TEXT NOT NULL, giorno TEXT NOT NULL, chi TEXT NOT NULL, risposte TEXT, testo TEXT, lingua TEXT)`,
@@ -481,8 +483,37 @@ async function statVisite(env) {
   for (const r of o.results || []) { const k = giornoOraRoma(new Date(r.creato)).giorno; if (k >= da) g(k).ordini++; }
   return { oggi: giornoOraRoma().giorno, giorni: Object.values(giorni).sort((a, b) => b.giorno.localeCompare(a.giorno)), lingue };
 }
+/* Aggiorna lo storico giornaliero con i dati ancora presenti (prima che la pulizia li cancelli).
+   Ogni colonna si aggiorna solo per i giorni in cui i dati di partenza ci sono ancora tutti: così i giorni vecchi restano congelati. */
+async function aggiornaStorico(env) {
+  const limV = giornoOraRoma(new Date(Date.now() - (GIORNI_VISITE - 1) * 864e5)).giorno;
+  const limO = giornoOraRoma(new Date(Date.now() - (GIORNI_ORDINI - 1) * 864e5)).giorno;
+  const [v, o, p] = await Promise.all([
+    env.DB.prepare("SELECT giorno, SUM(n) AS n, SUM(ritorni) AS r FROM visite WHERE giorno >= ? GROUP BY giorno").bind(limV).all(),
+    env.DB.prepare("SELECT creato, totale, modo, stato FROM ordini").all(),
+    env.DB.prepare("SELECT creato, persone, stato FROM prenot").all()
+  ]);
+  const st = [];
+  for (const r of v.results || []) st.push(env.DB.prepare("INSERT INTO storico (giorno, visite, ritorni) VALUES (?, ?, ?) ON CONFLICT(giorno) DO UPDATE SET visite = excluded.visite, ritorni = excluded.ritorni").bind(r.giorno, r.n || 0, r.r || 0));
+  const og = {};
+  for (const r of o.results || []) {
+    const k = giornoOraRoma(new Date(r.creato)).giorno; if (k < limO) continue;
+    const x = (og[k] = og[k] || { n: 0, inc: 0, c: 0, r: 0, a: 0 });
+    if (String(r.stato || "").startsWith("annullat")) { x.a++; continue; }
+    x.n++; x.inc += Number(r.totale) || 0; if (r.modo === "ritiro") x.r++; else x.c++;
+  }
+  for (const [k, x] of Object.entries(og)) st.push(env.DB.prepare("INSERT INTO storico (giorno, ordini, incasso, consegne, ritiri, annullati) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(giorno) DO UPDATE SET ordini = excluded.ordini, incasso = excluded.incasso, consegne = excluded.consegne, ritiri = excluded.ritiri, annullati = excluded.annullati").bind(k, x.n, Math.round(x.inc * 100) / 100, x.c, x.r, x.a));
+  const pg = {};
+  for (const r of p.results || []) {
+    if (r.stato !== "confermata") continue;
+    const k = giornoOraRoma(new Date(r.creato)).giorno, x = (pg[k] = pg[k] || { n: 0, p: 0 }); x.n++; x.p += Number(r.persone) || 0;
+  }
+  for (const [k, x] of Object.entries(pg)) st.push(env.DB.prepare("INSERT INTO storico (giorno, prenot, persone) VALUES (?, ?, ?) ON CONFLICT(giorno) DO UPDATE SET prenot = excluded.prenot, persone = excluded.persone").bind(k, x.n, x.p));
+  for (let i = 0; i < st.length; i += 50) await env.DB.batch(st.slice(i, i + 50));
+}
 async function pulizia(env) {
   await init(env);
+  await aggiornaStorico(env);   // prima salva i riassunti, poi cancella i dettagli vecchi
   const limV = giornoOraRoma(new Date(Date.now() - (GIORNI_VISITE - 1) * 864e5)).giorno;
   await env.DB.prepare("DELETE FROM visite WHERE giorno < ?").bind(limV).run();
   const limO = new Date(Date.now() - GIORNI_ORDINI * 864e5);
@@ -1142,7 +1173,9 @@ async function gestDati(env, body) {
   ]);
   const rec = await env.DB.prepare("SELECT id, creato, risposte, testo, lingua FROM recensioni ORDER BY id DESC LIMIT 200").all().catch(() => ({ results: [] }));
   const seg = await env.DB.prepare("SELECT codice, stato, creato, usato, uid, premio FROM coupon WHERE tipo = 'segui' ORDER BY creato DESC LIMIT 200").all().catch(() => ({ results: [] }));
-  return { ok: true, prenot: prenot.results || [], ordini: ordini.results || [], follower: follower.results || [], eventi: eventi.results || [], visite: await statVisite(env).catch(() => null), recensioni: rec.results || [], seguaci: (seg.results || []).map((x) => ({ codice: x.codice, stato: x.stato, creato: x.creato, usato: x.usato, profili: profiliSegui(x.uid) })) };
+  await aggiornaStorico(env).catch(() => {});
+  const storico = await env.DB.prepare("SELECT giorno, visite, ritorni, ordini, incasso, consegne, ritiri, annullati, prenot, persone FROM storico ORDER BY giorno").all().catch(() => ({ results: [] }));
+  return { ok: true, prenot: prenot.results || [], ordini: ordini.results || [], follower: follower.results || [], eventi: eventi.results || [], visite: await statVisite(env).catch(() => null), storico: storico.results || [], recensioni: rec.results || [], seguaci: (seg.results || []).map((x) => ({ codice: x.codice, stato: x.stato, creato: x.creato, usato: x.usato, profili: profiliSegui(x.uid) })) };
 }
 
 async function gestAzione(env, body) {
