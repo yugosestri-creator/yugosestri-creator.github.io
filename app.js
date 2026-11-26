@@ -1210,7 +1210,7 @@ function disegnaCarrello() {
       <button role="tab" type="button" data-modo-ord="consegna" aria-selected="${consegna}">🛵 Consegna</button>
       <button role="tab" type="button" data-modo-ord="ritiro" aria-selected="${!consegna}">🥡 Ritiro</button>
     </div>`}
-    ${consegna ? `<div class="field"><label for="o-ind">Indirizzo</label><input class="input" id="o-ind" autocomplete="street-address" placeholder="Via, numero civico, paese, citofono" value="${esc(d.indirizzo || "")}"></div>
+    ${consegna ? `<div class="field"><label for="o-ind">Indirizzo</label><input class="input" id="o-ind" autocomplete="street-address" placeholder="Scrivi qui via e numero civico" value="${esc(d.indirizzo || "")}"></div>
       <div class="ord-dist${distTroppo ? " no" : ""}" id="o-dist" aria-live="polite">${distTroppo
           ? `<p class="od-domanda">😔 <span>Sei a circa ${String(distQui.km).replace(".", ",")} km: consegniamo fino a ${String(maxKm).replace(".", ",")} km dal ristorante.</span></p>
             <div class="od-sino"><button type="button" class="btn btn-gold btn-sm" data-modo-ord="ritiro">🥡 Passo a ritirarlo</button></div>`
