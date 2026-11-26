@@ -143,7 +143,7 @@ const SCHEMA = [
   // ordini e prenotazioni senza account: per evitare abusi contiamo le richieste di ogni connessione
   `CREATE TABLE IF NOT EXISTS ospiti_log (ip TEXT NOT NULL, quando INTEGER NOT NULL)`
 ];
-const NUOVE_COLONNE = ["ALTER TABLE visite ADD COLUMN anonimi INTEGER NOT NULL DEFAULT 0", "ALTER TABLE visite ADD COLUMN ritorni INTEGER NOT NULL DEFAULT 0", "ALTER TABLE coupon ADD COLUMN tipo TEXT", "ALTER TABLE coupon ADD COLUMN premio TEXT", "ALTER TABLE ordini ADD COLUMN stato TEXT DEFAULT 'inviato'", "ALTER TABLE ordini ADD COLUMN nome TEXT",
+const NUOVE_COLONNE = ["ALTER TABLE storico ADD COLUMN pers_pranzo INTEGER DEFAULT 0", "ALTER TABLE storico ADD COLUMN pers_cena INTEGER DEFAULT 0", "ALTER TABLE visite ADD COLUMN anonimi INTEGER NOT NULL DEFAULT 0", "ALTER TABLE visite ADD COLUMN ritorni INTEGER NOT NULL DEFAULT 0", "ALTER TABLE coupon ADD COLUMN tipo TEXT", "ALTER TABLE coupon ADD COLUMN premio TEXT", "ALTER TABLE ordini ADD COLUMN stato TEXT DEFAULT 'inviato'", "ALTER TABLE ordini ADD COLUMN nome TEXT",
   "ALTER TABLE ordini ADD COLUMN telefono TEXT", "ALTER TABLE ordini ADD COLUMN ora TEXT", "ALTER TABLE ordini ADD COLUMN lang TEXT",
   "ALTER TABLE ordini ADD COLUMN oraPrima TEXT", "ALTER TABLE ordini ADD COLUMN nascosto INTEGER",
   "ALTER TABLE prenot ADD COLUMN oraPrima TEXT", "ALTER TABLE ordini ADD COLUMN data TEXT",
@@ -491,7 +491,7 @@ async function aggiornaStorico(env) {
   const [v, o, p] = await Promise.all([
     env.DB.prepare("SELECT giorno, SUM(n) AS n, SUM(ritorni) AS r FROM visite WHERE giorno >= ? GROUP BY giorno").bind(limV).all(),
     env.DB.prepare("SELECT creato, totale, modo, stato FROM ordini").all(),
-    env.DB.prepare("SELECT creato, persone, stato FROM prenot").all()
+    env.DB.prepare("SELECT creato, persone, stato, ora FROM prenot").all()
   ]);
   const st = [];
   for (const r of v.results || []) st.push(env.DB.prepare("INSERT INTO storico (giorno, visite, ritorni) VALUES (?, ?, ?) ON CONFLICT(giorno) DO UPDATE SET visite = excluded.visite, ritorni = excluded.ritorni").bind(r.giorno, r.n || 0, r.r || 0));
@@ -508,7 +508,7 @@ async function aggiornaStorico(env) {
     if (r.stato !== "confermata") continue;
     const k = giornoOraRoma(new Date(r.creato)).giorno, x = (pg[k] = pg[k] || { n: 0, p: 0 }); x.n++; x.p += Number(r.persone) || 0;
   }
-  for (const [k, x] of Object.entries(pg)) st.push(env.DB.prepare("INSERT INTO storico (giorno, prenot, persone) VALUES (?, ?, ?) ON CONFLICT(giorno) DO UPDATE SET prenot = excluded.prenot, persone = excluded.persone").bind(k, x.n, x.p));
+  for (const [k, x] of Object.entries(pg)) st.push(env.DB.prepare("INSERT INTO storico (giorno, prenot, persone, pers_pranzo, pers_cena) VALUES (?, ?, ?, ?, ?) ON CONFLICT(giorno) DO UPDATE SET prenot = excluded.prenot, persone = excluded.persone, pers_pranzo = excluded.pers_pranzo, pers_cena = excluded.pers_cena").bind(k, x.n, x.p, x.pr, x.ce));
   for (let i = 0; i < st.length; i += 50) await env.DB.batch(st.slice(i, i + 50));
 }
 async function pulizia(env) {
@@ -1174,7 +1174,7 @@ async function gestDati(env, body) {
   const rec = await env.DB.prepare("SELECT id, creato, risposte, testo, lingua FROM recensioni ORDER BY id DESC LIMIT 200").all().catch(() => ({ results: [] }));
   const seg = await env.DB.prepare("SELECT codice, stato, creato, usato, uid, premio FROM coupon WHERE tipo = 'segui' ORDER BY creato DESC LIMIT 200").all().catch(() => ({ results: [] }));
   await aggiornaStorico(env).catch(() => {});
-  const storico = await env.DB.prepare("SELECT giorno, visite, ritorni, ordini, incasso, consegne, ritiri, annullati, prenot, persone FROM storico ORDER BY giorno").all().catch(() => ({ results: [] }));
+  const storico = await env.DB.prepare("SELECT giorno, visite, ritorni, ordini, incasso, consegne, ritiri, annullati, prenot, persone, pers_pranzo, pers_cena FROM storico ORDER BY giorno").all().catch(() => ({ results: [] }));
   return { ok: true, prenot: prenot.results || [], ordini: ordini.results || [], follower: follower.results || [], eventi: eventi.results || [], visite: await statVisite(env).catch(() => null), storico: storico.results || [], recensioni: rec.results || [], seguaci: (seg.results || []).map((x) => ({ codice: x.codice, stato: x.stato, creato: x.creato, usato: x.usato, profili: profiliSegui(x.uid) })) };
 }
 
