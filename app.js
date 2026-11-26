@@ -945,48 +945,101 @@ function viaParole(t) {       // le parole che identificano la via ("via arturo 
   const via = norm(String(t).split(",")[0]), paesi = new Set(PAESI().flatMap((p) => [p.nome, ...(p.anche || [])].flatMap((x) => norm(x).split(" "))));
   return via.split(" ").filter((w) => w.length >= 3 && !/^\d/.test(w) && !paesi.has(w) && !["via", "viale", "piazza", "corso", "salita", "vico", "localita", "loc", "largo", "strada", "della", "delle", "dei", "del"].includes(w));
 }
-/* Le vie dove consegniamo: elenco nostro (vie.json, preso da OpenStreetMap entro 12,5 km) + vieExtra di config.js.
-   Se una via non è nell'elenco, il sito non accetta la consegna: così niente indirizzi inventati. */
+/* Le vie dove consegniamo: vie.json = stradario ufficiale (ANNCSU, Agenzia Entrate-Istat) con tutti i numeri civici,
+   più le vie di OpenStreetMap e le vieExtra di config.js. Così il sito sa se via e numero esistono davvero.
+   Se un indirizzo vero non fosse nell'elenco, il cliente può confermarlo lo stesso: l'ordine arriva con un avviso da controllare. */
 let VIE = null;
+const civNorm = (t) => String(t || "").toUpperCase().replace(/[^0-9A-Z]/g, "").replace(/^(\d+)(BIS|R|ROSSO)$/, "$1$2").replace(/ROSSO$/, "R");
 function caricaVie() {
-  if (!VIE) VIE = fetch("vie.json?v=1").then((r) => r.json()).then((d) => {
-    const no = /svincolo|^a\d+\b|sentiero|anello|\bdh\b|pista|percorso/i;
-    const l = (d.v || []).filter((x) => !no.test(x[0])).map(([via, ci, lat, lon, loc]) => ({ via, comune: d.c[ci], loc: loc || "", lat, lon }));
-    for (const v of ORD.vieExtra || []) l.push({ via: v.via, comune: v.paese, loc: "", lat: v.lat, lon: v.lon });
-    for (const v of l) { v.n = norm(v.via); v.dove = v.loc && norm(v.loc) !== norm(v.comune) ? `${v.loc} (${v.comune})` : v.comune; }
+  if (!VIE) VIE = fetch("vie.json?v=2").then((r) => r.json()).then((d) => {
+    const l = (d.v || []).map(([via, ci, loc, lat, lon, civ]) => {
+      const v = { via, comune: d.c[ci], loc: loc || "", lat, lon, alt: civ === "o", civ: null };
+      if (civ && civ !== "o" && civ !== "?") {   // "35:12,-40|35A|36:..." → numero → posizione
+        v.civ = new Map(civ.split("|").map((x) => { const [n, o] = x.split(":"); const [dy, dx] = (o || "").split(",").map(Number);
+          return [n, o ? { lat: lat + dy / 1e5, lon: lon + dx / 1e5 } : null]; }));
+      }
+      return v;
+    });
+    for (const v of ORD.vieExtra || []) l.push({ via: v.via, comune: v.paese, loc: "", lat: v.lat, lon: v.lon, alt: false, civ: null });
+    for (const v of l) { v.n = nomeVia(v.via); v.dove = v.loc && norm(v.loc) !== norm(v.comune) ? `${v.loc} (${v.comune})` : v.comune; }
     return l;
   }).catch(() => { VIE = null; return []; });
   return VIE;
 }
 const vicinoA = (v) => { const P = ORD.posizione; return (v.lat - P.lat) ** 2 + ((v.lon - P.lon) * 0.72) ** 2; };
-/* le vie dell'elenco che corrispondono a quello che ha scritto il cliente (il paese scritto conta) */
-async function trovaVie(testo) {
+/* il numero civico scritto: l'ultimo numero prima della virgola ("via 4 novembre 12" → 12; "35/a" → 35A) */
+function civicoScritto(testo) {
+  const parti = String(testo).split(",");
+  const trova = (parte) => {
+    const m = [...parte.matchAll(/(?:^|\s)(\d+)\s*(?:\/\s*)?([a-z]{1,2}|bis|rosso)?(?=\s|$)/gi)];
+    if (!m.length) return "";
+    const x = m[m.length - 1];
+    if (m.length === 1 && /^\s*(via|corso|piazza|viale)?\s*\d+$/i.test(parte.trim()) && parte === parti[0]) return "";
+    return civNorm(x[1] + (x[2] || ""));
+  };
+  let n = trova(parti[0]);
+  if (!n && parti[1] && /^\s*(n\.?|n°)?\s*\d+\s*(\/\s*)?([a-z]{1,2}|bis|rosso)?\s*$/i.test(parti[1])) n = civNorm(parti[1].replace(/^\s*(n\.?|n°)/i, ""));   // "Via Tosi, 35"
+  return n;
+}
+const distanza1 = (a, b) => {   // al massimo una lettera sbagliata (errori di battitura)
+  if (Math.abs(a.length - b.length) > 1) return false; if (a === b) return true;
+  let i = 0; while (i < a.length && a[i] === b[i]) i++;
+  if (i >= Math.min(a.length, b.length) - 1) return false;   // l'ultima lettera conta (castagni ≠ castagna)
+  return a.slice(i + 1) === b.slice(i + 1) || a.slice(i + 1) === b.slice(i) || a.slice(i) === b.slice(i + 1);
+};
+/* le vie dell'elenco che corrispondono a quello che ha scritto il cliente */
+const NUMERI = { ii: 2, iii: 3, iv: 4, vi: 6, vii: 7, viii: 8, ix: 9, x: 10, xi: 11, xii: 12, xiii: 13, xiv: 14, xv: 15, xvi: 16, xvii: 17, xviii: 18, xix: 19, xx: 20, xxi: 21, xxii: 22, xxiii: 23, xxiv: 24, xxv: 25, xxvi: 26, xxvii: 27, xxviii: 28, xxix: 29, xxx: 30,
+  due: 2, tre: 3, quattro: 4, cinque: 5, sei: 6, sette: 7, otto: 8, nove: 9, dieci: 10, undici: 11, dodici: 12, venti: 20, ventuno: 21, ventidue: 22, ventitre: 23, ventiquattro: 24, venticinque: 25, ventisei: 26, ventisette: 27, ventotto: 28, ventinove: 29, trenta: 30 };
+const numParola = (w) => (NUMERI[w] != null ? String(NUMERI[w]) : w);
+const nomeVia = (t) => norm(t).split(" ").map(numParola).join(" ");
+// frazioni e modi brevi di scrivere il paese → comune
+const FRAZ = { "riva trigoso": "Sestri Levante", riva: "Sestri Levante", trigoso: "Sestri Levante", loto: "Sestri Levante", libiola: "Sestri Levante", "santa vittoria": "Sestri Levante", sestri: "Sestri Levante",
+  "cavi di lavagna": "Lavagna", cavi: "Lavagna", "santa giulia": "Lavagna", massasco: "Casarza Ligure", bargone: "Casarza Ligure", casarza: "Casarza Ligure", "san salvatore": "Cogorno", castiglione: "Castiglione Chiavarese" };
+async function trovaVie(testo, rigido) {
   const vie = await caricaVie(); if (!vie.length) return null;
   const n = " " + norm(testo) + " ";
-  const nomiPaesi = new Set(vie.flatMap((v) => [v.comune, v.loc]).filter(Boolean).map(norm));
-  let parole = viaParole(String(testo).split(",")[0]);
-  if (!String(testo).includes(",")) {   // "via roma 5 lavagna": togliamo il nome del paese dalle parole della via
-    const togli = new Set([...nomiPaesi].filter((p) => n.includes(" " + p + " ")).flatMap((p) => p.split(" ")));
-    const senza = parole.filter((w) => !togli.has(w)); if (senza.length) parole = senza;
+  const num = civicoScritto(testo);
+  // 1) il paese scritto dal cliente (comune, frazione o località)
+  const scritti = new Set(), togli = new Set();
+  for (const [k, c] of Object.entries(FRAZ)) if (n.includes(" " + k + " ")) { scritti.add(c); togli.add(k); }
+  for (const v of vie) {
+    const c = norm(v.comune);
+    if (n.includes(" " + c + " ")) { scritti.add(v.comune); togli.add(c); }
+    const l = norm(v.loc); if (l.length >= 4 && n.includes(" " + l + " ")) { scritti.add(v.comune); togli.add(l); }
   }
+  // 2) le parole della via: senza numero civico, tipo (via, piazza…), paese; numeri romani e in lettere → cifre
+  const TIPI = new Set(["via", "viale", "piazza", "piazzale", "corso", "salita", "vico", "vicolo", "largo", "localita", "loc", "strada", "lungomare", "passeggiata", "traversa", "frazione", "contrada", "fraz", "p", "za", "zza", "c", "so", "v", "le"]);
+  const VUOTE = new Set(["di", "del", "della", "dei", "delle", "degli", "da", "e", "n", "d"]);
+  let prima = " " + norm(String(testo).split(",")[0]) + " ";
+  if (!String(testo).includes(",")) for (const t of [...togli].sort((x, y) => y.length - x.length)) prima = prima.split(" " + t + " ").join(" ");
+  const tok = prima.trim().split(" ").filter(Boolean);
+  if (num) {   // togliamo il numero civico (l'ultimo numero) e la sua lettera
+    let j = -1; tok.forEach((w, i) => { if (/^\d/.test(w)) j = i; });
+    if (j >= 0) tok.splice(j, /^\d+$/.test(tok[j]) && /^([a-z]|bis|rosso)$/.test(tok[j + 1] || "") ? 2 : 1);
+  }
+  const tipo = tok[0] && TIPI.has(tok[0]) ? ({ v: "via", c: "corso", p: "piazza", loc: "localita", fraz: "frazione" }[tok[0]] || tok[0]) : "";
+  const parole = tok.filter((w) => !TIPI.has(w) && !VUOTE.has(w)).map(numParola);
   if (!parole.length) return [];
-  const haParola = (v, w) => (" " + v.n).includes(" " + w);   // ogni parola scritta deve essere l'inizio di una parola della via
+  // 3) mentre scrive: ogni parola può essere l'inizio di una parola della via; per controllare: parole intere (o una lettera sbagliata)
+  const haParola = rigido ? (v, w) => v.n.split(" ").some((x) => x === w || (w.length >= 5 && distanza1(x, w)))
+    : (v, w) => (" " + v.n).includes(" " + w);
   let c = vie.filter((v) => parole.every((w) => haParola(v, w)));
-  const tipo = (norm(testo).match(/^(via|viale|piazza|piazzale|corso|salita|vico|vicolo|largo|localita|strada|lungomare|passeggiata|traversa)\b/) || [])[1];
-  const nelPaese = c.filter((v) => n.includes(" " + norm(v.comune) + " ") || (v.loc && n.includes(" " + norm(v.loc) + " ")));
-  if (nelPaese.length) c = nelPaese;
+  const uff = c.filter((v) => !v.alt); if (uff.length) c = uff;   // prima lo stradario ufficiale
+  if (scritti.size) { const nel = c.filter((v) => scritti.has(v.comune)); if (nel.length) c = nel; else if (rigido) return []; }   // nel paese scritto quella via non c'è
   const esatte = c.filter((v) => parole.every((w) => (" " + v.n + " ").includes(" " + w + " "))); if (esatte.length) c = esatte;
   if (tipo) { const t = c.filter((v) => v.n.startsWith(tipo + " ")); if (t.length) c = t; }
-  return c.sort((x, y) => (y.n.startsWith(parole[0]) - x.n.startsWith(parole[0])) || vicinoA(x) - vicinoA(y));
+  return c.sort((x, y) => (num ? (y.civ && y.civ.has(num) ? 1 : 0) - (x.civ && x.civ.has(num) ? 1 : 0) : 0) || (y.n.startsWith(parole[0]) - x.n.startsWith(parole[0])) || vicinoA(x) - vicinoA(y));
 }
 async function suggerisciVie(testo) {
   if (!ORD.posizione || norm(testo).length < 3) return [];
-  const num = (String(testo).split(",")[0].match(/\b(\d+(?:\s?[a-z])?)\b/i) || [])[1] || "";
+  const num = civicoScritto(testo);
   const c = (await trovaVie(testo)) || [];
   const visti = new Set(), out = [];
   for (const v of c) {
     const k = v.n + "|" + v.comune; if (visti.has(k)) continue; visti.add(k);
-    out.push({ etichetta: `${num ? `${v.via} ${num}` : v.via}, ${v.loc || v.comune}`, via: v.via, paese: v.dove, lat: v.lat, lon: v.lon, num });
+    if (num && v.civ && !v.civ.has(num) && out.length) continue;   // con il numero: solo le vie dove quel numero c'è
+    const p = num && v.civ && v.civ.get(num);
+    out.push({ etichetta: `${num ? `${v.via} ${num}` : v.via}, ${v.loc || v.comune}`, via: v.via, paese: v.dove, comune: v.comune, lat: p ? p.lat : v.lat, lon: p ? p.lon : v.lon, num, civOk: !num || !v.civ || v.civ.has(num) });
     if (out.length >= 6) break;
   }
   return out;
@@ -1002,13 +1055,19 @@ async function calcolaDistanza(ind) {
   const k = String(ind || "").trim().toLowerCase().replace(/\s+/g, " ");
   if (k.length < 5 || !ORD.posizione) return null;
   if (DIST[k]) return DIST[k];
-  const c = await trovaVie(ind);
+  const c = await trovaVie(ind, true);
   if (c == null) return { errore: true };
   if (!c.length) return { nonEsiste: true, scritto: String(ind).split(",")[0].replace(/\s+\d+\s*[a-z]?\s*$/i, "").trim() };
-  const v = c[0], num = (String(ind).split(",")[0].match(/\b(\d+(?:\s?[a-z])?)\b/i) || [])[1] || "";
+  const v = c[0], num = civicoScritto(ind);
   if (!num) return { senzaNumero: true, dove: `${v.via}, ${v.dove}` };
-  const r = await distanzaDaPunto({ lat: v.lat, lon: v.lon, etichetta: `${v.via} ${num}, ${v.dove}`, paese: v.comune });
-  if (r && !r.errore) DIST[k] = r, store.set("yugo-dist3", DIST);
+  if (v.civ && !v.civ.has(num)) {   // la via c'è ma quel numero no: proponiamo i numeri vicini
+    const base = parseInt(num, 10), vicini = [...v.civ.keys()].map((x) => [x, Math.abs(parseInt(x, 10) - base)]).sort((x, y) => x[1] - y[1]).slice(0, 4).map((x) => x[0]).sort((x, y) => parseInt(x, 10) - parseInt(y, 10));
+    const r = await distanzaDaPunto({ lat: v.lat, lon: v.lon, etichetta: `${v.via} ${num}, ${v.dove}`, paese: v.comune });
+    return { ...r, numeroNo: true, num, via: v.via, vicini };
+  }
+  const p = v.civ && v.civ.get(num);
+  const r = await distanzaDaPunto({ lat: p ? p.lat : v.lat, lon: p ? p.lon : v.lon, etichetta: `${v.via} ${num}, ${v.dove}`, paese: v.comune });
+  if (r && !r.errore) { r.verificato = !!(v.civ && v.civ.has(num)); DIST[k] = r; store.set("yugo-dist3", DIST); }
   return r;
 }
 /* Sconto sugli ordini dal sito (consegna o ritiro): lo decide il bot, qui lo mostriamo */
@@ -1214,8 +1273,10 @@ function disegnaCarrello() {
   const distOk = (distKm && !distChiedi) || distPaese, distNo = !distOk && !!(distQui && (distQui.niente || distQui.errore)) || (consegna && !ORD.posizione && indT.length >= 5);
   if (distKm) d.zona = zonaDaKm(distQui.km); else if (distPaese) d.zona = distQui.fascia;
   if (!zone[d.zona]) d.zona = 0;
-  const distNonEsiste = !!(distQui && distQui.nonEsiste), distSenzaNum = !!(distQui && distQui.senzaNumero);
-  const costoNoto = !consegna || (distKm && !distTroppo);   // la via deve esistere (nel nostro elenco), con il numero, ed essere entro il massimo
+  const distForzato = !!(distQui && distQui.forzato);   // il cliente ha confermato un indirizzo che non è nello stradario
+  const distNonEsiste = !!(distQui && distQui.nonEsiste) && !distForzato, distSenzaNum = !!(distQui && distQui.senzaNumero);
+  const distNumNo = !!(distQui && distQui.numeroNo) && !distForzato && !distTroppo;
+  const costoNoto = !consegna || (distKm && !distTroppo && !distNumNo) || (distForzato && !distTroppo);   // la via deve esistere (nel nostro elenco), con il numero, ed essere entro il massimo
   const zona = null, costo = 0;
   const F = famAtt(), mancano = F ? Math.max(0, F.piatti - pezzi()) : 0;
   const sub = F ? F.prezzo : subtotale(), perc = percSconto(), meno = perc ? Math.round(sub * perc) / 100 : 0;
@@ -1239,16 +1300,20 @@ function disegnaCarrello() {
       <button role="tab" type="button" data-modo-ord="consegna" aria-selected="${consegna}">🛵 Consegna</button>
       <button role="tab" type="button" data-modo-ord="ritiro" aria-selected="${!consegna}">🥡 Ritiro</button>
     </div>`}
-    ${consegna ? `<div class="field"><label for="o-ind">Indirizzo</label><input class="input" id="o-ind" autocomplete="street-address" placeholder="Scrivi qui via e numero civico" value="${esc(d.indirizzo || "")}"></div>
+    ${consegna ? `<div class="field od-campo"><label for="o-ind">Indirizzo</label><input class="input" id="o-ind" autocomplete="off" placeholder="Scrivi qui via e numero civico" value="${esc(d.indirizzo || "")}"><div class="od-sugg notranslate" id="o-sugg" role="listbox" hidden></div></div>
       <div class="ord-dist${distTroppo ? " no" : ""}" id="o-dist" aria-live="polite">${distTroppo
           ? `<p class="od-domanda">😔 <span>Sei a circa ${String(distQui.km).replace(".", ",")} km: consegniamo fino a ${String(maxKm).replace(".", ",")} km dal ristorante.</span></p>
             <div class="od-sino"><button type="button" class="btn btn-gold btn-sm" data-modo-ord="ritiro">🥡 Passo a ritirarlo</button></div>`
           : distNonEsiste
           ? `<p class="od-domanda">❌ <span>Non troviamo «${esc(distQui.scritto || indT)}» tra le vie dove consegniamo. Controlla come si scrive e scegli la via dall'elenco che compare mentre scrivi.</span></p>
-            <p class="od-nota"><span>Sei sicuro che esiste? Chiamaci al</span> <a href="tel:${esc((R.telefono || "").replace(/[^\d+]/g, ""))}">${esc(R.telefono || "")}</a> <span>oppure scegli il ritiro.</span></p>`
+            <div class="od-sino"><button type="button" class="btn btn-ghost btn-sm" data-forza>✔️ La via è giusta</button><button type="button" class="btn btn-ghost btn-sm" data-modo-ord="ritiro">🥡 Passo a ritirarlo</button></div>`
+          : distNumNo
+          ? `<p class="od-domanda">⚠️ <span>In ${esc(distQui.via)} non risulta il numero ${esc(distQui.num)}.</span></p>
+            ${distQui.vicini && distQui.vicini.length ? `<p class="od-nota"><span>Numeri che esistono:</span> ${distQui.vicini.map((x) => `<button type="button" class="pick" data-civ="${esc(x)}">${esc(x)}</button>`).join(" ")}</p>` : ""}
+            <div class="od-sino"><button type="button" class="btn btn-ghost btn-sm" data-forza>✔️ Il numero è giusto</button></div>`
           : distSenzaNum
           ? `<p class="od-domanda">✏️ <span>Scrivi anche il numero civico.</span></p><p class="od-nota notranslate">📍 ${esc(distQui.dove)}</p>`
-          : `${distKm ? `<p class="od-nota">✅ <span>Consegniamo a: <b>${esc(distQui.dove || indT)}</b></span></p>` : ""}<p>🛵 <b>La consegna la paghi al rider quando arriva</b> (da € 1 a € 5 in base ai km).</p><p class="od-nota">${esc(`Consegniamo fino a ${String(maxKm).replace(".", ",")} km dal ristorante.`)}</p>`}</div>`
+          : `${distForzato ? `<p class="od-nota">⚠️ <span>Indirizzo da confermare: il ristorante potrebbe chiamarti.</span></p>` : distKm ? `<p class="od-nota">✅ <span>Consegniamo a:</span> <b class="notranslate">${esc(distQui.dove || indT)}</b></p>` : ""}<p>🛵 <b>La consegna la paghi al rider quando arriva</b> (da € 1 a € 5 in base ai km).</p><p class="od-nota">${esc(`Consegniamo fino a ${String(maxKm).replace(".", ",")} km dal ristorante.`)}</p>`}</div>`
       : `<p class="hint">Ritiri da noi in ${esc(R.indirizzo || "")}.</p>`}
     ${giorni.length > 1 ? `<div class="field"><span class="label">Giorno</span><div class="pick-row" id="o-giorni">${giorni.filter((g) => fasceGiorno(g).slots.length).map((g) => `<button type="button" class="pick" data-g="${g}" aria-pressed="${g === d.data}">${esc(chipGiorno(g))}</button>`).join("")}</div></div>` : ""}
     <div class="field"><span class="label">${consegna ? "A che ora lo vuoi" : "A che ora passi"}</span>
@@ -1327,7 +1392,7 @@ function disegnaCarrello() {
     $("#o-ind").value = x.etichetta; chiudiSugg(); leggi();
     const ind = x.etichetta.trim(); distInCorso = ind;
     if ($("#o-dist")) $("#o-dist").innerHTML = "<p>Controllo l'indirizzo…</p>";
-    let r = null; try { r = x.num ? await distanzaDaPunto(x) : { senzaNumero: true, dove: `${x.via}, ${x.paese}` }; } catch { r = null; }
+    let r = null; try { r = x.num ? await calcolaDistanza(x.etichetta) : { senzaNumero: true, dove: `${x.via}, ${x.paese}` }; } catch { r = null; }
     distInCorso = "";
     if ((d.indirizzo || "").trim() !== ind) return;
     d.dist = r ? { ...r, ind } : { ind, errore: true };
@@ -1336,6 +1401,15 @@ function disegnaCarrello() {
 
   const boxDist = $("#o-dist");
   if (boxDist) boxDist.onclick = (e) => {
+    const fz = e.target.closest("[data-forza]"), cv = e.target.closest("[data-civ]");
+    if (fz) { leggi(); const ind = (d.indirizzo || "").trim(); d.dist = { ...(d.dist || {}), ind, forzato: true }; disegnaCarrello(); return; }
+    if (cv) {   // tocca un numero che esiste: lo mettiamo nell'indirizzo
+      leggi(); const prima = (d.indirizzo || "").split(",");
+      const m = [...prima[0].matchAll(/(^|\s)(\d+)(\s*(?:\/\s*)?(?:[a-z]{1,2}|bis|rosso))?(?=\s|$)/gi)].pop();
+      if (m) prima[0] = prima[0].slice(0, m.index) + m[1] + cv.dataset.civ + prima[0].slice(m.index + m[0].length);
+      else if (prima[1] && /^\s*\d/.test(prima[1])) prima[1] = " " + cv.dataset.civ; else prima[0] += " " + cv.dataset.civ;
+      d.indirizzo = prima.join(","); if ($("#o-ind")) $("#o-ind").value = d.indirizzo; d.dist = null; disegnaCarrello(); calcola(); return;
+    }
     const b = e.target.closest("[data-paese]"), c = e.target.closest("[data-paese-cambia]"), si = e.target.closest("[data-comune-si]");
     if (!b && !c && !si) return;
     leggi(); const ind = (d.indirizzo || "").trim();
@@ -1366,7 +1440,7 @@ function disegnaCarrello() {
     if (!d.ora) return fail("Scegli l'ora.");
     if (consegna && d.indirizzo.trim().length < 5) return fail("Scrivi l'indirizzo di consegna.");
     if (!costoNoto) { if (!distQui && !distInCorso) calcola();
-      return fail(distTroppo ? `Consegniamo fino a ${maxKm} km dal ristorante: puoi scegliere il ritiro.` : distNonEsiste ? "Questa via non c'è tra quelle dove consegniamo: controlla l'indirizzo." : distSenzaNum ? "Scrivi anche il numero civico." : distInCorso ? "Un attimo: stiamo controllando l'indirizzo." : "Scegli la tua via dall'elenco sotto il campo Indirizzo."); }
+      return fail(distTroppo ? `Consegniamo fino a ${maxKm} km dal ristorante: puoi scegliere il ritiro.` : distNonEsiste ? "Questa via non c'è tra quelle dove consegniamo: controlla l'indirizzo." : distNumNo ? "Controlla il numero civico qui sopra." : distSenzaNum ? "Scrivi anche il numero civico." : distInCorso ? "Un attimo: stiamo controllando l'indirizzo." : "Scegli la tua via dall'elenco sotto il campo Indirizzo."); }
     if (F && F.bibite && !(d.bibita || "").trim()) return fail("Scrivi quale bibita vuoi.");
     btn.disabled = true; btn.textContent = "Invio…";
     try {
@@ -1377,7 +1451,7 @@ function disegnaCarrello() {
         ...(consegna && d.dist && d.dist.km != null && d.dist.ind === d.indirizzo.trim() ? { km: d.dist.km, trovato: d.dist.dove } : {}),
         ...(consegna && d.dist && d.dist.paese && d.dist.ind === d.indirizzo.trim() ? { paese: d.dist.paese } : {}),
         nome: d.nome, telefono: d.telefono,
-        note: (F && F.bibite ? `Bibite: ${(d.bibita || "").trim()}. ` : "") + d.note,
+        note: (consegna && distForzato ? (distQui.numeroNo ? "⚠️ NUMERO CIVICO NON TROVATO nello stradario: verificare con il cliente. " : "⚠️ VIA NON TROVATA nello stradario: verificare con il cliente. ") : "") + (F && F.bibite ? `Bibite: ${(d.bibita || "").trim()}. ` : "") + d.note,
         righe: (F ? [{ n: null, nome: F.nome, prezzo: F.prezzo, q: 1 }] : []).concat(righeCarrello().map(({ n, nome, prezzo, q }) => ({ n, nome, prezzo: F ? 0 : prezzo, q }))) };
       const res = DEMO ? { ok: true, numero: Math.floor(Math.random() * 90) + 10 } : await api("/ordine", { idToken: user && backend ? await backend.token().catch(() => "") : "", lang: (window.YUGO_I18N && window.YUGO_I18N.lang) || "it", ...ordine });
       carrello = {}; salvaCarrello(); aggiornaBarra(); ridisegnaQta();
