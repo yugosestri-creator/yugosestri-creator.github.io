@@ -462,10 +462,12 @@ async function renderInvite() {
 /* I tuoi social: Instagram e TikTok valgono 1 punto ciascuno nella barra */
 function socialBox(me) {
   const so = me.social || {}, S = R.social || {};
-  const riga = (pf, nome, icona) => so[pf]
-    ? `<div class="field"><label>${icona} ${nome}</label><p class="notranslate" style="margin:4px 0 0"><b>@${esc(so[pf])}</b> <span class="c-state">✅ +1</span></p></div>`
-    : `<div class="field"><label for="so-${pf}">${icona} Il tuo nome utente ${nome}</label><input class="input" id="so-${pf}" autocomplete="off" autocapitalize="none" placeholder="@iltuonome"></div>`;
-  const manca = !so.instagram || !so.tiktok;
+  const st = (pf) => so[pf] && typeof so[pf] === "object" ? so[pf] : so[pf] ? { us: so[pf], stato: "ok" } : null;
+  const riga = (pf, nome, icona) => { const x = st(pf);
+    return x && x.stato !== "no"
+    ? `<div class="field"><label>${icona} ${nome}</label><p class="notranslate" style="margin:4px 0 0"><b>@${esc(x.us)}</b></p>${x.stato === "ok" ? `<p class="c-state">✅ Verificato: +1 punto</p>` : `<p class="hint">⏳ In verifica: aspetta che lo controlliamo, può durare fino a un giorno.</p>`}</div>`
+    : `${x ? `<p class="error">❌ @${esc(x.us)} su ${nome} non risulta tra chi ci segue. Controlla e riprova.</p>` : ""}<div class="field"><label for="so-${pf}">${icona} Il tuo nome utente ${nome}</label><input class="input" id="so-${pf}" autocomplete="off" autocapitalize="none" placeholder="@iltuonome"></div>`; };
+  const manca = !st("instagram") || st("instagram").stato === "no" || !st("tiktok") || st("tiktok").stato === "no";
   return `<article class="block invite" id="so-box">
     <span class="promo-tag">Seguici</span>
     <h2>Seguici sui social: riempi la barra</h2>
@@ -478,7 +480,7 @@ function socialBox(me) {
       <p class="error" id="so-err" hidden></p>
       <button class="btn btn-gold btn-block" type="submit" id="so-go">Ho seguito: aggiungi i punti</button>` : ""}
     </form>
-    <p class="hint">Alla cassa controlliamo che ci segui.</p>
+    <p class="hint">Controlliamo noi che ci segui: il punto arriva appena è verificato, di solito entro un giorno.</p>
   </article>`;
 }
 function bindSocial(area) {
@@ -493,8 +495,7 @@ function bindSocial(area) {
     btn.disabled = true;
     try {
       drawInvite(area, await api("/promo/social", { idToken: await backend.token(), instagram, tiktok, nome: (user.nome || "").split(" ")[0] }));
-      toast("Punti aggiunti alla tua barra!");
-      area.querySelector(".bar")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      toast("Inviato! Lo controlliamo entro un giorno.");
     } catch (ex) { err.textContent = ex.message; err.hidden = false; btn.disabled = false; }
   });
 }
@@ -538,7 +539,7 @@ function drawInvite(area, me, nuovo) {
     <article class="block">
       <h2>Come funziona</h2>
       <ol class="how">
-        <li>Ci segui su Instagram e TikTok: 1 punto ciascuno.</li>
+        <li>Ci segui su Instagram e TikTok: 1 punto ciascuno, dopo la nostra verifica.</li>
         <li>Manda il tuo link agli amici: ogni amico che ci segue vale 1 punto.</li>
         <li>Loro ci seguono su TikTok e Instagram e scrivono il loro username.</li>
         <li>Il ristorante controlla e conferma: ogni amico conta una volta sola.</li>
