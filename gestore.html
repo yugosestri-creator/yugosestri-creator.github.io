@@ -142,6 +142,8 @@
 .and-cur { stroke: currentColor; opacity: .25; stroke-dasharray: 4 4; }
 .and-dot { fill: #c9a55a; stroke: #fff; stroke-width: 2.5; }
 .and-sel { margin: 2px 0 10px; } .and-sel small { opacity: .7; }
+.and-tip rect { fill: #10162b; opacity: .92; } .and-tip text { fill: #fff !important; opacity: 1 !important; font-weight: 700; font-size: 15px; }
+.and-svg { cursor: crosshair; }
 </style>
 </head>
 <body>
@@ -246,7 +248,7 @@ function bindHome() {
   if (tab === "visite") {
     document.querySelectorAll("[data-am]").forEach((b) => b.onclick = () => { viewAndamento.m = b.dataset.am; render(); });
     document.querySelectorAll("[data-ap]").forEach((b) => b.onclick = () => { viewAndamento.p = b.dataset.ap; viewAndamento.i = null; render(); });
-    document.querySelectorAll("[data-ai]").forEach((b) => b.onclick = () => { viewAndamento.i = +b.dataset.ai; render(); });
+    bindAndamento();
     const c = document.getElementById("and-csv"); if (c) c.onclick = scaricaStorico;
   }
 }
@@ -530,6 +532,11 @@ function andamentoDati(m, p) {
   const tot = (L) => { if (m === "conv") { const v = L.reduce((a, x) => a + x.t.visite, 0), o = L.reduce((a, x) => a + x.t.ordini, 0); return v ? (o / v) * 100 : 0; } return L.reduce((a, x) => a + x.v, 0); };
   return { secchi, totale: tot(secchi), prima: tot(prima), haPrima: prima.some((x) => x.v) };
 }
+/* la data del punto: 20.12.2026 (giorno), 17.11–23.11.2026 (settimana), 11.2026 (mese), 2026 (anno) */
+function dataPunto(x, p) {
+  const [a, m, g] = x.da.split("-"), [a2, m2, g2] = x.a.split("-");
+  return p === "g" ? `${g}.${m}.${a}` : p === "s" ? `${g}.${m}–${g2}.${m2}.${a2}` : p === "m" ? `${m}.${a}` : a;
+}
 function fmtAnd(v, u) { return u === "€" ? "€ " + v.toLocaleString("it-IT", { minimumFractionDigits: v % 1 ? 2 : 0, maximumFractionDigits: 2 }) : u === "%" ? v.toLocaleString("it-IT", { maximumFractionDigits: 1 }) + "%" : Math.round(v).toLocaleString("it-IT"); }
 function viewAndamento() {
   if (!(dati.storico || []).length) return "";
@@ -554,14 +561,36 @@ function viewAndamento() {
       <path d="${area}" fill="url(#andg)"/><path d="${linea}" class="and-line"/>
       <line x1="${pt[iSel][0]}" x2="${pt[iSel][0]}" y1="6" y2="${H - 14}" class="and-cur"/>
       <circle cx="${pt[iSel][0]}" cy="${pt[iSel][1]}" r="6" class="and-dot"/>
+      ${(() => { const tx = `${dataPunto(sel, p)} · ${fmtAnd(sel.v, u)}`, w = tx.length * 8.6 + 18, x = Math.min(W - w, Math.max(0, pt[iSel][0] - w / 2)), y = Math.max(0, pt[iSel][1] - 44);
+        return `<g class="and-tip"><rect x="${x}" y="${y}" width="${w}" height="30" rx="8"/><text x="${x + w / 2}" y="${y + 20}" text-anchor="middle">${esc(tx)}</text></g>`; })()}
       ${L.map((x, i) => `<rect x="${pt[i][0] - step / 2}" y="0" width="${Math.max(step, 12)}" height="${H}" fill="transparent" data-ai="${i}"/>`).join("")}
       ${etich}
     </svg>
-    <p class="and-sel"><strong>${esc(sel.e)}</strong>${sel.da !== sel.a ? ` <small>(${esc(fmtDay(sel.da))} – ${esc(fmtDay(sel.a))})</small>` : ""}: <b>${fmtAnd(sel.v, u)}</b>
+    <p class="and-sel"><strong>${esc(dataPunto(sel, p))}</strong>: <b>${fmtAnd(sel.v, u)}</b>
       <small> · ${sel.t.ordini} ordini (${sel.t.consegne} consegne, ${sel.t.ritiri} ritiri) · ${fmtAnd(sel.t.incasso, "€")} · ${sel.t.prenot} prenotazioni, ${sel.t.persone} persone (${sel.t.pers_pranzo} a pranzo, ${sel.t.pers_cena} a cena) · ${sel.t.visite} visite</small></p>
     <div class="row"><button class="b" id="and-csv">⬇️ Scarica tutto lo storico (Excel)</button></div>
-    <p class="hint">Tocca il grafico per vedere ogni punto. Lo storico è un riassunto di pochi numeri al giorno: non si cancella mai e pesa pochissimo. Con «Scarica» ne salvi una copia sul tuo telefono o computer.</p>
+    <p class="hint">Passa con il dito o il mouse sul grafico per vedere ogni punto. Lo storico è un riassunto di pochi numeri al giorno: non si cancella mai e pesa pochissimo. Con «Scarica» ne salvi una copia sul tuo telefono o computer.</p>
   </div>`;
+}
+/* muovendo il dito o il mouse sul grafico (senza cliccare) si sposta il cursore e compare la data */
+function bindAndamento() {
+  const svg = document.querySelector(".and-svg"); if (!svg) return;
+  const n = svg.querySelectorAll("[data-ai]").length;
+  const sposta = (e) => {
+    const r = svg.getBoundingClientRect(), x = ((e.touches ? e.touches[0].clientX : e.clientX) - r.left) / r.width;
+    const i = Math.max(0, Math.min(n - 1, Math.round(((x * 600 - 8) / (600 - 16)) * (n - 1))));
+    if (i === viewAndamento.i) return;
+    viewAndamento.i = i;
+    const card = document.querySelector(".card.and"), t = document.createElement("div"); t.innerHTML = viewAndamento();
+    card.replaceWith(t.firstElementChild);
+    document.querySelectorAll("[data-am]").forEach((b) => b.onclick = () => { viewAndamento.m = b.dataset.am; render(); });
+    document.querySelectorAll("[data-ap]").forEach((b) => b.onclick = () => { viewAndamento.p = b.dataset.ap; viewAndamento.i = null; render(); });
+    const c = document.getElementById("and-csv"); if (c) c.onclick = scaricaStorico;
+    bindAndamento();
+  };
+  svg.addEventListener("pointermove", sposta);
+  svg.addEventListener("pointerdown", sposta);
+  svg.addEventListener("touchmove", (e) => { sposta(e); e.preventDefault(); }, { passive: false });
 }
 function scaricaStorico() {
   const S = dati.storico || [];
