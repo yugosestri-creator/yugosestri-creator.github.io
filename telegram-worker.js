@@ -348,20 +348,31 @@ async function fedeltaDi(env, uid) {
 }
 const oggiRomaISO = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Rome" }).format(new Date());
 const promoScontiAttiva = () => { const g = oggiRomaISO(); return g >= PROMO_SCONTI.dal && g <= PROMO_SCONTI.al; };
-/* "Seguici e ricevi un regalo": un passo solo, senza account. Il regalo lo dai alla cassa guardando che ci segua davvero. */
-const PREMIO_SEGUI = "Una bibita piccola in omaggio";
+/* "Seguici e ricevi un regalo": un profilo = 1 bibita, Instagram + TikTok = 2 bibite. Ogni nome utente vale una volta sola.
+   uid: "segui|instagram:nome|tiktok:nome|" (vecchio formato "segui:pf:nome" ancora letto). */
+const PREMI_SEGUI = ["Una bibita piccola in omaggio", "2 bibite piccole in omaggio"];
+const profiliSegui = (uid) => { const u = String(uid || "");
+  if (u.startsWith("segui|")) return u.split("|").filter((x) => x.includes(":")).map((x) => { const [pf, us] = x.split(":"); return { pf, us }; });
+  const [, pf, us] = u.split(":"); return us ? [{ pf, us }] : []; };
+const testoProfili = (pr) => pr.map((x) => `@${x.us} su ${x.pf === "tiktok" ? "TikTok" : "Instagram"}`).join(" e ");
 async function segui(env, body) {
   await init(env);
-  const piattaforma = body.piattaforma === "tiktok" ? "tiktok" : "instagram";
-  const username = String(body.username || "").trim().replace(/^@+/, "").toLowerCase();
-  if (!/^[a-z0-9._]{2,30}$/.test(username)) throw new Errore("Scrivi il tuo nome utente, per esempio @mario.rossi", 400);
-  const chi = `segui:${piattaforma}:${username}`;
-  const c = await env.DB.prepare("SELECT codice, stato FROM coupon WHERE uid = ? AND tipo = 'segui'").bind(chi).first();
-  if (c) return { ok: true, codice: c.codice, premio: PREMIO_SEGUI, stato: c.stato, gia: true };
+  const pulisci = (x) => String(x || "").trim().replace(/^@+/, "").toLowerCase();
+  const pr = [];
+  for (const pf of ["instagram", "tiktok"]) {
+    const us = pulisci(body[pf]); if (!us) continue;
+    if (!/^[a-z0-9._]{2,30}$/.test(us)) throw new Errore(`Nome utente ${pf === "tiktok" ? "TikTok" : "Instagram"} non valido`, 400);
+    const gia = await env.DB.prepare("SELECT codice FROM coupon WHERE tipo = 'segui' AND (instr(uid, ?) > 0 OR uid = ?)").bind(`|${pf}:${us}|`, `segui:${pf}:${us}`).first();
+    if (gia) throw new Errore(`@${us} ha già ricevuto il regalo: non valido.`, 409);
+    pr.push({ pf, us });
+  }
+  if (!pr.length) throw new Errore("Scrivi almeno un nome utente, per esempio @mario.rossi", 400);
+  const premio = PREMI_SEGUI[pr.length - 1];
+  const chi = "segui|" + pr.map((x) => `${x.pf}:${x.us}`).join("|") + "|";
   const codice = await codiceCouponNuovo(env);
   await env.DB.prepare("INSERT INTO coupon (codice, promoter_id, livello, creato, tipo, premio, uid) VALUES (?, 0, 0, ?, 'segui', ?, ?)")
-    .bind(codice, adessoISO(), PREMIO_SEGUI, chi).run();
-  return { ok: true, codice, premio: PREMIO_SEGUI, stato: "valido" };
+    .bind(codice, adessoISO(), premio, chi).run();
+  return { ok: true, codice, premio, bibite: pr.length, stato: "valido" };
 }
 async function codiceCouponNuovo(env) {
   for (let i = 0; i < 30; i++) {
@@ -829,9 +840,9 @@ async function comando(env, msg) {
     ).bind(codice).first();
     if (!c) return rispondi(`❌ Il coupon ${codice} non esiste.\n❌ 优惠券 ${codice} 不存在。`);
     if (c.tipo === "segui") {
-      const [, pf, us] = String(c.uid || "").split(":");
+      const pr = profiliSegui(c.uid), us = pr.map((x) => x.us).join(", @");
       if (c.stato === "usato") return rispondi(`⚠️ Regalo ${codice} GIÀ USATO il ${oraRoma(c.usato).it}\n⚠️ 礼品 ${codice} 已使用`);
-      if (cmd === "/coupon") return rispondi(`✅ Regalo ${codice} VALIDO: ${c.premio}\nControlla che @${us} ci segua su ${pf === "tiktok" ? "TikTok" : "Instagram"}.\n✅ 礼品有效：小饮料一杯（请确认 @${us} 已关注）`);
+      if (cmd === "/coupon") return rispondi(`✅ Regalo ${codice} VALIDO: ${c.premio}\nControlla che ci segua: ${testoProfili(pr)}.\n✅ 礼品有效：${pr.length} 杯小饮料（请确认 @${us} 已关注）`);
       await env.DB.prepare(`UPDATE coupon SET stato = 'usato', usato = ? WHERE codice = ? AND stato = 'valido'`).bind(adessoISO(), codice).run();
       return rispondi(`✅ Regalo ${codice} segnato come usato (@${us}).\n✅ 礼品 ${codice} 已标记为已使用。`);
     }
@@ -1091,8 +1102,8 @@ async function gestDati(env, body) {
     env.DB.prepare("SELECT id, nome, descrizione, sconto, etichetta, dal, al FROM eventi WHERE eliminato = 0 AND (al IS NULL OR al = '' OR al >= ?) ORDER BY dal, id").bind(oggi).all()
   ]);
   const rec = await env.DB.prepare("SELECT id, creato, risposte, testo, lingua FROM recensioni ORDER BY id DESC LIMIT 200").all().catch(() => ({ results: [] }));
-  const seg = await env.DB.prepare("SELECT codice, stato, creato, usato, uid FROM coupon WHERE tipo = 'segui' ORDER BY creato DESC LIMIT 200").all().catch(() => ({ results: [] }));
-  return { ok: true, prenot: prenot.results || [], ordini: ordini.results || [], follower: follower.results || [], eventi: eventi.results || [], visite: await statVisite(env).catch(() => null), recensioni: rec.results || [], seguaci: (seg.results || []).map((x) => { const [, pf, us] = String(x.uid || "").split(":"); return { codice: x.codice, stato: x.stato, creato: x.creato, usato: x.usato, piattaforma: pf, username: us }; }) };
+  const seg = await env.DB.prepare("SELECT codice, stato, creato, usato, uid, premio FROM coupon WHERE tipo = 'segui' ORDER BY creato DESC LIMIT 200").all().catch(() => ({ results: [] }));
+  return { ok: true, prenot: prenot.results || [], ordini: ordini.results || [], follower: follower.results || [], eventi: eventi.results || [], visite: await statVisite(env).catch(() => null), recensioni: rec.results || [], seguaci: (seg.results || []).map((x) => ({ codice: x.codice, stato: x.stato, creato: x.creato, usato: x.usato, profili: profiliSegui(x.uid) })) };
 }
 
 async function gestAzione(env, body) {
@@ -1158,8 +1169,8 @@ async function gestAzione(env, body) {
     const c = await env.DB.prepare("SELECT c.*, p.nome, p.telefono, p.codice AS invito FROM coupon c LEFT JOIN promoter p ON p.id = c.promoter_id WHERE c.codice = ?").bind(codice).first();
     if (!c) return { ok: true, coupon: null };
     if (c.tipo === "segui") {
-      const [, pf, us] = String(c.uid || "").split(":");
-      return { ok: true, oggi: { ok: true }, coupon: { codice: c.codice, stato: c.stato, livello: 0, premio: c.premio, tipo: "segui", condizione: `Controlla che @${us} ci segua su ${pf === "tiktok" ? "TikTok" : "Instagram"}`, giorni: "Tutti i giorni, una volta sola", nome: "", telefono: "", invito: "", usato: c.usato, creato: c.creato, username: us, piattaforma: pf } };
+      const pr = profiliSegui(c.uid);
+      return { ok: true, oggi: { ok: true }, coupon: { codice: c.codice, stato: c.stato, livello: 0, premio: c.premio, tipo: "segui", condizione: `Controlla che ci segua: ${testoProfili(pr)}`, giorni: "Tutti i giorni, una volta sola", nome: "", telefono: "", invito: "", usato: c.usato, creato: c.creato, profili: pr } };
     }
     if (c.tipo === "benvenuto") {
       const att = promoScontiAttiva();
