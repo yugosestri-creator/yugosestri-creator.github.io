@@ -1813,22 +1813,31 @@ function renderAccount() {
   if (user === undefined) { area.innerHTML = `<p class="muted">Caricamento…</p>`; return; }
   if (!user) return renderAuth(area);
 
+  const inv = $("#invite-area"); if (inv && area.contains(inv)) area.after(inv);
   area.innerHTML = `
     <div class="view-head"><h1>Ciao ${esc(user.nome || "")}</h1><p class="muted">${esc(user.email)}</p></div>
     ${!user.verified ? `<div class="vbox" id="acc-verify" style="margin-bottom:14px"></div>` : ""}
-    <div class="stack" style="margin-top:0">
-      <article class="block"><h2>Le mie prenotazioni</h2><div id="my-list" class="blist"><p class="muted">Caricamento…</p></div></article>
-      <article class="block sconti-box" id="sconti-box" hidden></article>
-      <article class="block" id="my-ord-box" hidden><h2>I miei ordini</h2><div id="my-ord" class="blist"></div></article>
-      <a class="btn btn-gold" href="#account" data-go="promo">🎁 Seguici e vinci premi</a>
+    <div class="stack acc" style="margin-top:0">
       <article class="block" id="notif-box" hidden></article>
+      <article class="block">
+        <h2>Le mie prenotazioni e ordini</h2>
+        <h3 class="acc-sub">📅 Prenotazioni</h3>
+        <div id="my-list" class="blist"><p class="muted">Caricamento…</p></div>
+        <div id="my-ord-box" hidden><h3 class="acc-sub">🛵 Ordini</h3><div id="my-ord" class="blist"></div></div>
+      </article>
+      <article class="block sconti-box" id="sconti-box" hidden></article>
+      <div id="inv-slot"></div>
       ${installBlock()}
-      <button type="button" class="btn btn-ghost" data-tour>✨ Guarda il tour del sito</button>
-      <button type="button" class="btn btn-ghost" data-cookie>🍪 Preferenze cookie</button>
-      <a class="btn btn-ghost" href="gestore.html">🔒 Gestore</a>
-      <button class="btn btn-ghost" id="btn-logout">Esci dall'account</button>
+      <article class="block acc-altro">
+        <h2>Altro</h2>
+        <button type="button" class="acc-row" data-tour>✨ Guarda il tour del sito</button>
+        <button type="button" class="acc-row" data-cookie>🍪 Preferenze cookie</button>
+        <a class="acc-row" href="gestore.html">🔒 Gestore</a>
+        <button type="button" class="acc-row" id="btn-logout">Esci dall'account</button>
+      </article>
       <p class="legal"><a href="privacy.html">Informativa privacy</a> · Per cancellare l'account chiama il ${esc(R.telefono || "")}.</p>
     </div>`;
+  if (inv) $("#inv-slot").replaceWith(inv);
   $("#btn-logout").onclick = async () => { await backend.logout(); lastBooking = null; toast("Sei uscito."); };
   if (!user.verified) verifyBox($("#acc-verify"));
   disegnaNotifiche();
@@ -2029,7 +2038,7 @@ async function start() {
   renderPromo();
   caricaEventi();
   contaVisita();
-  avviaNatan();
+  /* Natan tolto: avviaNatan(); */
   avviaRecensione();
   dopoIngresso(() => { if (!ANTEPRIMA) mostraCookie(); });
   requestAnimationFrame(drawWaves);
