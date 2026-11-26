@@ -452,87 +452,74 @@ function verifyBox(box) {
 async function renderInvite() {
   const area = $("#invite-area"); if (!area) return;
   area.hidden = !WORKER; if (!WORKER) return;
-  const S = R.social || {};
-  const mio = store.get("yugo-regalo", null);
-  if (mio && mio.codice) {
-    const n = mio.bibite || 1, nomi = mio.profili || [mio.username];
-    area.innerHTML = `<article class="block invite">
-      <span class="promo-tag">Il tuo regalo</span>
-      <h2>Grazie per averci seguito! 🎉</h2>
-      <div class="coupons"><div class="coupon c-omaggio fx-stamp">
-        <span class="c-tipo">${n > 1 ? "🎁 2 bibite piccole in omaggio" : "🎁 Bibita piccola in omaggio"}</span>
-        <span class="c-code notranslate">${esc(mio.codice)}</span>
-        <span class="c-info notranslate">${nomi.map((u) => "@" + esc(u)).join(" · ")}</span>
-        <span class="c-state">Mostralo alla cassa</span>
-      </div></div>
-      <p class="hint">Alla cassa controlliamo che ci segui. Un regalo per ogni profilo.</p>
-    </article>`;
-    return;
-  }
-  area.innerHTML = `<article class="block invite">
-    <span class="promo-tag">Regalo</span>
-    <h2>Seguici e ricevi una bibita gratis</h2>
-    <p>Ci segui su Instagram e TikTok? Ricevi 2 bibite. Solo uno dei due: 1 bibita.</p>
-    <form class="form" id="seg-form" novalidate>
-      <div class="field"><label for="seg-ig">📸 Il tuo nome utente Instagram</label><input class="input" id="seg-ig" autocomplete="off" autocapitalize="none" placeholder="@iltuonome"></div>
-      <div class="field"><label for="seg-tt">🎵 Il tuo nome utente TikTok</label><input class="input" id="seg-tt" autocomplete="off" autocapitalize="none" placeholder="@iltuonome"></div>
-      <p class="hint">Lascia vuoto quello che non usi.</p>
+  if (!backend || user === undefined) { area.innerHTML = `<p class="muted">Caricamento…</p>`; return; }
+  if (!user) { area.innerHTML = `<article class="block invite"><span class="promo-tag">Seguici e vinci</span><p>Accedi o registrati qui sopra: poi scrivi il tuo Instagram e TikTok e riempi la barra dei premi.</p></article>`; return; }
+  if (!area.innerHTML.trim()) area.innerHTML = `<p class="muted">Caricamento…</p>`;
+  try { drawInvite(area, await api("/promo/me", { idToken: await backend.token() })); }
+  catch (e) { area.innerHTML = `<article class="block invite"><p class="error">${esc(e.message)}</p></article>`; }
+}
+
+/* I tuoi social: Instagram e TikTok valgono 1 punto ciascuno nella barra */
+function socialBox(me) {
+  const so = me.social || {}, S = R.social || {};
+  const riga = (pf, nome, icona) => so[pf]
+    ? `<div class="field"><label>${icona} ${nome}</label><p class="notranslate" style="margin:4px 0 0"><b>@${esc(so[pf])}</b> <span class="c-state">✅ +1</span></p></div>`
+    : `<div class="field"><label for="so-${pf}">${icona} Il tuo nome utente ${nome}</label><input class="input" id="so-${pf}" autocomplete="off" autocapitalize="none" placeholder="@iltuonome"></div>`;
+  const manca = !so.instagram || !so.tiktok;
+  return `<article class="block invite" id="so-box">
+    <span class="promo-tag">Seguici</span>
+    <h2>Seguici sui social: riempi la barra</h2>
+    <p>Ci segui su Instagram e TikTok? Ricevi 2 punti. Solo uno dei due: 1 punto.</p>
+    <form class="form" id="so-form" novalidate>
+      ${riga("instagram", "Instagram", "📸")}
+      ${riga("tiktok", "TikTok", "🎵")}
+      ${manca ? `<p class="hint">Lascia vuoto quello che non usi.</p>
       <p class="hint"><a href="https://www.instagram.com/${esc(S.instagram || "")}/" target="_blank" rel="noopener">Instagram</a> · <a href="https://www.tiktok.com/@${esc(S.tiktok || "")}" target="_blank" rel="noopener">TikTok</a></p>
-      <p class="error" id="seg-err" hidden></p>
-      <button class="btn btn-gold btn-block" type="submit" id="seg-go">Ho seguito: dammi il regalo</button>
+      <p class="error" id="so-err" hidden></p>
+      <button class="btn btn-gold btn-block" type="submit" id="so-go">Ho seguito: aggiungi i punti</button>` : ""}
     </form>
+    <p class="hint">Alla cassa controlliamo che ci segui.</p>
   </article>`;
-  $("#seg-form").addEventListener("submit", async (e) => {
+}
+function bindSocial(area) {
+  const f = $("#so-form"); if (!f || !$("#so-go")) return;
+  f.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const err = $("#seg-err"), btn = $("#seg-go"); err.hidden = true;
-    const pul = (v) => v.trim().replace(/^@+/, "").toLowerCase();
-    const instagram = pul($("#seg-ig").value), tiktok = pul($("#seg-tt").value);
+    const err = $("#so-err"), btn = $("#so-go"); err.hidden = true;
+    const pul = (id) => ($(id) ? $(id).value : "").trim().replace(/^@+/, "").toLowerCase();
+    const instagram = pul("#so-instagram"), tiktok = pul("#so-tiktok");
     const ok = (u) => !u || /^[a-z0-9._]{2,30}$/.test(u);
     if ((!instagram && !tiktok) || !ok(instagram) || !ok(tiktok)) { err.textContent = "Scrivi il tuo nome utente, per esempio @mario.rossi"; err.hidden = false; return; }
     btn.disabled = true;
     try {
-      const r = await api("/segui", { instagram, tiktok });
-      store.set("yugo-regalo", { codice: r.codice, bibite: r.bibite || 1, profili: [instagram, tiktok].filter(Boolean) });
-      toast("Ecco il tuo regalo!"); renderInvite();
+      drawInvite(area, await api("/promo/social", { idToken: await backend.token(), instagram, tiktok, nome: (user.nome || "").split(" ")[0] }));
+      toast("Punti aggiunti alla tua barra!");
+      area.querySelector(".bar")?.scrollIntoView({ behavior: "smooth", block: "center" });
     } catch (ex) { err.textContent = ex.message; err.hidden = false; btn.disabled = false; }
   });
 }
 
 function drawInvite(area, me, nuovo) {
   if (!me.iscritto) {
-    area.innerHTML = `<article class="block invite">
-      <span class="promo-tag">Invita amici</span>
-      <h2>Porta i tuoi amici, vinci premi</h2>
-      <p>Iscriviti e ricevi il tuo link personale. Ogni amico che ci segue riempie la tua barra: barra piena = coupon.</p>
-      <p class="hint">Ogni premio vale per una sola persona.</p>
-      <ol class="steps-path">${me.livelli.map((t) => `<li>${t}</li>`).join("")}</ol>
+    area.innerHTML = socialBox(me) + `<article class="block">
+      <h2>I premi</h2>
+      <ol class="steps-path">${me.livelli.map((t, i) => `<li><span>${t} punti</span> <span>${esc(premioDi(i + 1))}</span></li>`).join("")}</ol>
       ${regoleCoupon()}
-      <form class="form" id="inv-join" novalidate>
-        <div class="field"><label for="ij-nome">Nome</label><input class="input" id="ij-nome" autocomplete="given-name" value="${esc((user.nome || "").split(" ")[0])}"></div>
-        <div class="field"><label for="ij-tel">Telefono</label><input class="input" id="ij-tel" type="tel" inputmode="tel" autocomplete="tel" placeholder="+39 333 123 4567" value="${esc(store.get("yugo-draft", {}).telefono || "")}"></div>
-        <p class="error" id="ij-err" hidden></p>
-        <button class="btn btn-gold btn-block" type="submit" id="ij-go">Iscriviti e ricevi il link</button>
-      </form>
     </article>`;
-    $("#inv-join").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const err = $("#ij-err"), btn = $("#ij-go"); err.hidden = true; btn.disabled = true;
-      try { drawInvite(area, await api("/promo/iscrivi", { idToken: await backend.token(), nome: $("#ij-nome").value, telefono: $("#ij-tel").value })); toast("Fatto! Ecco il tuo link personale."); }
-      catch (ex) { err.textContent = ex.message; err.hidden = false; btn.disabled = false; }
-    });
+    bindSocial(area);
     return;
   }
   const pct = Math.round((me.progresso / me.target) * 100);
   const link = linkInvito(me.codice);
   const liv = me.livello, tot = me.livelli.length;
-  area.innerHTML = `<article class="block invite">
-      <span class="promo-tag">Invita amici</span>
+  area.innerHTML = socialBox(me) + `<article class="block invite">
+      <span class="promo-tag">La tua barra</span>
       <h2>Il tuo codice <span class="inv-code">${esc(me.codice)}</span></h2>
       <div class="inv-link"><input class="input" id="inv-link" readonly value="${esc(link)}"><button class="btn btn-ghost btn-sm" id="inv-copy" type="button">Copia</button></div>
       ${navigator.share ? `<button class="btn btn-block" id="inv-share" type="button">Condividi il tuo link</button>` : ""}
       <div class="lvl-head"><span>Livello ${Math.min(liv, tot)}${liv > tot ? "+" : ""} di ${tot}</span><span class="lvl-num">${me.progresso}/${me.target}</span></div>
       <div class="bar${me.pronto ? " full" : ""}" role="progressbar" aria-valuemin="0" aria-valuemax="${me.target}" aria-valuenow="${me.progresso}"><span style="--w:${pct}%"></span></div>
-      <p class="hint">${me.pronto ? "Barra piena! Richiedi il tuo premio." : `Ancora <b>${me.target - me.progresso}</b> ${me.target - me.progresso === 1 ? "amico" : "amici"} per sbloccare: <b>${esc(premioDi(liv))}</b>`}</p>
+      <p class="hint">${me.pronto ? "Barra piena! Richiedi il tuo premio." : `Ancora <b>${me.target - me.progresso}</b> ${me.target - me.progresso === 1 ? "punto" : "punti"} per sbloccare: <b>${esc(premioDi(liv))}</b>`}</p>
       ${me.attesa ? `<p class="hint">⏳ ${me.attesa} ${me.attesa === 1 ? "amico in attesa" : "amici in attesa"} di conferma dal ristorante</p>` : ""}
       ${me.pronto ? `<button class="btn btn-gold btn-block fx-pulse" id="inv-claim" type="button">🎁 Richiedi premio</button>` : ""}
       <ol class="steps-path">${me.livelli.map((t, i) => `<li class="${i < liv - 1 ? "done" : i === liv - 1 ? "now" : ""}">${t}</li>`).join("")}</ol>
@@ -551,7 +538,8 @@ function drawInvite(area, me, nuovo) {
     <article class="block">
       <h2>Come funziona</h2>
       <ol class="how">
-        <li>Manda il tuo link agli amici.</li>
+        <li>Ci segui su Instagram e TikTok: 1 punto ciascuno.</li>
+        <li>Manda il tuo link agli amici: ogni amico che ci segue vale 1 punto.</li>
         <li>Loro ci seguono su TikTok e Instagram e scrivono il loro username.</li>
         <li>Il ristorante controlla e conferma: ogni amico conta una volta sola.</li>
         <li>Quando completi un livello, gli amici di quel livello non contano più: la barra riparte da zero.</li>
@@ -560,6 +548,7 @@ function drawInvite(area, me, nuovo) {
       </ol>
       ${regoleCoupon()}
     </article>`;
+  bindSocial(area);
   $("#inv-copy").onclick = async () => {
     try { await navigator.clipboard.writeText(link); toast("Link copiato."); }
     catch { const i = $("#inv-link"); i.select(); toast("Tieni premuto sul link per copiarlo."); }
@@ -652,6 +641,7 @@ function go(view, push = true) {
     if (ORD) { MODO = "casa"; try { sessionStorage.setItem("yugo-modo", MODO); } catch { /* ok */ } mostraModo(); menuReset(); }
     view = "menu";
   }
+  const allaPromo = view === "promo"; if (allaPromo) view = "account";
   if (!VIEWS.includes(view)) view = "home";
   VIEWS.forEach((v) => { $("#view-" + v).hidden = v !== view; });
   document.querySelectorAll(".tab").forEach((t) => t.toggleAttribute("aria-current", false));
@@ -659,9 +649,10 @@ function go(view, push = true) {
   if (active) active.setAttribute("aria-current", "page");
   if (view === "prenota") renderBooking();
   if (view === "account") renderAccount();
-  if (view === "promo") renderInvite();
+  if (view === "account" || view === "promo") renderInvite();
   if (view === "home") { requestAnimationFrame(drawWaves); disegnaTracker(); }
   if (typeof aggiornaBarra === "function") aggiornaBarra();
+  if (allaPromo) setTimeout(() => $("#invite-area")?.scrollIntoView({ behavior: "smooth", block: "start" }), 400);
   if (push) { try { history.replaceState(null, "", (view === "invito" ? location.search : location.pathname) + "#" + view); } catch { /* frame senza history */ } }
   window.scrollTo({ top: 0 });
 }
@@ -1829,7 +1820,7 @@ function renderAccount() {
       <article class="block"><h2>Le mie prenotazioni</h2><div id="my-list" class="blist"><p class="muted">Caricamento…</p></div></article>
       <article class="block sconti-box" id="sconti-box" hidden></article>
       <article class="block" id="my-ord-box" hidden><h2>I miei ordini</h2><div id="my-ord" class="blist"></div></article>
-      <a class="btn btn-gold" href="#promo" data-go="promo">🎁 Seguici: bibita in omaggio</a>
+      <a class="btn btn-gold" href="#account" data-go="promo">🎁 Seguici e vinci premi</a>
       <article class="block" id="notif-box" hidden></article>
       ${installBlock()}
       <button type="button" class="btn btn-ghost" data-tour>✨ Guarda il tour del sito</button>
@@ -2058,7 +2049,7 @@ async function start() {
     const current = VIEWS.find((v) => !$("#view-" + v).hidden);
     if (current === "prenota") renderBooking();
     if (current === "account") renderAccount();
-    if (current === "promo") renderInvite();
+    if (current === "promo" || current === "account") renderInvite();
   });
   if ("serviceWorker" in navigator && location.protocol === "https:" && !document.body.classList.contains("embed")) {
     navigator.serviceWorker.register("sw.js").catch(() => {});
@@ -2215,7 +2206,7 @@ function natanRisposta(k) {
         : `<p>In questo momento non ci sono offerte attive. Seguici su Instagram e TikTok per sapere le prossime!</p>`,
         b: [["invita", "Regalo per chi ci segue"], ...altre] };
     }
-    case "invita": return { t: `<p>Seguici su Instagram o TikTok, scrivi il tuo nome utente e ricevi una bibita in omaggio (2 se ci segui su entrambi). Basta un minuto!</p>`, b: [["vai-promo", "Ricevi il regalo"], ...altre] };
+    case "invita": return { t: `<p>Seguici su Instagram e TikTok e scrivi i tuoi nomi utente in Account: ogni social vale 1 punto nella barra. Poi invita gli amici per arrivare ai premi più grandi!</p>`, b: [["vai-promo", "Ricevi il regalo"], ...altre] };
     case "consegna": {
       if (!ORD) return { t: `<p>Per asporto e consegna chiamaci:</p><p>${tel()}</p>`, b: altre };
       const r = [];
