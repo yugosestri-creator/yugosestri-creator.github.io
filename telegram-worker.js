@@ -695,6 +695,37 @@ async function promoIscrivi(env, body) {
   return promoMe(env, body, u);
 }
 
+/* I social del cliente stesso: Instagram e TikTok contano 1 punto ciascuno nella barra, subito.
+   Il ristorante controlla alla cassa quando usa il coupon. Salvati in follow come "instagram:nome" / "tiktok:nome". */
+async function promoSocial(env, body) {
+  const u = await utente(env, body.idToken);
+  if (!u) throw new Errore("Accedi per partecipare.", 401);
+  let p = await env.DB.prepare(`SELECT * FROM promoter WHERE uid = ?`).bind(u.uid).first();
+  const voci = [];
+  for (const pf of ["instagram", "tiktok"]) {
+    const us = pulisci(body[pf], 40).replace(/^@+/, "").toLowerCase(); if (!us) continue;
+    const nomePf = pf === "tiktok" ? "TikTok" : "Instagram";
+    if (!/^[a-z0-9._]{2,30}$/.test(us)) throw new Errore(`Nome utente ${nomePf} non valido.`);
+    const gia = await env.DB.prepare(`SELECT codice FROM follow WHERE username = ? OR (username = ? AND piattaforma = ?)`).bind(`${pf}:${us}`, us, nomePf).first();
+    if (gia && (!p || gia.codice !== p.codice)) throw new Errore(`@${us} su ${nomePf} è già stato usato: non valido.`, 409);
+    if (gia) continue;
+    if (p && await env.DB.prepare(`SELECT 1 FROM follow WHERE codice = ? AND username LIKE ?`).bind(p.codice, pf + ":%").first()) throw new Errore(`Hai già inserito il tuo ${nomePf}.`, 409);
+    voci.push([pf, us, nomePf]);
+  }
+  if (!voci.length && !p) throw new Errore("Scrivi almeno un nome utente, per esempio @mario.rossi");
+  if (!p) {
+    const nome = pulisci(body.nome || (u.email || "").split("@")[0], 60) || "Cliente";
+    const codice = await nuovoCodice(env, nome);
+    await env.DB.prepare(`INSERT INTO promoter (uid, email, nome, telefono, codice, creato) VALUES (?, ?, ?, ?, ?, ?)`)
+      .bind(u.uid, u.email, nome, "", codice, adessoISO()).run();
+    p = await env.DB.prepare(`SELECT * FROM promoter WHERE uid = ?`).bind(u.uid).first();
+  }
+  for (const [pf, us, nomePf] of voci)
+    await env.DB.prepare(`INSERT INTO follow (codice, username, piattaforma, stato, creato, deciso) VALUES (?, ?, ?, 'ok', ?, ?)`)
+      .bind(p.codice, `${pf}:${us}`, nomePf, adessoISO(), adessoISO()).run();
+  return promoMe(env, body, u);
+}
+
 async function promoMe(env, body, uGia) {
   const u = uGia || await utente(env, body.idToken);
   if (!u) throw new Errore("Accedi per vedere i tuoi inviti.", 401);
@@ -702,7 +733,9 @@ async function promoMe(env, body, uGia) {
   if (!p) return { iscritto: false, livelli: LIVELLI };
   const s = await statoPromoter(env, p);
   const c = await env.DB.prepare(`SELECT codice, livello, stato, creato, usato, tipo, premio FROM coupon WHERE promoter_id = ? ORDER BY creato DESC, tipo`).bind(p.id).all();
-  return { iscritto: true, nome: p.nome, codice: p.codice, livelli: LIVELLI, ...s, coupon: c.results || [] };
+  const so = await env.DB.prepare(`SELECT username FROM follow WHERE codice = ? AND (username LIKE 'instagram:%' OR username LIKE 'tiktok:%')`).bind(p.codice).all();
+  const social = {}; for (const r of so.results || []) { const [pf, us] = r.username.split(":"); social[pf] = us; }
+  return { iscritto: true, nome: p.nome, codice: p.codice, livelli: LIVELLI, ...s, social, coupon: c.results || [] };
 }
 
 async function promoInvito(env, body) {
@@ -1458,6 +1491,7 @@ export default {
       if (url.pathname === "/ordine/stato") return json(await statoOrdine(env, body));
       if (url.pathname === "/sconti/me") return json(await scontiMe(env, body));
       if (url.pathname === "/promo/iscrivi") return json(await promoIscrivi(env, body));
+      if (url.pathname === "/promo/social") return json(await promoSocial(env, body));
       if (url.pathname === "/promo/me") return json(await promoMe(env, body));
       if (url.pathname === "/promo/invito") return json(await promoInvito(env, body));
       if (url.pathname === "/promo/follow") return json(await promoFollow(env, body, ip));
