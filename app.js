@@ -465,7 +465,7 @@ function socialBox(me) {
   const st = (pf) => so[pf] && typeof so[pf] === "object" ? so[pf] : so[pf] ? { us: so[pf], stato: "ok" } : null;
   const riga = (pf, nome, icona) => { const x = st(pf);
     return x && x.stato !== "no"
-    ? `<div class="field"><label>${icona} ${nome}</label><p class="notranslate" style="margin:4px 0 0"><b>@${esc(x.us)}</b></p>${x.stato === "ok" ? `<p class="c-state">✅ Verificato: +1 punto</p>` : `<p class="hint">⏳ In verifica: aspetta che lo controlliamo, può durare fino a un giorno.</p>`}</div>`
+    ? `<div class="field"><label>${icona} ${nome}</label><p class="notranslate" style="margin:4px 0 0"><b>@${esc(x.us)}</b></p>${x.stato === "ok" ? `<p class="c-state">✅ Verificato: +1 punto</p>` : `<p class="hint">⏳ In verifica: aspetta che lo controlliamo, può durare fino a un giorno.</p><button type="button" class="btn btn-ghost btn-sm" data-cambia="${pf}">Cambia nome utente</button>`}</div>`
     : `${x ? `<p class="error">❌ @${esc(x.us)} su ${nome} non risulta tra chi ci segue. Controlla e riprova.</p>` : ""}<div class="field"><label for="so-${pf}">${icona} Il tuo nome utente ${nome}</label><input class="input" id="so-${pf}" autocomplete="off" autocapitalize="none" placeholder="@iltuonome"></div>`; };
   const manca = !st("instagram") || st("instagram").stato === "no" || !st("tiktok") || st("tiktok").stato === "no";
   return `<article class="block invite" id="so-box">
@@ -484,6 +484,11 @@ function socialBox(me) {
   </article>`;
 }
 function bindSocial(area) {
+  area.querySelectorAll("[data-cambia]").forEach((b) => b.addEventListener("click", async () => {
+    b.disabled = true;
+    try { drawInvite(area, await api("/promo/social", { idToken: await backend.token(), rimuovi: b.dataset.cambia })); }
+    catch (ex) { toast(ex.message); b.disabled = false; }
+  }));
   const f = $("#so-form"); if (!f || !$("#so-go")) return;
   f.addEventListener("submit", async (e) => {
     e.preventDefault();
