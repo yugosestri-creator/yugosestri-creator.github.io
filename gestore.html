@@ -390,16 +390,16 @@ function viewFollower() {
         <p class="meta">Codice <b>${esc(x.codice)}</b> · ${esc(String(x.creato || "").slice(0, 10))}</p>
         <div class="row">${pr.map((p) => `<a class="b" href="${p.pf === "tiktok" ? `https://tiktok.com/@${esc(p.us)}` : `https://instagram.com/${esc(p.us)}`}" target="_blank" rel="noopener">Controlla ${p.pf === "tiktok" ? "TikTok" : "Instagram"} ↗</a>`).join("")}</div></div>`; }).join("") : `<div class="empty">Ancora nessuno.</div>`}`;
   if (!list.length) return nuovi;
-  return nuovi + `<h3 class="sez">Vecchio programma «Invita amici» (${list.length})</h3>` + list.map((f) => {
+  return nuovi + `<h3 class="sez">👥 Da confermare: controlla e premi ✅ o ❌ (${list.length})</h3>` + list.map((f) => {
+    const pfx = (f.username || "").match(/^(instagram|tiktok):/), suo = !!pfx;
     const u = (f.username || "").replace(/^@/, "").replace(/^(instagram|tiktok):/, "");
     const ig = `https://instagram.com/${u}`, tt = `https://tiktok.com/@${u}`;
+    const link = suo ? `<a class="b" href="${esc(pfx[1] === "tiktok" ? tt : ig)}" target="_blank" rel="noopener">Controlla ${pfx[1] === "tiktok" ? "TikTok" : "Instagram"} ↗</a>`
+      : `<a class="b" href="${esc(ig)}" target="_blank" rel="noopener">Instagram ↗</a><a class="b" href="${esc(tt)}" target="_blank" rel="noopener">TikTok ↗</a>`;
     return `<div class="card" data-f="${f.id}">
-      <h3>@${esc(u)} <span class="tag att">In attesa</span></h3>
-      <p class="meta">Invito ${esc(f.codice)}${f.daChi ? " · " + esc(f.daChi) : ""}</p>
-      <div class="row">
-        <a class="b" href="${esc(ig)}" target="_blank" rel="noopener">Instagram ↗</a>
-        <a class="b" href="${esc(tt)}" target="_blank" rel="noopener">TikTok ↗</a>
-      </div>
+      <h3>${suo ? (pfx[1] === "tiktok" ? "🎵" : "📸") + " " : ""}@${esc(u)} <span class="tag att">In attesa</span></h3>
+      <p class="meta">${suo ? `Il cliente ${esc(f.daChi || "")} dice di seguirvi su ${pfx[1] === "tiktok" ? "TikTok" : "Instagram"} · vale 1 punto` : `Amico invitato da ${esc(f.codice)}${f.daChi ? " · " + esc(f.daChi) : ""}`}</p>
+      <div class="row">${link}</div>
       <div class="row">
         <button class="b ok" data-a="ok">✅ Conferma</button>
         <button class="b err" data-a="no">❌ Rifiuta</button>
