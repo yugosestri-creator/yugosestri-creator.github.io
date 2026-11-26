@@ -1012,3 +1012,5 @@ body:has(#cart-bar:not([hidden])) .natan-fab { bottom: calc(var(--tabbar-h) + en
 .so-st.no { background: rgba(240,100,100,.16); color: #ff9b9b; }
 .so-x { background: none; border: 0; color: inherit; opacity: .6; font-size: 1rem; padding: 4px 6px; cursor: pointer; }
 .so-form { margin-top: 6px; }
+
+.od-campo { position: relative; }
