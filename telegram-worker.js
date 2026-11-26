@@ -517,6 +517,7 @@ async function ordine(env, body, ip) {
     if (sub < MINIMO) throw new Errore(`Per la consegna l'ordine minimo è ${eur(MINIMO)}`);
   }
   // distanza calcolata dal sito: se la fascia scelta è più economica, lo segnaliamo al ristorante
+  if (consegna && o.km != null && o.km > MAX_KM) throw new Errore(`Consegniamo fino a 12,5 km dal ristorante: il tuo indirizzo è a circa ${String(o.km).replace(".", ",")} km. Puoi scegliere il ritiro.`);
   const fasciaKm = null;
   const kmTesto = fasciaKm ? `🛣 circa ${String(o.km).replace(".", ",")} km in auto${o.trovato ? ` (${o.trovato})` : ""}`
     : consegna && o.paese ? `🛣 Via non trovata sulla mappa: costo calcolato dal paese «${o.paese}». Controlla l'indirizzo.` : null;
@@ -550,10 +551,10 @@ async function ordine(env, body, ip) {
     kmTesto, kmAvviso,
     consegna && o.indirizzo ? `🗺 Google Maps: https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=${encodeURIComponent(/liguria|italia/i.test(o.indirizzo) ? o.indirizzo : o.indirizzo + ", Liguria, Italia")}` : null,
     `🕗 ${quando}`, "", ...lista, "",
-    consegna || sconto ? `Piatti ${eur(sub)}${sconto ? ` − ${sconto.it.toLowerCase()} ${sconto.perc}% (${eur(meno)})` : ""}${consegna ? " + consegna DA CONFERMARE" : ""}` : null,
+    consegna || sconto ? `Piatti ${eur(sub)}${sconto ? ` − ${sconto.it.toLowerCase()} ${sconto.perc}% (${eur(meno)})` : ""}${consegna ? " + consegna (la chiede il rider)" : ""}` : null,
     sconto ? `🎉 ${sconto.it.toUpperCase()} ${sconto.perc}% GIÀ CALCOLATO` : null,
     consegna ? `💶 TOTALE ${eur(tot)} + consegna – paga alla consegna` : `💶 TOTALE ${eur(tot)} – paga alla cassa`,
-    consegna ? `🛵 Guarda i km su Google Maps e conferma la consegna (fino a ${String(MAX_KM).replace(".", ",")} km): /consegna O${numero} 1 · 2,5 · 3,5 · 5 — oppure dal Gestore` : null,
+    consegna ? `🛵 Consegna da chiedere al cliente quando arrivi: € 1 fino a 2,5 km · € 2,50 fino a 4 km · € 3,50 fino a 8 km · € 5 fino a 12,5 km${o.km != null ? ` (il sito ha calcolato circa ${String(o.km).replace(".", ",")} km)` : ""}` : null,
     o.note ? `📝 ${o.note}` : null, u.email ? `✉️ ${u.email}` : "👤 Ordine senza account", `⏱ Inviato il ${t.it}`
   ];
   const zh = [
@@ -565,7 +566,7 @@ async function ordine(env, body, ip) {
     consegna || sconto ? `菜品 ${eur(sub)}${sconto ? ` − ${sconto.zh} ${sconto.perc}%（${eur(meno)}）` : ""}${consegna ? " + 配送费（待确认）" : ""}` : null,
     sconto ? `🎉 ${sconto.zh} ${sconto.perc}%（已计算在内）` : null,
     `💶 合计 ${eur(tot)}${consegna ? " + 配送费" : ""}（${consegna ? "送达时付款" : "取餐时付款"}）`,
-    consegna ? `🛵 请在 Google 地图查看距离并确认配送费：/consegna O${numero} 1 · 2,5 · 3,5 · 5` : null,
+    consegna ? `🛵 送达时向顾客收取配送费：2.5公里内 €1 · 4公里内 €2.5 · 8公里内 €3.5 · 12.5公里内 €5` : null,
     o.note ? `📝 备注：${o.note}` : null, `⏱ 提交时间：${t.zh}`
   ];
   const testo = [...it, "", "— — — — — — —", "", ...zh, "", `🔁 Per annullarlo / 取消：/annulla O${numero}`].filter((r) => r !== null).join("\n");
