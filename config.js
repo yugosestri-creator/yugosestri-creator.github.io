@@ -124,7 +124,7 @@ window.YUGO_CONFIG = {
         { nome: "Carasco", fascia: 3 }
       ],
       // Il costo della consegna lo conferma il ristorante dopo l'ordine (guardando i km su Google Maps)
-      posizioneRistorante: { lat: 44.2723644, lon: 9.3963255 }
+      posizione: { lat: 44.2723644, lon: 9.3963255 }
     },
     allYouCanEat: {
       titolo: "All You Can Eat",
