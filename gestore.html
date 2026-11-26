@@ -126,6 +126,22 @@
     .nota { background: rgba(168,132,60,.18); color: #f3dca6; }
     .tag.att { background: rgba(168,132,60,.18); } .tag.ok { background: rgba(11,122,59,.22); } .tag.off { background: rgba(176,58,46,.22); }
   }
+
+.and-chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 6px; scrollbar-width: none; }
+.and-chips .chip { flex: none; border: 1px solid rgba(127,127,127,.35); background: transparent; color: inherit; border-radius: 999px; padding: 6px 11px; font: inherit; font-size: 13px; cursor: pointer; }
+.and-chips .chip.on { background: #c9a55a; border-color: #c9a55a; color: #10162b; font-weight: 700; }
+.and-chips.per .chip { font-size: 12px; padding: 4px 10px; }
+.and-tot { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin: 8px 0 2px; }
+.and-tot b { font-size: 30px; letter-spacing: -.5px; }
+.and-tot .su { color: #2fa86a; font-weight: 700; } .and-tot .giu { color: #e05a5a; font-weight: 700; }
+.and-tot small { opacity: .65; }
+.and-svg { width: 100%; height: auto; display: block; margin: 6px 0; touch-action: manipulation; }
+.and-svg text { font-size: 15px; fill: currentColor; opacity: .55; }
+.and-line { fill: none; stroke: #c9a55a; stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
+.and-base { stroke: currentColor; opacity: .15; }
+.and-cur { stroke: currentColor; opacity: .25; stroke-dasharray: 4 4; }
+.and-dot { fill: #c9a55a; stroke: #fff; stroke-width: 2.5; }
+.and-sel { margin: 2px 0 10px; } .and-sel small { opacity: .7; }
 </style>
 </head>
 <body>
@@ -227,6 +243,12 @@ function bindHome() {
   if (tab === "eventi") bindEventi();
   if (tab === "natan") bindNatan();
   if (tab === "visite") document.querySelectorAll("[data-vg]").forEach((r) => r.onclick = () => { viewVisite.sel = r.dataset.vg; render(); });
+  if (tab === "visite") {
+    document.querySelectorAll("[data-am]").forEach((b) => b.onclick = () => { viewAndamento.m = b.dataset.am; render(); });
+    document.querySelectorAll("[data-ap]").forEach((b) => b.onclick = () => { viewAndamento.p = b.dataset.ap; viewAndamento.i = null; render(); });
+    document.querySelectorAll("[data-ai]").forEach((b) => b.onclick = () => { viewAndamento.i = +b.dataset.ai; render(); });
+    const c = document.getElementById("and-csv"); if (c) c.onclick = scaricaStorico;
+  }
 }
 
 function iso(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
@@ -475,6 +497,80 @@ function viewRecensioni() {
     ${commenti.length ? `<h3 style="margin-top:14px">💬 Cosa hanno scritto</h3>${commenti.slice(0, 30).map((r) => `<div class="rec-c"><p>${esc(r.testo)}</p><small class="meta">${esc(new Date(r.creato).toLocaleString("it-IT", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }))} · ${esc((r.lingua || "").toUpperCase())}${Object.keys(r.x).length ? " · " + REC_DOMANDE.filter(([k]) => r.x[k]).map(([k]) => REC_FACCE[r.x[k]]).join("") : ""}</small></div>`).join("")}` : ""}
   </div>`;
 }
+/* 📈 Andamento: lo storico giornaliero (non si cancella mai) in grafici per giorni, settimane, mesi e anni */
+const AND_M = {
+  stima: ["💰 Totale stimato", (x) => x.incasso + 20 * x.persone, "€", "Ordini + 20 € per ogni persona prenotata"],
+  incasso: ["💶 Incasso ordini", (x) => x.incasso, "€", "Totale degli ordini dal sito (senza consegna)"],
+  ordini: ["🛵 Ordini", (x) => x.ordini, "", "Ordini validi (senza gli annullati)"],
+  persone: ["👥 Persone ai tavoli", (x) => x.persone, "", "Persone delle prenotazioni confermate"],
+  prenot: ["🍽 Prenotazioni", (x) => x.prenot, "", "Prenotazioni confermate"],
+  visite: ["👀 Visite", (x) => x.visite, "", "Volte che il sito è stato aperto"],
+  conv: ["🎯 Visite → ordini", null, "%", "Su 100 visite, quante diventano un ordine"]
+};
+const AND_P = { g: "30 giorni", s: "12 settimane", m: "12 mesi", a: "Anni" };
+function andamentoDati(m, p) {
+  const S = dati.storico || [], per = {}; S.forEach((x) => per[x.giorno] = x);
+  const vuoto = () => ({ visite: 0, ritorni: 0, ordini: 0, incasso: 0, consegne: 0, ritiri: 0, annullati: 0, prenot: 0, persone: 0 });
+  const add = (a, x) => { for (const k in a) a[k] += Number(x[k]) || 0; };
+  const oggi = new Date(); oggi.setHours(12, 0, 0, 0);
+  const giorniDa = (a, b) => { const out = []; for (let d = new Date(a); d <= b; d.setDate(d.getDate() + 1)) out.push(iso(d)); return out; };
+  const MESI = ["gen", "feb", "mar", "apr", "mag", "giu", "lug", "ago", "set", "ott", "nov", "dic"];
+  let secchi = [];   // [{etichetta, giorni:[...]}]
+  const fai = (n, offset) => {   // offset 0 = periodo attuale, 1 = periodo precedente
+    const out = [];
+    if (p === "g") for (let i = n - 1; i >= 0; i--) { const d = new Date(oggi); d.setDate(d.getDate() - i - offset * n); out.push({ e: `${d.getDate()} ${MESI[d.getMonth()]}`, g: [iso(d)] }); }
+    if (p === "s") { const lun = new Date(oggi); lun.setDate(lun.getDate() - ((lun.getDay() + 6) % 7)); for (let i = n - 1; i >= 0; i--) { const a = new Date(lun); a.setDate(a.getDate() - 7 * (i + offset * n)); const b = new Date(a); b.setDate(b.getDate() + 6); out.push({ e: `${a.getDate()} ${MESI[a.getMonth()]}`, g: giorniDa(a, b) }); } }
+    if (p === "m") for (let i = n - 1; i >= 0; i--) { const a = new Date(oggi.getFullYear(), oggi.getMonth() - i - offset * n, 1, 12), b = new Date(a.getFullYear(), a.getMonth() + 1, 0, 12); out.push({ e: `${MESI[a.getMonth()]} ${String(a.getFullYear()).slice(2)}`, g: giorniDa(a, b) }); }
+    if (p === "a") { const primo = S.length ? +S[0].giorno.slice(0, 4) : oggi.getFullYear(); for (let y = primo - offset * (oggi.getFullYear() - primo + 1); y <= oggi.getFullYear() - offset * (oggi.getFullYear() - primo + 1); y++) out.push({ e: String(y), g: giorniDa(new Date(y, 0, 1, 12), new Date(y, 11, 31, 12)) }); }
+    return out;
+  };
+  const n = { g: 30, s: 12, m: 12, a: 0 }[p];
+  const calc = (bk) => bk.map((b) => { const t = vuoto(); b.g.forEach((k) => per[k] && add(t, per[k])); const v = m === "conv" ? (t.visite ? (t.ordini / t.visite) * 100 : 0) : AND_M[m][1](t); return { e: b.e, v: Math.round(v * 100) / 100, t, da: b.g[0], a: b.g[b.g.length - 1] }; });
+  secchi = calc(fai(n, 0)); const prima = calc(fai(n, 1));
+  const tot = (L) => { if (m === "conv") { const v = L.reduce((a, x) => a + x.t.visite, 0), o = L.reduce((a, x) => a + x.t.ordini, 0); return v ? (o / v) * 100 : 0; } return L.reduce((a, x) => a + x.v, 0); };
+  return { secchi, totale: tot(secchi), prima: tot(prima), haPrima: prima.some((x) => x.v) };
+}
+function fmtAnd(v, u) { return u === "€" ? "€ " + v.toLocaleString("it-IT", { minimumFractionDigits: v % 1 ? 2 : 0, maximumFractionDigits: 2 }) : u === "%" ? v.toLocaleString("it-IT", { maximumFractionDigits: 1 }) + "%" : Math.round(v).toLocaleString("it-IT"); }
+function viewAndamento() {
+  if (!(dati.storico || []).length) return "";
+  const m = viewAndamento.m || "stima", p = viewAndamento.p || "g", [nome, , u, spiega] = AND_M[m];
+  const D = andamentoDati(m, p), L = D.secchi, max = Math.max(1, ...L.map((x) => x.v));
+  const sel = L[viewAndamento.i != null && viewAndamento.i < L.length ? viewAndamento.i : L.length - 1];
+  const W = 600, H = 190, pad = 8, step = L.length > 1 ? (W - 2 * pad) / (L.length - 1) : 0;
+  const pt = L.map((x, i) => [pad + i * step, H - 14 - (x.v / max) * (H - 34)]);
+  const linea = pt.map((q, i) => (i ? "L" : "M") + q[0].toFixed(1) + " " + q[1].toFixed(1)).join(" ");
+  const area = `${linea} L${pt[pt.length - 1][0].toFixed(1)} ${H - 14} L${pt[0][0].toFixed(1)} ${H - 14} Z`;
+  const diff = D.haPrima && D.prima ? ((D.totale - D.prima) / D.prima) * 100 : null;
+  const iSel = L.indexOf(sel), etich = L.map((x, i) => (L.length <= 7 || (i % Math.ceil(L.length / 6) === 0 && L.length - 1 - i >= Math.ceil(L.length / 6) / 2) || i === L.length - 1 ? `<text x="${pt[i][0]}" y="${H}" text-anchor="${i === 0 ? "start" : i === L.length - 1 ? "end" : "middle"}">${esc(x.e)}</text>` : "")).join("");
+  return `<div class="card and">
+    <h3>📈 Andamento</h3>
+    <div class="and-chips">${Object.entries(AND_M).map(([k, x]) => `<button class="chip${k === m ? " on" : ""}" data-am="${k}">${x[0]}</button>`).join("")}</div>
+    <div class="and-chips per">${Object.entries(AND_P).map(([k, x]) => `<button class="chip${k === p ? " on" : ""}" data-ap="${k}">${x}</button>`).join("")}</div>
+    <div class="and-tot"><b>${fmtAnd(D.totale, u)}</b>
+      ${diff != null ? `<span class="${diff >= 0 ? "su" : "giu"}">${diff >= 0 ? "▲" : "▼"} ${Math.abs(diff).toLocaleString("it-IT", { maximumFractionDigits: 0 })}%</span><small>rispetto ${p === "a" ? "agli anni prima" : `ai ${AND_P[p]} prima`}</small>` : `<small>${esc(spiega)}</small>`}</div>
+    <svg viewBox="0 0 ${W} ${H + 4}" class="and-svg" role="img" aria-label="${esc(nome)}">
+      <defs><linearGradient id="andg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c9a55a" stop-opacity=".45"/><stop offset="1" stop-color="#c9a55a" stop-opacity="0"/></linearGradient></defs>
+      <line x1="0" x2="${W}" y1="${H - 14}" y2="${H - 14}" class="and-base"/>
+      <path d="${area}" fill="url(#andg)"/><path d="${linea}" class="and-line"/>
+      <line x1="${pt[iSel][0]}" x2="${pt[iSel][0]}" y1="6" y2="${H - 14}" class="and-cur"/>
+      <circle cx="${pt[iSel][0]}" cy="${pt[iSel][1]}" r="6" class="and-dot"/>
+      ${L.map((x, i) => `<rect x="${pt[i][0] - step / 2}" y="0" width="${Math.max(step, 12)}" height="${H}" fill="transparent" data-ai="${i}"/>`).join("")}
+      ${etich}
+    </svg>
+    <p class="and-sel"><strong>${esc(sel.e)}</strong>${sel.da !== sel.a ? ` <small>(${esc(fmtDay(sel.da))} – ${esc(fmtDay(sel.a))})</small>` : ""}: <b>${fmtAnd(sel.v, u)}</b>
+      <small> · ${sel.t.ordini} ordini (${sel.t.consegne} consegne, ${sel.t.ritiri} ritiri) · ${fmtAnd(sel.t.incasso, "€")} · ${sel.t.prenot} prenotazioni, ${sel.t.persone} persone · ${sel.t.visite} visite</small></p>
+    <div class="row"><button class="b" id="and-csv">⬇️ Scarica tutto lo storico (Excel)</button></div>
+    <p class="hint">Tocca il grafico per vedere ogni punto. Lo storico è un riassunto di pochi numeri al giorno: non si cancella mai e pesa pochissimo. Con «Scarica» ne salvi una copia sul tuo telefono o computer.</p>
+  </div>`;
+}
+function scaricaStorico() {
+  const S = dati.storico || [];
+  const righe = [["Giorno", "Visite", "Visite di ritorno", "Ordini", "Incasso ordini €", "Consegne", "Ritiri", "Annullati", "Prenotazioni", "Persone"]]
+    .concat(S.map((x) => [x.giorno, x.visite, x.ritorni, x.ordini, String(x.incasso).replace(".", ","), x.consegne, x.ritiri, x.annullati, x.prenot, x.persone]));
+  const csv = "\ufeff" + righe.map((r) => r.join(";")).join("\r\n");
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  a.download = `yugo-storico-${iso(new Date())}.csv`; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
 function viewVisite() {
   const V = dati.visite;
   if (!V) return `<div class="empty">Statistiche non ancora disponibili. Riprova tra poco.</div>`;
@@ -491,7 +587,7 @@ function viewVisite() {
   const NOMI = { it: "🇮🇹 Italiano", en: "🇬🇧 Inglese", fr: "🇫🇷 Francese", de: "🇩🇪 Tedesco", es: "🇪🇸 Spagnolo", zh: "🇨🇳 Cinese", ja: "🇯🇵 Giapponese", altro: "🌍 Altre lingue" };
   const lingue = Object.entries(V.lingue || {}).sort((a, b) => b[1] - a[1]);
   const totL = lingue.reduce((a, x) => a + x[1], 0) || 1;
-  return `
+  return `${viewAndamento()}
     <div class="stat4">
       <div><b>${giorno(V.oggi).n}</b><span>Oggi · <span style="color:#2f7de1">${giorno(V.oggi).ritorni} tornati</span></span></div>
       <div><b>${lista[1].n}</b><span>Ieri · <span style="color:#2f7de1">${lista[1].ritorni} tornati</span></span></div>
@@ -517,7 +613,7 @@ function viewVisite() {
     ${lingue.length ? `<div class="card"><h3>🌍 Lingua dei visitatori (30 giorni)</h3>
       ${lingue.map(([l, n]) => `<div class="vg" style="cursor:default"><span>${esc(NOMI[l] || l)}</span><span class="bar"><i style="width:${Math.round(n / totL * 100)}%"></i></span><span><strong>${n}</strong></span></div>`).join("")}</div>` : ""}
     ${viewRecensioni()}
-    <p class="hint">Contiamo ogni volta che qualcuno apre il sito: in giallo la prima volta di un telefono, in blu tutte le volte dopo. Senza nomi e senza IP. I dati delle visite si cancellano da soli dopo 30 giorni; gli ordini da casa dopo 14 giorni.</p>`;
+    <p class="hint">Contiamo ogni volta che qualcuno apre il sito: in giallo la prima volta di un telefono, in blu tutte le volte dopo. Senza nomi e senza IP. I dettagli delle visite si cancellano dopo 30 giorni e quelli degli ordini dopo 14, ma prima vengono salvati nello storico (📈 Andamento), che resta per sempre.</p>`;
 }
 
 function viewCalendario() {
