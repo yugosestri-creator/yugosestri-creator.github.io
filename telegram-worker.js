@@ -702,8 +702,9 @@ async function promoSocial(env, body) {
   const u = await utente(env, body.idToken);
   if (!u) throw new Errore("Accedi per partecipare.", 401);
   let p = await env.DB.prepare(`SELECT * FROM promoter WHERE uid = ?`).bind(u.uid).first();
-  if (body.rimuovi === "instagram" || body.rimuovi === "tiktok") {
-    if (p) await env.DB.prepare(`DELETE FROM follow WHERE codice = ? AND username LIKE ? AND stato != 'ok'`).bind(p.codice, body.rimuovi + ":%").run();
+  if (/^(instagram|tiktok)(:[a-z0-9._]{2,30})?$/.test(String(body.rimuovi || ""))) {
+    const r = String(body.rimuovi);
+    if (p) await env.DB.prepare(r.includes(":") ? `DELETE FROM follow WHERE codice = ? AND username = ? AND stato != 'ok'` : `DELETE FROM follow WHERE codice = ? AND username LIKE ? AND stato != 'ok'`).bind(p.codice, r.includes(":") ? r : r + ":%").run();
     return promoMe(env, body, u);
   }
   const voci = [];
@@ -714,7 +715,6 @@ async function promoSocial(env, body) {
     const gia = await env.DB.prepare(`SELECT codice FROM follow WHERE stato != 'no' AND (username = ? OR (username = ? AND piattaforma = ?))`).bind(`${pf}:${us}`, us, nomePf).first();
     if (gia && (!p || gia.codice !== p.codice)) throw new Errore(`@${us} su ${nomePf} è già stato usato: non valido.`, 409);
     if (gia) continue;
-    if (p && await env.DB.prepare(`SELECT 1 FROM follow WHERE codice = ? AND username LIKE ? AND stato != 'no'`).bind(p.codice, pf + ":%").first()) throw new Errore(`Hai già inserito il tuo ${nomePf}.`, 409);
     await env.DB.prepare(`DELETE FROM follow WHERE stato = 'no' AND username = ?`).bind(`${pf}:${us}`).run();
     voci.push([pf, us, nomePf]);
   }
@@ -740,7 +740,7 @@ async function promoMe(env, body, uGia) {
   const s = await statoPromoter(env, p);
   const c = await env.DB.prepare(`SELECT codice, livello, stato, creato, usato, tipo, premio FROM coupon WHERE promoter_id = ? ORDER BY creato DESC, tipo`).bind(p.id).all();
   const so = await env.DB.prepare(`SELECT username, stato FROM follow WHERE codice = ? AND (username LIKE 'instagram:%' OR username LIKE 'tiktok:%') ORDER BY id`).bind(p.codice).all();
-  const social = {}; for (const r of so.results || []) { const [pf, us] = r.username.split(":"); social[pf] = { us, stato: r.stato }; }
+  const social = (so.results || []).map((r) => { const [pf, us] = r.username.split(":"); return { pf, us, stato: r.stato }; });
   return { iscritto: true, nome: p.nome, codice: p.codice, livelli: LIVELLI, ...s, social, coupon: c.results || [] };
 }
 
